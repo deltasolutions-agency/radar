@@ -17,7 +17,12 @@ export async function middleware(req: NextRequest) {
   const session = await verifySessionToken(token);
 
   const isLogin = pathname === "/login";
-  const isProtected = pathname === "/" || pathname.startsWith("/dashboard");
+  const PROTECTED_PREFIXES = ["/dashboard", "/clienti", "/servizi"];
+  const isProtected =
+    pathname === "/" ||
+    PROTECTED_PREFIXES.some(
+      (p) => pathname === p || pathname.startsWith(`${p}/`),
+    );
 
   if (isLogin && session) {
     return NextResponse.redirect(new URL("/dashboard", req.url));
