@@ -1,0 +1,350 @@
+// ──────────────────────────────────────────────────────────────────────────
+// Radar — Schema dati (Delta Solutions)
+// Piattaforma interna per la gestione di abbonamenti, scadenze e pagamenti.
+// ──────────────────────────────────────────────────────────────────────────
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// ENUM — stati e tipologie
+// ──────────────────────────────────────────────────────────────────────────
+
+/// Ruolo dell'utente staff. Per ora solo ADMIN; STAFF predisposto per il futuro.
+enum UserRole {
+  ADMIN
+  STAFF
+}
+
+/// Stato del cliente (anagrafica).
+enum ClientStatus {
+  ATTIVO
+  SOSPESO
+  CESSATO
+}
+
+/// Tipologia del servizio a catalogo.
+enum ServiceType {
+  DOMINIO
+  HOSTING
+  SSL
+  PRIVACY
+  EMAIL
+  ALTRO
+}
+
+/// Periodicità di fatturazione/rinnovo del servizio.
+enum BillingPeriod {
+  MENSILE
+  ANNUALE
+  PERSONALIZZATA
+}
+
+/// Stato dell'abbonamento (relazione cliente ↔ servizio).
+enum SubscriptionStatus {
+  ATTIVO
+  IN_SCADENZA
+  SCADUTO
+  SOSPESO
+  RINNOVATO
+  CESSATO
+}
+
+/// Modalità con cui viene incassato un pagamento.
+enum PaymentMethod {
+  STRIPE
+  MANUALE
+}
+
+/// Stato del singolo pagamento.
+enum PaymentStatus {
+  IN_ATTESA // checkout creato / in attesa di conferma
+  CONFERMATO // incassato (webhook Stripe ok oppure registrazione manuale)
+  FALLITO // checkout scaduto/annullato o errore
+  RIMBORSATO
+}
+
+/// Tipo di comunicazione email inviata tramite Resend.
+enum NotificationType {
+  CONFERMA_ACQUISTO
+  PROMEMORIA_30
+  PROMEMORIA_15
+  PROMEMORIA_7
+  SOLLECITO
+}
+
+/// Esito dell'invio email.
+enum NotificationStatus {
+  INVIATA
+  FALLITA
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// UTENTI STAFF
+// ──────────────────────────────────────────────────────────────────────────
+
+/// Utente staff che accede alla dashboard. Nessuna registrazione pubblica:
+/// l'admin iniziale viene creato dal seed.
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  name         String?
+  role         UserRole @default(ADMIN)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  // Pagamenti registrati manualmente da questo utente.
+  recordedPayments Payment[] @relation("PaymentRecordedBy")
+
+  @@map("users")
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// ANAGRAFICHE — CLIENTI
+// ──────────────────────────────────────────────────────────────────────────
+
+/// Cliente: contatto + profilo di fatturazione.
+model Client {
+  id String @id @default(cuid())
+
+  // Contatto
+  name  String // nome referente / contatto
+  email String
+  phone String?
+
+  // Profilo di fatturazione
+  ragioneSociale String? // ragione sociale / denominazione
+  partitaIva     String?
+  codiceFiscale  String?
+  indirizzo      String?
+  citta          String?
+  cap            String?
+  provincia      String?
+  paese          String? @default("IT")
+
+  status ClientStatus @default(ATTIVO)
+  note   String?
+
+  // Riferimento al customer Stripe (per riutilizzo dei dati di pagamento).
+  stripeCustomerId String? @unique
+
+  subscriptions Subscription[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
+  @@index([email])
+  @@map("clients")
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// SERVIZI — CATALOGO
+// ──────────────────────────────────────────────────────────────────────────
+
+/// Catalogo riusabile dei servizi vendibili in abbonamento.
+model Service {
+  id          String      @id @default(cuid())
+  name        String
+  type        ServiceType
+  description String?
+
+  // Importi in centesimi per evitare problemi di arrotondamento.
+  priceCents Int // prezzo di vendita
+  costCents  Int    @default(0) // costo fornitore (per calcolo margine)
+  currency   String @default("eur")
+
+  billingPeriod    BillingPeriod
+  customPeriodDays Int? // valorizzato solo se billingPeriod = PERSONALIZZATA
+
+  autoRenew Boolean @default(true)
+  active    Boolean @default(true)
+
+  subscriptions Subscription[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([type])
+  @@index([active])
+  @@map("services")
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// ABBONAMENTI
+// ──────────────────────────────────────────────────────────────────────────
+
+/// Abbonamento: collega un cliente a un servizio, con stato e scadenza.
+model Subscription {
+  id String @id @default(cuid())
+
+  clientId  String
+  client    Client  @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  serviceId String
+  service   Service @relation(fields: [serviceId], references: [id], onDelete: Restrict)
+
+  status SubscriptionStatus @default(ATTIVO)
+
+  startDate DateTime @default(now())
+  endDate   DateTime // data di scadenza corrente
+
+  // Snapshot economico al momento della sottoscrizione: rende l'abbonamento
+  // indipendente da future modifiche al catalogo.
+  priceCents       Int
+  currency         String        @default("eur")
+  billingPeriod    BillingPeriod
+  customPeriodDays Int?
+
+  paymentMethod PaymentMethod @default(MANUALE)
+  autoRenew     Boolean       @default(true)
+
+  // Riferimenti Stripe (se gestito come subscription ricorrente lato Stripe).
+  stripeSubscriptionId String? @unique
+
+  note String?
+
+  payments      Payment[]
+  notifications NotificationLog[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([clientId])
+  @@index([serviceId])
+  @@index([status])
+  @@index([endDate])
+  @@map("subscriptions")
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// PAGAMENTI
+// ──────────────────────────────────────────────────────────────────────────
+
+/// Pagamento collegato a un abbonamento (Stripe o manuale).
+model Payment {
+  id String @id @default(cuid())
+
+  subscriptionId String
+  subscription   Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+
+  amountCents Int
+  currency    String        @default("eur")
+  method      PaymentMethod
+  status      PaymentStatus @default(IN_ATTESA)
+
+  // Periodo coperto dal pagamento (utile per il rinnovo).
+  periodStart DateTime?
+  periodEnd   DateTime?
+
+  paidAt DateTime?
+
+  // Riferimenti Stripe.
+  stripeCheckoutSessionId String? @unique
+  stripePaymentIntentId   String? @unique
+
+  // Note libere (es. "bonifico ricevuto il 12/06").
+  note String?
+
+  // Chi ha registrato il pagamento manuale (null per i pagamenti Stripe).
+  recordedById String?
+  recordedBy   User?   @relation("PaymentRecordedBy", fields: [recordedById], references: [id], onDelete: SetNull)
+
+  // Ricevuta non fiscale generata alla conferma (1:1).
+  receipt       Receipt?
+  notifications NotificationLog[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([subscriptionId])
+  @@index([status])
+  @@index([method])
+  @@map("payments")
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// RICEVUTE NON FISCALI
+// ──────────────────────────────────────────────────────────────────────────
+
+/// Ricevuta NON fiscale: pagina HTML pubblica accessibile via token univoco.
+/// I dati sono denormalizzati (snapshot) così la ricevuta resta immutabile
+/// anche se cliente/servizio cambiano in seguito.
+model Receipt {
+  id String @id @default(cuid())
+
+  paymentId String  @unique
+  payment   Payment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+
+  // Token pubblico per l'accesso senza autenticazione.
+  token  String @unique @default(cuid())
+  // Numero progressivo leggibile (es. "RIC-2026-0001").
+  number String @unique
+
+  // Snapshot dei dati al momento dell'emissione.
+  clientName     String
+  ragioneSociale String?
+  partitaIva     String?
+  codiceFiscale  String?
+  clientEmail    String?
+  clientAddress  String? // indirizzo completo formattato
+
+  serviceName String
+  description String?
+
+  amountCents Int
+  currency    String        @default("eur")
+  method      PaymentMethod
+  periodStart DateTime?
+  periodEnd   DateTime?
+  paidAt      DateTime
+
+  issuedAt  DateTime @default(now())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([token])
+  @@map("receipts")
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// LOG NOTIFICHE (EMAIL)
+// ──────────────────────────────────────────────────────────────────────────
+
+/// Log di ogni email inviata, per tracciabilità ed evitare doppi invii.
+model NotificationLog {
+  id String @id @default(cuid())
+
+  subscriptionId String?
+  subscription   Subscription? @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+
+  paymentId String?
+  payment   Payment? @relation(fields: [paymentId], references: [id], onDelete: SetNull)
+
+  type      NotificationType
+  status    NotificationStatus
+  recipient String // email destinatario
+
+  // ID restituito da Resend (per tracciabilità) ed eventuale errore.
+  resendId String?
+  error    String?
+
+  // Chiave-giorno (YYYY-MM-DD) usata per de-duplicare gli invii giornalieri
+  // (es. promemoria/solleciti): un solo invio per tipo/abbonamento/giorno.
+  dedupeKey String?
+
+  sentAt    DateTime @default(now())
+  createdAt DateTime @default(now())
+
+  @@unique([subscriptionId, type, dedupeKey])
+  @@index([subscriptionId])
+  @@index([paymentId])
+  @@index([type])
+  @@map("notification_logs")
+}
