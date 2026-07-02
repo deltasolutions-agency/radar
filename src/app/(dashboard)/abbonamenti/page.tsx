@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { SubscriptionStatusBadge } from "@/components/badges";
+import { DeleteButton } from "@/components/delete-button";
+import { CeaseButton } from "./cease-button";
 import { formatEur, formatDate } from "@/lib/format";
 import {
   SUBSCRIPTION_STATUSES,
@@ -23,7 +25,11 @@ export default async function AbbonamentiPage({
 
   const subscriptions = await prisma.subscription.findMany({
     where: status ? { status } : undefined,
-    include: { client: true, service: true },
+    include: {
+      client: true,
+      service: true,
+      _count: { select: { payments: true } },
+    },
     orderBy: { endDate: "asc" },
   });
 
@@ -113,12 +119,29 @@ export default async function AbbonamentiPage({
                     />
                   </td>
                   <td className="px-5 py-3">
-                    <Link
-                      href={`/abbonamenti/${sub.id}`}
-                      className="text-brand hover:underline"
-                    >
-                      Dettaglio
-                    </Link>
+                    <div className="flex items-center gap-3">
+                      <Link
+                        href={`/abbonamenti/${sub.id}`}
+                        className="text-brand hover:underline"
+                      >
+                        Dettaglio
+                      </Link>
+                      {sub.status === "CESSATO" ? null : sub._count.payments ===
+                        0 ? (
+                        <DeleteButton
+                          endpoint={`/api/subscriptions/${sub.id}`}
+                          redirectTo="/abbonamenti"
+                          entityLabel="questo abbonamento"
+                          className="text-xs font-medium text-red-600 hover:underline"
+                        />
+                      ) : (
+                        <CeaseButton
+                          id={sub.id}
+                          status={sub.status}
+                          className="text-xs font-medium text-slate-600 hover:underline"
+                        />
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}
