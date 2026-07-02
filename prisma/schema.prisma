@@ -316,6 +316,10 @@ model Receipt {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  // Se valorizzato, la finestra di accesso pubblico (10gg) riparte da qui
+  // invece che da issuedAt (riattivazione manuale dell'admin).
+  publicAccessResetAt DateTime?
+
   @@index([token])
   @@map("receipts")
 }

@@ -8,6 +8,11 @@ import {
 import { DeleteButton } from "@/components/delete-button";
 import { CeaseButton } from "../cease-button";
 import { PaymentActions } from "../payment-actions";
+import { ReactivateButton } from "../reactivate-button";
+import {
+  isReceiptPubliclyAccessible,
+  getReceiptExpiryDate,
+} from "@/lib/receipt-access";
 import { formatEur, formatDate } from "@/lib/format";
 import {
   BILLING_PERIOD_LABELS,
@@ -203,13 +208,27 @@ export default async function AbbonamentoDettaglioPage({
                   </td>
                   <td className="px-5 py-3">
                     {p.receipt ? (
-                      <Link
-                        href={`/r/${p.receipt.token}`}
-                        className="text-brand hover:underline"
-                        target="_blank"
-                      >
-                        {p.receipt.number}
-                      </Link>
+                      isReceiptPubliclyAccessible(p.receipt) ? (
+                        <div className="flex flex-col gap-0.5">
+                          <Link
+                            href={`/r/${p.receipt.token}`}
+                            className="text-brand hover:underline"
+                            target="_blank"
+                          >
+                            {p.receipt.number}
+                          </Link>
+                          <span className="text-xs text-slate-400">
+                            scade il {formatDate(getReceiptExpiryDate(p.receipt))}
+                          </span>
+                        </div>
+                      ) : (
+                        <div className="flex flex-col gap-0.5">
+                          <span className="text-xs text-slate-500">
+                            {p.receipt.number} · Link scaduto
+                          </span>
+                          <ReactivateButton receiptId={p.receipt.id} />
+                        </div>
+                      )
                     ) : p.status === "CONFERMATO" ? (
                       <span className="text-xs text-slate-500">
                         Ricevuta in generazione — ricarica tra qualche istante
