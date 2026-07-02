@@ -20,6 +20,7 @@ import { formatEur, formatDate } from "@/lib/format";
 import {
   BILLING_PERIOD_LABELS,
   PAYMENT_METHOD_LABELS,
+  formatBillingPeriod,
   type SubscriptionStatusValue,
   type BillingPeriodValue,
   type PaymentMethodValue,
@@ -197,6 +198,10 @@ export default async function AbbonamentoDettaglioPage({
           autoChargeEndDateLabel={
             sub.autoChargeEndDate ? formatDate(sub.autoChargeEndDate) : null
           }
+          periodicityLabel={formatBillingPeriod(
+            sub.billingPeriod as BillingPeriodValue,
+            sub.customPeriodDays,
+          )}
         />
       </section>
 

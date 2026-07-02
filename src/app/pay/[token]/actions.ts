@@ -1,24 +1,10 @@
 "use server";
 
-import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { getStripe } from "@/lib/stripe";
 import { CURRENT_CONSENT_VERSION } from "@/lib/legal";
-
-/**
- * Legge l'IP reale del richiedente. Dietro Cloudflare + Nginx l'IP client è in
- * `cf-connecting-ip` (iniettato da Cloudflare); fallback al primo valore di
- * `x-forwarded-for`, poi "unknown". NB: dipende dalla configurazione proxy.
- */
-function clientIp(): string {
-  const h = headers();
-  const cf = h.get("cf-connecting-ip");
-  if (cf) return cf;
-  const xff = h.get("x-forwarded-for");
-  if (xff) return xff.split(",")[0]?.trim() || "unknown";
-  return "unknown";
-}
+import { clientIp } from "@/lib/request-ip";
 
 /**
  * Registra (se necessario) il consenso e reindirizza alla Checkout Session

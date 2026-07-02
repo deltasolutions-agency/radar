@@ -1,21 +1,25 @@
 import type { NextRequest } from "next/server";
+import { randomUUID } from "crypto";
 import { prisma } from "@/lib/prisma";
 import { json, error, withApi, requireSession } from "@/lib/api";
-import { getStripe } from "@/lib/stripe";
+import { sendEmail } from "@/lib/send-email";
+import { buildAutoChargeRequestEmail } from "@/lib/email-templates";
+import { formatEur } from "@/lib/format";
+import { formatBillingPeriod, type BillingPeriodValue } from "@/lib/validations";
 
 type Params = { params: { id: string } };
 
 // POST /api/subscriptions/[id]/setup-auto-charge
-// Avvia la registrazione della carta per gli addebiti automatici: crea (se
-// serve) il customer Stripe e una Checkout Session mode:'setup'. Ritorna { url }
-// per il redirect admin (flusso interno assistito).
+// Genera (se serve) un token di attivazione e invia al cliente il link alla
+// pagina self-service /attiva-rinnovo/{token} (con gate di consenso). Ritorna
+// anche l'URL, così l'admin può eventualmente dettarlo al telefono.
 export function POST(_req: NextRequest, { params }: Params) {
   return withApi(async () => {
     await requireSession();
 
     const subscription = await prisma.subscription.findUnique({
       where: { id: params.id },
-      include: { client: true },
+      include: { client: true, service: true },
     });
     if (!subscription) return error("Abbonamento non trovato", 404);
 
@@ -25,37 +29,38 @@ export function POST(_req: NextRequest, { params }: Params) {
     const client = subscription.client;
     if (!client.email) {
       return error(
-        "Il cliente non ha un indirizzo email: impossibile registrare la carta.",
+        "Il cliente non ha un indirizzo email: impossibile inviare la richiesta.",
         400,
       );
     }
 
-    const stripe = getStripe();
-
-    // Crea il customer Stripe se non esiste ancora.
-    let customerId = client.stripeCustomerId;
-    if (!customerId) {
-      const customer = await stripe.customers.create({
-        email: client.email,
-        name: client.name,
-      });
-      customerId = customer.id;
-      await prisma.client.update({
-        where: { id: client.id },
-        data: { stripeCustomerId: customerId },
+    // Riusa il token esistente o ne genera uno nuovo.
+    let token = subscription.autoChargeSetupToken;
+    if (!token) {
+      token = randomUUID();
+      await prisma.subscription.update({
+        where: { id: subscription.id },
+        data: { autoChargeSetupToken: token },
       });
     }
 
-    const session = await stripe.checkout.sessions.create({
-      mode: "setup",
-      // mode:'setup' non ha line_items ma Stripe richiede comunque currency.
-      currency: subscription.currency,
-      customer: customerId,
-      success_url: `${appUrl}/abbonamenti/${subscription.id}?setup=success`,
-      cancel_url: `${appUrl}/abbonamenti/${subscription.id}?setup=cancelled`,
-      metadata: { subscriptionId: subscription.id, clientId: client.id },
+    const activationUrl = `${appUrl}/attiva-rinnovo/${token}`;
+    const content = buildAutoChargeRequestEmail({
+      serviceName: subscription.service.name,
+      amountLabel: formatEur(subscription.priceCents, subscription.currency),
+      periodicityLabel: formatBillingPeriod(
+        subscription.billingPeriod as BillingPeriodValue,
+        subscription.customPeriodDays,
+      ),
+      activationUrl,
     });
 
-    return json({ url: session.url });
+    const sent = await sendEmail(content, client.email);
+
+    return json({
+      sent: sent.status === "INVIATA",
+      recipient: client.email,
+      url: activationUrl,
+    });
   });
 }

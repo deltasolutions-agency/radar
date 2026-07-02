@@ -47,6 +47,17 @@ export const BILLING_PERIOD_LABELS: Record<BillingPeriodValue, string> = {
   PERSONALIZZATA: "Personalizzata",
 };
 
+/** Periodicità leggibile: "Annuale", "Mensile" o "Ogni N giorni". */
+export function formatBillingPeriod(
+  billingPeriod: BillingPeriodValue,
+  customPeriodDays: number | null,
+): string {
+  if (billingPeriod === "PERSONALIZZATA" && customPeriodDays) {
+    return `Ogni ${customPeriodDays} giorni`;
+  }
+  return BILLING_PERIOD_LABELS[billingPeriod];
+}
+
 export const CLIENT_STATUS_LABELS: Record<ClientStatusValue, string> = {
   ATTIVO: "Attivo",
   SOSPESO: "Sospeso",

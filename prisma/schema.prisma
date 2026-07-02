@@ -240,6 +240,8 @@ model Subscription {
   autoChargeEndDate       DateTime? // oltre questa data l'addebito automatico si ferma
   autoChargeFailCount     Int       @default(0)
   autoChargeLastAttemptAt DateTime?
+  // Token pubblico per la pagina self-service di attivazione (con gate consenso).
+  autoChargeSetupToken    String?   @unique
 
   // Riferimenti Stripe (se gestito come subscription ricorrente lato Stripe).
   stripeSubscriptionId String? @unique

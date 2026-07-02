@@ -256,6 +256,55 @@ export function buildConfirmationEmail(
 }
 
 // ──────────────────────────────────────────────────────────────────────────
+// RICHIESTA ATTIVAZIONE RINNOVO AUTOMATICO — email al cliente
+// ──────────────────────────────────────────────────────────────────────────
+
+/**
+ * Email al cliente con il link per attivare il rinnovo automatico (registrazione
+ * carta con gate di consenso). Rivolta al cliente: solo il link pubblico
+ * /attiva-rinnovo, mai link interni.
+ */
+export function buildAutoChargeRequestEmail(d: {
+  serviceName: string;
+  amountLabel: string;
+  periodicityLabel: string;
+  activationUrl: string;
+}): EmailContent {
+  const subject = `Radar — Attiva il rinnovo automatico per ${d.serviceName}`;
+  const intro =
+    "Puoi attivare il rinnovo automatico del tuo abbonamento: registrando la carta autorizzi l'addebito ricorrente alla cadenza indicata. Puoi revocare l'autorizzazione in qualsiasi momento scrivendo a hello@deltasolutions.agency.";
+
+  const text = [
+    intro,
+    "",
+    `Servizio:     ${d.serviceName}`,
+    `Importo:      ${d.amountLabel}`,
+    `Periodicità:  ${d.periodicityLabel}`,
+    "",
+    `Attiva ora: ${d.activationUrl}`,
+  ].join("\n");
+
+  const html = `
+    <div style="max-width:560px;margin:0 auto;font-family:sans-serif;color:#1e293b">
+      ${emailHeaderHtml()}
+      <h2 style="font-size:18px;margin:0 0 8px">Attiva il rinnovo automatico</h2>
+      <p style="font-size:14px;line-height:1.5">${intro}</p>
+      <table style="border-collapse:collapse;font-family:sans-serif;font-size:14px;color:#1e293b">
+        <tr><td style="padding:2px 12px 2px 0;color:#64748b">Servizio</td><td>${d.serviceName}</td></tr>
+        <tr><td style="padding:2px 12px 2px 0;color:#64748b">Importo</td><td>${d.amountLabel}</td></tr>
+        <tr><td style="padding:2px 12px 2px 0;color:#64748b">Periodicità</td><td>${d.periodicityLabel}</td></tr>
+      </table>
+      <p style="margin:20px 0">
+        <a href="${d.activationUrl}" style="display:inline-block;background:#4f46e5;color:#ffffff;text-decoration:none;font-family:sans-serif;font-size:14px;font-weight:600;padding:12px 20px;border-radius:8px">Attiva rinnovo automatico →</a>
+      </p>
+      <hr style="border:none;border-top:1px solid #e2e8f0;margin:24px 0" />
+      <p style="font-size:12px;color:#94a3b8">Radar — Delta Solutions</p>
+    </div>`;
+
+  return { subject, text, html };
+}
+
+// ──────────────────────────────────────────────────────────────────────────
 // ADDEBITO AUTOMATICO FALLITO — notifica admin
 // ──────────────────────────────────────────────────────────────────────────
 
