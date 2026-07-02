@@ -77,6 +77,7 @@ enum NotificationType {
   PROMEMORIA_15
   PROMEMORIA_7
   SOLLECITO
+  CESSAZIONE_MOROSITA
 }
 
 /// Esito dell'invio email.

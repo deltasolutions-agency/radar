@@ -1,0 +1,122 @@
+import "server-only";
+import { NotificationType } from "@prisma/client";
+import { formatDate } from "@/lib/format";
+
+/**
+ * Dati necessari a comporre le email di reminder/sollecito/cessazione.
+ * clientName/serviceName sono i valori correnti (join live nel cron): le email
+ * sono comunicazioni operative per l'admin, non documenti immutabili.
+ */
+export type ReminderEmailData = {
+  subscriptionId: string;
+  clientName: string;
+  serviceName: string;
+  endDate: Date;
+  /** Giorni mancanti alla scadenza (negativo se già scaduto). */
+  diffDays: number;
+};
+
+export type EmailContent = {
+  subject: string;
+  text: string;
+  html: string;
+};
+
+function detailUrl(subscriptionId: string): string {
+  const base = process.env.APP_URL ?? "";
+  return `${base}/abbonamenti/${subscriptionId}`;
+}
+
+/** Blocco dati comune (testo semplice). */
+function detailsText(d: ReminderEmailData): string {
+  return [
+    `Cliente:   ${d.clientName}`,
+    `Servizio:  ${d.serviceName}`,
+    `Scadenza:  ${formatDate(d.endDate)}`,
+    `Dettaglio: ${detailUrl(d.subscriptionId)}`,
+  ].join("\n");
+}
+
+/** Blocco dati comune (HTML). */
+function detailsHtml(d: ReminderEmailData): string {
+  const url = detailUrl(d.subscriptionId);
+  return `
+    <table style="border-collapse:collapse;font-family:sans-serif;font-size:14px;color:#1e293b">
+      <tr><td style="padding:2px 12px 2px 0;color:#64748b">Cliente</td><td>${d.clientName}</td></tr>
+      <tr><td style="padding:2px 12px 2px 0;color:#64748b">Servizio</td><td>${d.serviceName}</td></tr>
+      <tr><td style="padding:2px 12px 2px 0;color:#64748b">Scadenza</td><td>${formatDate(d.endDate)}</td></tr>
+    </table>
+    <p style="font-family:sans-serif;font-size:14px">
+      <a href="${url}" style="color:#4f46e5">Apri il dettaglio dell'abbonamento →</a>
+    </p>`;
+}
+
+function wrapHtml(title: string, intro: string, d: ReminderEmailData): string {
+  return `
+    <div style="max-width:560px;margin:0 auto;font-family:sans-serif;color:#1e293b">
+      <h2 style="font-size:18px;margin:0 0 8px">${title}</h2>
+      <p style="font-size:14px;line-height:1.5">${intro}</p>
+      ${detailsHtml(d)}
+      <hr style="border:none;border-top:1px solid #e2e8f0;margin:24px 0" />
+      <p style="font-size:12px;color:#94a3b8">Radar — Delta Solutions · notifica automatica</p>
+    </div>`;
+}
+
+/**
+ * Genera oggetto + corpo (testo e HTML) per il tipo di notifica indicato.
+ * Il destinatario (ADMIN_EMAIL) è gestito dal chiamante (cron).
+ */
+export function buildReminderEmail(
+  type: NotificationType,
+  d: ReminderEmailData,
+): EmailContent {
+  const diffDaysAfter = -d.diffDays;
+
+  switch (type) {
+    case "PROMEMORIA_30":
+    case "PROMEMORIA_15":
+    case "PROMEMORIA_7": {
+      const subject = `[Radar] Abbonamento in scadenza: ${d.clientName} — ${d.serviceName} (tra ${d.diffDays} giorni)`;
+      const intro = `L'abbonamento sta per scadere: mancano ${d.diffDays} giorni alla data di rinnovo.`;
+      const text = `${intro}\n\n${detailsText(d)}`;
+      return {
+        subject,
+        text,
+        html: wrapHtml("Abbonamento in scadenza", intro, d),
+      };
+    }
+
+    case "SOLLECITO": {
+      const subject = `[Radar] Abbonamento scaduto: ${d.clientName} — ${d.serviceName} (scaduto da ${diffDaysAfter} giorni)`;
+      const intro = `L'abbonamento risulta SCADUTO da ${diffDaysAfter} giorni e non ancora rinnovato. Si consiglia di regolarizzare il pagamento o contattare il cliente al più presto.`;
+      const text = `${intro}\n\n${detailsText(d)}`;
+      return {
+        subject,
+        text,
+        html: wrapHtml("Abbonamento scaduto — sollecito", intro, d),
+      };
+    }
+
+    case "CESSAZIONE_MOROSITA": {
+      const subject = `[Radar] Servizio cessato per mancato pagamento: ${d.clientName} — ${d.serviceName}`;
+      const intro = `Il servizio è stato CESSATO automaticamente per mancato pagamento, trascorsi 11 giorni dalla scadenza senza rinnovo. Valuta se comunicare la cessazione al cliente.`;
+      const text = `${intro}\n\n${detailsText(d)}`;
+      return {
+        subject,
+        text,
+        html: wrapHtml("Servizio cessato per morosità", intro, d),
+      };
+    }
+
+    default: {
+      // CONFERMA_ACQUISTO ecc. non sono gestiti da questo cron.
+      const subject = `[Radar] Notifica abbonamento: ${d.clientName} — ${d.serviceName}`;
+      const text = detailsText(d);
+      return {
+        subject,
+        text,
+        html: wrapHtml("Notifica abbonamento", "", d),
+      };
+    }
+  }
+}
