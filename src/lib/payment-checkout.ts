@@ -6,8 +6,10 @@ import { sendEmail } from "@/lib/send-email";
 import { buildPaymentLinkEmail } from "@/lib/email-templates";
 import { MS_PER_DAY, periodDurationDays } from "@/lib/billing-period";
 
-/** Durata di validità della Checkout Session: 72 ore. */
-const CHECKOUT_TTL_SECONDS = 72 * 60 * 60;
+// Durata di validità della Checkout Session. Stripe impone un MASSIMO di 24h
+// da expires_at: usiamo 23h per lasciare margine contro arrotondamenti/latenza
+// (all'utente comunichiamo 24h per semplicità).
+const CHECKOUT_TTL_SECONDS = 23 * 60 * 60;
 
 export type SubscriptionForCheckout = {
   id: string;
@@ -30,7 +32,7 @@ export type CheckoutResult = {
 };
 
 /**
- * Crea una Stripe Checkout Session (mode payment, scadenza 72h) e il relativo
+ * Crea una Stripe Checkout Session (mode payment, scadenza ~24h) e il relativo
  * Payment IN_ATTESA. Se opts.sendToClient è true, invia al cliente l'email col
  * link reale della sessione e valorizza linkSentAt.
  *

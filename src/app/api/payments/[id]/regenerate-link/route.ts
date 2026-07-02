@@ -7,7 +7,7 @@ type Params = { params: { id: string } };
 
 // POST /api/payments/[id]/regenerate-link
 // Il vecchio link Stripe è scaduto senza pagamento: marca il Payment come
-// FALLITO, crea una NUOVA Checkout Session (72h) + Payment IN_ATTESA e reinvia
+// FALLITO, crea una NUOVA Checkout Session (~24h) + Payment IN_ATTESA e reinvia
 // il link al cliente.
 export function POST(_req: NextRequest, { params }: Params) {
   return withApi(async () => {
