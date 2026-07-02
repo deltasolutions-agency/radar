@@ -12,6 +12,7 @@ import { ReactivateButton } from "../reactivate-button";
 import { RegenerateLinkButton } from "../regenerate-link-button";
 import { RefundButton } from "../refund-button";
 import { AutoChargePanel } from "../auto-charge-panel";
+import { ForceDeleteSection } from "../force-delete-section";
 import {
   isReceiptPubliclyAccessible,
   getReceiptExpiryDate,
@@ -336,6 +337,17 @@ export default async function AbbonamentoDettaglioPage({
       <p className="font-mono text-xs text-slate-400">
         id {sub.id} · creato {formatDate(sub.createdAt)}
       </p>
+
+      {hasPayments ? (
+        <ForceDeleteSection
+          subscriptionId={sub.id}
+          expectedText={`${
+            sub.client.ragioneSociale?.trim()
+              ? sub.client.ragioneSociale
+              : sub.client.name
+          } / ${sub.service.name}`}
+        />
+      ) : null}
     </div>
   );
 }
