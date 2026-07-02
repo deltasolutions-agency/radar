@@ -48,6 +48,8 @@ export function POST(_req: NextRequest, { params }: Params) {
 
     const session = await stripe.checkout.sessions.create({
       mode: "setup",
+      // mode:'setup' non ha line_items ma Stripe richiede comunque currency.
+      currency: subscription.currency,
       customer: customerId,
       success_url: `${appUrl}/abbonamenti/${subscription.id}?setup=success`,
       cancel_url: `${appUrl}/abbonamenti/${subscription.id}?setup=cancelled`,
