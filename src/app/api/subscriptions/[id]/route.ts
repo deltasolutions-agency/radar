@@ -56,7 +56,7 @@ export function DELETE(_req: NextRequest, { params }: Params) {
 
     if (subscription._count.payments > 0) {
       return error(
-        "Impossibile eliminare: l'abbonamento ha pagamenti collegati.",
+        "Impossibile eliminare: l'abbonamento ha pagamenti registrati. Puoi cessarlo invece.",
         409,
       );
     }

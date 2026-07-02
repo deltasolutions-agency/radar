@@ -15,9 +15,17 @@ export default async function DashboardLayout({
       <header className="sticky top-0 z-10 border-b border-line bg-white/80 backdrop-blur">
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-6 py-3">
           <div className="flex items-center gap-6">
-            <div className="leading-tight">
-              <span className="text-base font-semibold">Radar</span>
-              <span className="mono-label ml-2">Delta Solutions</span>
+            <div className="flex items-center gap-2.5">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src="https://pub-70273716e01b45cf8c8d3e370de8c983.r2.dev/logo-orizzontale%20PMG.png"
+                alt="Delta Solutions"
+                className="h-7 w-auto"
+              />
+              <div className="leading-tight">
+                <span className="text-base font-semibold">Radar</span>
+                <span className="mono-label ml-2">Delta Solutions</span>
+              </div>
             </div>
             <Nav />
           </div>
