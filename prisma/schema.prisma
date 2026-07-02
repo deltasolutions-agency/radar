@@ -256,6 +256,11 @@ model Payment {
   stripeCheckoutSessionId String? @unique
   stripePaymentIntentId   String? @unique
 
+  // Scadenza della Stripe Checkout Session corrente (per sapere se il link è
+  // ancora valido) e momento di invio del link al cliente (null = mai inviato).
+  checkoutExpiresAt DateTime?
+  linkSentAt        DateTime?
+
   // Note libere (es. "bonifico ricevuto il 12/06").
   note String?
 

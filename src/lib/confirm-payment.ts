@@ -4,8 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { createReceiptForPayment } from "@/lib/create-receipt";
 import { buildConfirmationEmail } from "@/lib/email-templates";
 import { sendEmail } from "@/lib/send-email";
-
-const MS_PER_DAY = 1000 * 60 * 60 * 24;
+import { MS_PER_DAY, periodDurationDays } from "@/lib/billing-period";
 
 export type ConfirmPaymentResult = {
   payment: Payment;
@@ -17,23 +16,6 @@ export type ConfirmPaymentResult = {
   /** true se il pagamento era già stato confermato ed elaborato (retry). */
   alreadyProcessed: boolean;
 };
-
-/** Durata del periodo in giorni dal billingPeriod snapshot della subscription. */
-function periodDurationDays(sub: {
-  billingPeriod: Subscription["billingPeriod"];
-  customPeriodDays: number | null;
-}): number | null {
-  switch (sub.billingPeriod) {
-    case "MENSILE":
-      return 30;
-    case "ANNUALE":
-      return 365;
-    case "PERSONALIZZATA":
-      return sub.customPeriodDays ?? null;
-    default:
-      return null;
-  }
-}
 
 /**
  * Punto UNICO in cui un pagamento passa a CONFERMATO e la subscription viene
@@ -159,50 +141,88 @@ export async function confirmPaymentAndRenew(
 }
 
 /**
- * Invia l'email CONFERMA_ACQUISTO e registra il NotificationLog.
- * dedupeKey = paymentId: un pagamento genera una sola conferma, anche a retry.
- * Non lancia mai: ogni errore viene loggato e ignorato.
+ * Invia l'email CONFERMA_ACQUISTO all'admin E al cliente, con un NotificationLog
+ * distinto per ciascun destinatario.
+ *
+ * Due record (dedupeKey "{paymentId}-admin" e "{paymentId}-client") anziché uno:
+ * rispettano il vincolo @@unique([subscriptionId, type, dedupeKey]) e tracciano
+ * separatamente l'esito dei due invii (uno può fallire senza l'altro).
+ *
+ * Ogni invio è isolato e non-bloccante: un errore verso il cliente non impedisce
+ * l'invio all'admin, né viceversa, né la conferma del pagamento.
  */
 async function sendConfirmationEmail(
   paymentId: string,
   result: ConfirmPaymentResult,
 ): Promise<void> {
+  const receipt = result.receipt;
+  const commonData = {
+    subscriptionId: result.subscription.id,
+    clientName: receipt.clientName,
+    serviceName: receipt.serviceName,
+    amountCents: receipt.amountCents,
+    currency: receipt.currency,
+    endDate: result.subscription.endDate,
+    method: result.payment.method,
+    receiptToken: receipt.token,
+  };
+
+  // Invio all'admin (destinatario di default = ADMIN_EMAIL).
+  await deliverConfirmation({
+    paymentId,
+    subscriptionId: result.subscription.id,
+    dedupeKey: `${paymentId}-admin`,
+    recipient: process.env.ADMIN_EMAIL,
+    content: buildConfirmationEmail({ ...commonData, audience: "admin" }),
+  });
+
+  // Invio al cliente (email dallo snapshot ricevuta): mai link dashboard admin.
+  if (receipt.clientEmail) {
+    await deliverConfirmation({
+      paymentId,
+      subscriptionId: result.subscription.id,
+      dedupeKey: `${paymentId}-client`,
+      recipient: receipt.clientEmail,
+      content: buildConfirmationEmail({ ...commonData, audience: "client" }),
+    });
+  }
+}
+
+/**
+ * Invia una singola email di conferma e registra il relativo NotificationLog.
+ * Idempotente sul dedupeKey; non lancia mai (errori loggati e ignorati).
+ */
+async function deliverConfirmation(params: {
+  paymentId: string;
+  subscriptionId: string;
+  dedupeKey: string;
+  recipient?: string;
+  content: { subject: string; text: string; html: string };
+}): Promise<void> {
   try {
-    // Idempotenza: se la conferma per questo pagamento esiste già, non re-inviare.
     const existing = await prisma.notificationLog.findFirst({
-      where: { type: "CONFERMA_ACQUISTO", dedupeKey: paymentId },
+      where: { type: "CONFERMA_ACQUISTO", dedupeKey: params.dedupeKey },
       select: { id: true },
     });
     if (existing) return;
 
-    const content = buildConfirmationEmail({
-      subscriptionId: result.subscription.id,
-      clientName: result.receipt.clientName,
-      serviceName: result.receipt.serviceName,
-      amountCents: result.receipt.amountCents,
-      currency: result.receipt.currency,
-      endDate: result.subscription.endDate,
-      method: result.payment.method,
-      receiptToken: result.receipt.token,
-    });
-
-    const sent = await sendEmail(content);
+    const sent = await sendEmail(params.content, params.recipient);
 
     await prisma.notificationLog.create({
       data: {
-        subscriptionId: result.subscription.id,
-        paymentId,
+        subscriptionId: params.subscriptionId,
+        paymentId: params.paymentId,
         type: "CONFERMA_ACQUISTO",
         status: sent.status,
-        recipient: process.env.ADMIN_EMAIL ?? "(non configurato)",
+        recipient: params.recipient ?? "(non configurato)",
         resendId: sent.resendId,
         error: sent.error,
-        dedupeKey: paymentId,
+        dedupeKey: params.dedupeKey,
       },
     });
   } catch (e) {
     console.error(
-      `[confirm-payment] invio conferma fallito per payment ${paymentId}:`,
+      `[confirm-payment] invio conferma (${params.dedupeKey}) fallito:`,
       e,
     );
   }

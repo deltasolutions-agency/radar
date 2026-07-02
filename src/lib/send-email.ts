@@ -14,24 +14,27 @@ export type SendResult = {
  * restituito come { status: "FALLITA", error }. Il chiamante decide come
  * registrarlo (NotificationLog) senza rischiare di far fallire il flusso.
  */
-export async function sendEmail(content: {
-  subject: string;
-  text: string;
-  html: string;
-}): Promise<SendResult> {
-  const to = process.env.ADMIN_EMAIL;
+export async function sendEmail(
+  content: {
+    subject: string;
+    text: string;
+    html: string;
+  },
+  to?: string,
+): Promise<SendResult> {
+  const recipient = to ?? process.env.ADMIN_EMAIL;
   const from = process.env.EMAIL_FROM;
-  if (!to || !from) {
+  if (!recipient || !from) {
     return {
       status: "FALLITA",
-      error: "ADMIN_EMAIL o EMAIL_FROM non configurata",
+      error: "Destinatario o EMAIL_FROM non configurato",
     };
   }
   try {
     const resend = getResend();
     const { data, error } = await resend.emails.send({
       from,
-      to,
+      to: recipient,
       subject: content.subject,
       text: content.text,
       html: content.html,

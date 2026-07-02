@@ -35,7 +35,9 @@ export function PaymentActions({
   const [manualPending, setManualPending] = useState(false);
 
   const [stripePending, setStripePending] = useState(false);
+  const [sendPending, setSendPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
   // Apre/chiude il form manuale. All'apertura ripristina l'importo al prezzo
   // corrente (che può essere cambiato dopo un rinnovo) mantenendolo editabile.
@@ -101,12 +103,14 @@ export function PaymentActions({
     }
   }
 
-  async function startStripe() {
+  // "Apri checkout ora": redirect immediato dell'admin al checkout Stripe.
+  async function openCheckout() {
     setStripePending(true);
     setError(null);
+    setNotice(null);
     try {
       const res = await fetch(
-        `/api/subscriptions/${subscriptionId}/checkout`,
+        `/api/subscriptions/${subscriptionId}/checkout?mode=direct`,
         { method: "POST" },
       );
       const body = await res.json().catch(() => ({}));
@@ -122,6 +126,37 @@ export function PaymentActions({
     }
   }
 
+  // "Invia link al cliente": crea la sessione e la invia via email.
+  async function sendLink() {
+    setSendPending(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const res = await fetch(
+        `/api/subscriptions/${subscriptionId}/checkout?mode=send`,
+        { method: "POST" },
+      );
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(body.error ?? "Invio link non riuscito");
+        setSendPending(false);
+        return;
+      }
+      if (body.sent) {
+        setNotice(`Link di pagamento inviato a ${body.recipient}.`);
+      } else {
+        setError(
+          "Link creato ma invio email non riuscito. Verifica la configurazione Resend.",
+        );
+      }
+      setSendPending(false);
+      router.refresh();
+    } catch {
+      setError("Errore di rete");
+      setSendPending(false);
+    }
+  }
+
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap gap-2">
@@ -129,16 +164,32 @@ export function PaymentActions({
           Registra pagamento manuale
         </button>
         {paymentMethod === "STRIPE" ? (
-          <button
-            type="button"
-            className="btn-ghost"
-            disabled={stripePending}
-            onClick={startStripe}
-          >
-            {stripePending ? "Avvio…" : "Avvia pagamento Stripe"}
-          </button>
+          <>
+            <button
+              type="button"
+              className="btn-ghost"
+              disabled={sendPending}
+              onClick={sendLink}
+            >
+              {sendPending ? "Invio…" : "Invia link di pagamento al cliente"}
+            </button>
+            <button
+              type="button"
+              className="btn-ghost"
+              disabled={stripePending}
+              onClick={openCheckout}
+            >
+              {stripePending ? "Apertura…" : "Apri checkout ora"}
+            </button>
+          </>
         ) : null}
       </div>
+
+      {notice ? (
+        <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+          {notice}
+        </p>
+      ) : null}
 
       {error ? (
         <p className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">

@@ -9,6 +9,7 @@ import { DeleteButton } from "@/components/delete-button";
 import { CeaseButton } from "../cease-button";
 import { PaymentActions } from "../payment-actions";
 import { ReactivateButton } from "../reactivate-button";
+import { RegenerateLinkButton } from "../regenerate-link-button";
 import {
   isReceiptPubliclyAccessible,
   getReceiptExpiryDate,
@@ -199,7 +200,31 @@ export default async function AbbonamentoDettaglioPage({
                     {formatEur(p.amountCents, p.currency)}
                   </td>
                   <td className="px-5 py-3 text-slate-600">
-                    {PAYMENT_METHOD_LABELS[p.method as PaymentMethodValue]}
+                    <span className="inline-flex items-center gap-1.5">
+                      {PAYMENT_METHOD_LABELS[p.method as PaymentMethodValue]}
+                      {p.note?.trim() ? (
+                        <span
+                          title={p.note}
+                          aria-label={`Nota: ${p.note}`}
+                          className="cursor-help text-slate-400"
+                        >
+                          <svg
+                            xmlns="http://www.w3.org/2000/svg"
+                            width="14"
+                            height="14"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            aria-hidden="true"
+                          >
+                            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+                          </svg>
+                        </span>
+                      ) : null}
+                    </span>
                   </td>
                   <td className="px-5 py-3">
                     <PaymentStatusBadge
@@ -233,6 +258,22 @@ export default async function AbbonamentoDettaglioPage({
                       <span className="text-xs text-slate-500">
                         Ricevuta in generazione — ricarica tra qualche istante
                       </span>
+                    ) : p.status === "IN_ATTESA" && p.method === "STRIPE" ? (
+                      p.checkoutExpiresAt &&
+                      p.checkoutExpiresAt.getTime() > Date.now() ? (
+                        <span className="text-xs text-slate-500">
+                          Link inviato, in attesa di pagamento
+                          <br />
+                          (scade il {formatDate(p.checkoutExpiresAt)})
+                        </span>
+                      ) : (
+                        <div className="flex flex-col gap-0.5">
+                          <span className="text-xs text-slate-500">
+                            Link scaduto
+                          </span>
+                          <RegenerateLinkButton paymentId={p.id} />
+                        </div>
+                      )
                     ) : (
                       <span className="text-slate-400">—</span>
                     )}
