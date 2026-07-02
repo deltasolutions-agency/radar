@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 
 /**
  * Bottone "Cessa abbonamento" con conferma inline in due passaggi.
- * Consentito solo dagli stati ATTIVO / IN_SCADENZA / SCADUTO: negli altri casi
+ * Consentito da ATTIVO / IN_SCADENZA / SCADUTO / RINNOVATO: negli altri casi
  * il componente non renderizza nulla.
  */
 export function CeaseButton({
@@ -22,7 +22,9 @@ export function CeaseButton({
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const ceasable = ["ATTIVO", "IN_SCADENZA", "SCADUTO"].includes(status);
+  const ceasable = ["ATTIVO", "IN_SCADENZA", "SCADUTO", "RINNOVATO"].includes(
+    status,
+  );
   if (!ceasable) return null;
 
   async function handleCease() {
