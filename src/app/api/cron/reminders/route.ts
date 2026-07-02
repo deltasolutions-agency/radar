@@ -1,10 +1,9 @@
 import { NextResponse, type NextRequest } from "next/server";
-import type { NotificationStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { computeSubscriptionStatus } from "@/lib/subscription-status";
 import { getReminderMilestone } from "@/lib/reminder-schedule";
 import { buildReminderEmail } from "@/lib/email-templates";
-import { getResend } from "@/lib/resend";
+import { sendEmail } from "@/lib/send-email";
 
 // Chiamato da crontab via curl con Bearer CRON_SECRET: nessuna sessione utente.
 export const runtime = "nodejs";
@@ -14,44 +13,6 @@ const MS_PER_DAY = 1000 * 60 * 60 * 24;
 
 // Stati manuali bloccanti: mai toccati dal cron.
 const BLOCKING = ["CESSATO", "SOSPESO"] as const;
-
-type SendResult = {
-  status: NotificationStatus;
-  resendId?: string;
-  error?: string;
-};
-
-/** Invia l'email via Resend, senza mai lanciare: un errore diventa FALLITA. */
-async function sendEmail(content: {
-  subject: string;
-  text: string;
-  html: string;
-}): Promise<SendResult> {
-  const to = process.env.ADMIN_EMAIL;
-  const from = process.env.EMAIL_FROM;
-  if (!to || !from) {
-    return { status: "FALLITA", error: "ADMIN_EMAIL o EMAIL_FROM non configurata" };
-  }
-  try {
-    const resend = getResend();
-    const { data, error } = await resend.emails.send({
-      from,
-      to,
-      subject: content.subject,
-      text: content.text,
-      html: content.html,
-    });
-    if (error) {
-      return { status: "FALLITA", error: error.message ?? String(error) };
-    }
-    return { status: "INVIATA", resendId: data?.id };
-  } catch (e) {
-    return {
-      status: "FALLITA",
-      error: e instanceof Error ? e.message : String(e),
-    };
-  }
-}
 
 export async function GET(request: NextRequest) {
   // ── Auth: Bearer CRON_SECRET ───────────────────────────────────────────────

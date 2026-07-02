@@ -1,6 +1,6 @@
 import "server-only";
-import { NotificationType } from "@prisma/client";
-import { formatDate } from "@/lib/format";
+import { NotificationType, type PaymentMethod } from "@prisma/client";
+import { formatDate, formatEur } from "@/lib/format";
 
 /**
  * Dati necessari a comporre le email di reminder/sollecito/cessazione.
@@ -109,7 +109,7 @@ export function buildReminderEmail(
     }
 
     default: {
-      // CONFERMA_ACQUISTO ecc. non sono gestiti da questo cron.
+      // Type non gestiti da questo generatore (es. CONFERMA_ACQUISTO ha il suo).
       const subject = `[Radar] Notifica abbonamento: ${d.clientName} — ${d.serviceName}`;
       const text = detailsText(d);
       return {
@@ -119,4 +119,84 @@ export function buildReminderEmail(
       };
     }
   }
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// CONFERMA_ACQUISTO — email di conferma pagamento
+// ──────────────────────────────────────────────────────────────────────────
+
+export type ConfirmationEmailData = {
+  subscriptionId: string;
+  clientName: string;
+  serviceName: string;
+  amountCents: number;
+  currency?: string;
+  /** Nuova scadenza dopo il rinnovo. */
+  endDate: Date;
+  method: PaymentMethod;
+  /** Token della ricevuta pubblica; se assente il link viene omesso. */
+  receiptToken?: string | null;
+};
+
+function methodLabel(method: PaymentMethod): string {
+  return method === "STRIPE"
+    ? "Carta di credito (Stripe)"
+    : "Pagamento manuale";
+}
+
+/**
+ * Email di conferma pagamento (CONFERMA_ACQUISTO): riepilogo importo/servizio/
+ * nuova scadenza/metodo + link alla ricevuta pubblica (se disponibile) e al
+ * dettaglio abbonamento.
+ */
+export function buildConfirmationEmail(
+  d: ConfirmationEmailData,
+): EmailContent {
+  const subject = `[Radar] Pagamento confermato: ${d.clientName} — ${d.serviceName}`;
+  const amount = formatEur(d.amountCents, d.currency ?? "eur");
+  const base = process.env.APP_URL ?? "";
+  const receiptUrl = d.receiptToken ? `${base}/r/${d.receiptToken}` : null;
+  const detail = `${base}/abbonamenti/${d.subscriptionId}`;
+
+  const intro = "Abbiamo registrato il pagamento per l'abbonamento.";
+
+  const text = [
+    intro,
+    "",
+    `Servizio:       ${d.serviceName}`,
+    `Cliente:        ${d.clientName}`,
+    `Importo:        ${amount}`,
+    `Metodo:         ${methodLabel(d.method)}`,
+    `Nuova scadenza: ${formatDate(d.endDate)}`,
+    "",
+    receiptUrl
+      ? `Ricevuta:  ${receiptUrl}`
+      : "Ricevuta:  in generazione, disponibile a breve nel pannello abbonamento.",
+    `Dettaglio: ${detail}`,
+  ].join("\n");
+
+  const html = `
+    <div style="max-width:560px;margin:0 auto;font-family:sans-serif;color:#1e293b">
+      <h2 style="font-size:18px;margin:0 0 8px">Pagamento confermato</h2>
+      <p style="font-size:14px;line-height:1.5">${intro}</p>
+      <table style="border-collapse:collapse;font-family:sans-serif;font-size:14px;color:#1e293b">
+        <tr><td style="padding:2px 12px 2px 0;color:#64748b">Servizio</td><td>${d.serviceName}</td></tr>
+        <tr><td style="padding:2px 12px 2px 0;color:#64748b">Cliente</td><td>${d.clientName}</td></tr>
+        <tr><td style="padding:2px 12px 2px 0;color:#64748b">Importo</td><td>${amount}</td></tr>
+        <tr><td style="padding:2px 12px 2px 0;color:#64748b">Metodo</td><td>${methodLabel(d.method)}</td></tr>
+        <tr><td style="padding:2px 12px 2px 0;color:#64748b">Nuova scadenza</td><td>${formatDate(d.endDate)}</td></tr>
+      </table>
+      <p style="font-family:sans-serif;font-size:14px">
+        ${
+          receiptUrl
+            ? `<a href="${receiptUrl}" style="color:#4f46e5">Visualizza la ricevuta →</a><br/>`
+            : `<span style="color:#64748b">Ricevuta in generazione, disponibile a breve nel pannello.</span><br/>`
+        }
+        <a href="${detail}" style="color:#4f46e5">Apri il dettaglio dell'abbonamento →</a>
+      </p>
+      <hr style="border:none;border-top:1px solid #e2e8f0;margin:24px 0" />
+      <p style="font-size:12px;color:#94a3b8">Radar — Delta Solutions · notifica automatica</p>
+    </div>`;
+
+  return { subject, text, html };
 }
