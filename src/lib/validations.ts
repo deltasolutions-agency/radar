@@ -255,7 +255,14 @@ export const subscriptionCreateSchema = subscriptionObject.refine(
 
 export const subscriptionUpdateSchema = subscriptionObject
   .partial()
-  .extend({ status: z.enum(SUBSCRIPTION_STATUSES).optional() })
+  .extend({
+    status: z.enum(SUBSCRIPTION_STATUSES).optional(),
+    autoChargeEnabled: z.boolean().optional(),
+    autoChargeEndDate: z.preprocess(
+      emptyToUndef,
+      z.coerce.date().nullable().optional(),
+    ),
+  })
   .refine(endAfterStart, endAfterStartIssue);
 
 export type SubscriptionCreateInput = z.infer<typeof subscriptionCreateSchema>;

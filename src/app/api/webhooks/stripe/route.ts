@@ -41,6 +41,33 @@ export async function POST(request: NextRequest) {
     switch (event.type) {
       case "checkout.session.completed": {
         const session = event.data.object as Stripe.Checkout.Session;
+
+        // Sessione di registrazione carta (rinnovo automatico): nessun Payment
+        // da confermare, salva solo il metodo di pagamento di default.
+        if (session.mode === "setup") {
+          const setupIntentId =
+            typeof session.setup_intent === "string"
+              ? session.setup_intent
+              : (session.setup_intent?.id ?? null);
+          const clientId = session.metadata?.clientId ?? null;
+          if (setupIntentId && clientId) {
+            const stripe = getStripe();
+            const setupIntent =
+              await stripe.setupIntents.retrieve(setupIntentId);
+            const pmId =
+              typeof setupIntent.payment_method === "string"
+                ? setupIntent.payment_method
+                : (setupIntent.payment_method?.id ?? null);
+            if (pmId) {
+              await prisma.client.update({
+                where: { id: clientId },
+                data: { stripeDefaultPaymentMethodId: pmId },
+              });
+            }
+          }
+          break;
+        }
+
         const payment = await prisma.payment.findUnique({
           where: { stripeCheckoutSessionId: session.id },
           select: { id: true },

@@ -11,6 +11,7 @@ import { PaymentActions } from "../payment-actions";
 import { ReactivateButton } from "../reactivate-button";
 import { RegenerateLinkButton } from "../regenerate-link-button";
 import { RefundButton } from "../refund-button";
+import { AutoChargePanel } from "../auto-charge-panel";
 import {
   isReceiptPubliclyAccessible,
   getReceiptExpiryDate,
@@ -41,7 +42,7 @@ export default async function AbbonamentoDettaglioPage({
   searchParams,
 }: {
   params: { id: string };
-  searchParams: { payment?: string };
+  searchParams: { payment?: string; setup?: string };
 }) {
   const sub = await prisma.subscription.findUnique({
     where: { id: params.id },
@@ -101,6 +102,17 @@ export default async function AbbonamentoDettaglioPage({
       {searchParams.payment === "cancelled" ? (
         <p className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
           Pagamento annullato. Nessun addebito è stato effettuato.
+        </p>
+      ) : null}
+      {searchParams.setup === "success" ? (
+        <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+          Carta registrata. La conferma può richiedere qualche istante: ricarica
+          la pagina se il rinnovo automatico non risulta ancora attivabile.
+        </p>
+      ) : null}
+      {searchParams.setup === "cancelled" ? (
+        <p className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          Registrazione carta annullata.
         </p>
       ) : null}
 
@@ -170,6 +182,23 @@ export default async function AbbonamentoDettaglioPage({
           </div>
         </section>
       </div>
+
+      <section className="card space-y-3 p-6">
+        <h2 className="mono-label">Rinnovo automatico</h2>
+        <AutoChargePanel
+          subscriptionId={sub.id}
+          hasCard={!!sub.client.stripeDefaultPaymentMethodId}
+          autoChargeEnabled={sub.autoChargeEnabled}
+          autoChargeEndDateInput={
+            sub.autoChargeEndDate
+              ? sub.autoChargeEndDate.toISOString().slice(0, 10)
+              : ""
+          }
+          autoChargeEndDateLabel={
+            sub.autoChargeEndDate ? formatDate(sub.autoChargeEndDate) : null
+          }
+        />
+      </section>
 
       <section className="card overflow-hidden">
         <h2 className="mono-label px-5 pt-5">Storico pagamenti</h2>

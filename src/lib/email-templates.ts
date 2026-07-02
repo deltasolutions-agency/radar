@@ -196,6 +196,10 @@ export function buildConfirmationEmail(
     ? `Ricevuta:  ${receiptUrl}`
     : "Ricevuta:  in generazione, sarà disponibile a breve.";
 
+  // Nota fatturazione: solo nella versione cliente.
+  const invoiceNote =
+    "Riceverai la fattura relativa a questo pagamento entro 12 giorni lavorativi.";
+
   const textLines = [
     intro,
     "",
@@ -207,6 +211,7 @@ export function buildConfirmationEmail(
     "",
     receiptLineText,
     ...(detail ? [`Dettaglio: ${detail}`] : []),
+    ...(isClient ? ["", invoiceNote] : []),
   ];
   const text = textLines.join("\n");
 
@@ -238,8 +243,48 @@ export function buildConfirmationEmail(
         ${receiptLinkHtml}
         ${detailLinkHtml}
       </p>
+      ${
+        isClient
+          ? `<p style="font-size:13px;color:#64748b;line-height:1.5">${invoiceNote}</p>`
+          : ""
+      }
       <hr style="border:none;border-top:1px solid #e2e8f0;margin:24px 0" />
       <p style="font-size:12px;color:#94a3b8">Radar — Delta Solutions</p>
+    </div>`;
+
+  return { subject, text, html };
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// ADDEBITO AUTOMATICO FALLITO — notifica admin
+// ──────────────────────────────────────────────────────────────────────────
+
+/**
+ * Notifica all'admin che l'addebito automatico è fallito due volte: il rinnovo
+ * automatico è stato disattivato ed è stato inviato al cliente un link manuale.
+ */
+export function buildAutoChargeFailedAdminEmail(d: {
+  subscriptionId: string;
+  clientName: string;
+  serviceName: string;
+}): EmailContent {
+  const base = process.env.APP_URL ?? "";
+  const detail = `${base}/abbonamenti/${d.subscriptionId}`;
+  const subject = `[Radar] Addebito automatico fallito: ${d.clientName} — ${d.serviceName}`;
+  const intro = `L'addebito automatico è fallito due volte consecutive per ${d.clientName} (${d.serviceName}). Il rinnovo automatico è stato disattivato ed è stato inviato al cliente un link di pagamento manuale di fallback.`;
+
+  const text = `${intro}\n\nDettaglio: ${detail}`;
+
+  const html = `
+    <div style="max-width:560px;margin:0 auto;font-family:sans-serif;color:#1e293b">
+      ${emailHeaderHtml()}
+      <h2 style="font-size:18px;margin:0 0 8px">Addebito automatico fallito</h2>
+      <p style="font-size:14px;line-height:1.5">${intro}</p>
+      <p style="font-family:sans-serif;font-size:14px">
+        <a href="${detail}" style="color:#4f46e5">Apri il dettaglio dell'abbonamento →</a>
+      </p>
+      <hr style="border:none;border-top:1px solid #e2e8f0;margin:24px 0" />
+      <p style="font-size:12px;color:#94a3b8">Radar — Delta Solutions · notifica automatica</p>
     </div>`;
 
   return { subject, text, html };

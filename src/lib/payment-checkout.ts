@@ -105,13 +105,16 @@ export async function createCheckoutPayment(
 
   if (opts.sendToClient && subscription.client.email && session.url) {
     recipient = subscription.client.email;
+    // Il cliente riceve il link alla pagina intermedia con gate di consenso,
+    // NON direttamente l'URL Stripe (quello resta per il flusso admin diretto).
+    const payUrl = `${appUrl}/pay/${payment.payToken}`;
     const content = buildPaymentLinkEmail({
       serviceName: subscription.service.name,
       amountCents: subscription.priceCents,
       currency: subscription.currency,
       periodStart,
       periodEnd,
-      checkoutUrl: session.url,
+      checkoutUrl: payUrl,
       expiresAt,
     });
     const sent = await sendEmail(content, recipient);

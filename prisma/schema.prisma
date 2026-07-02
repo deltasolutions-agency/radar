@@ -135,8 +135,11 @@ model Client {
 
   // Riferimento al customer Stripe (per riutilizzo dei dati di pagamento).
   stripeCustomerId String? @unique
+  // Metodo di pagamento salvato per gli addebiti automatici (SetupIntent).
+  stripeDefaultPaymentMethodId String?
 
   subscriptions Subscription[]
+  consentLogs   ConsentLog[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -144,6 +147,26 @@ model Client {
   @@index([status])
   @@index([email])
   @@map("clients")
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// CONSENSI LEGALI
+// ──────────────────────────────────────────────────────────────────────────
+
+/// Traccia l'accettazione di Privacy Policy e Termini da parte del cliente,
+/// con la versione del testo accettata (per gestire futuri aggiornamenti).
+model ConsentLog {
+  id         String   @id @default(cuid())
+  clientId   String
+  client     Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  type       String   @default("PRIVACY_TC")
+  version    String // es. "2026-07-02"
+  acceptedAt DateTime @default(now())
+  ipAddress  String?
+  createdAt  DateTime @default(now())
+
+  @@index([clientId])
+  @@map("consent_logs")
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -212,6 +235,12 @@ model Subscription {
   // Data dell'ultimo rinnovo confermato (null = mai rinnovato).
   lastRenewalAt DateTime?
 
+  // Rinnovo automatico con addebito ricorrente (Setup Intent + off_session).
+  autoChargeEnabled       Boolean   @default(false)
+  autoChargeEndDate       DateTime? // oltre questa data l'addebito automatico si ferma
+  autoChargeFailCount     Int       @default(0)
+  autoChargeLastAttemptAt DateTime?
+
   // Riferimenti Stripe (se gestito come subscription ricorrente lato Stripe).
   stripeSubscriptionId String? @unique
 
@@ -267,6 +296,9 @@ model Payment {
   previousEndDate       DateTime?
   previousPriceCents    Int?
   previousLastRenewalAt DateTime?
+
+  // Token pubblico per la pagina intermedia di pagamento con gate di consenso.
+  payToken String @unique @default(cuid())
 
   // Note libere (es. "bonifico ricevuto il 12/06").
   note String?
