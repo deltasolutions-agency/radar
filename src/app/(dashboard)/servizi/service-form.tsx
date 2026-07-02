@@ -20,6 +20,7 @@ type ServiceValues = {
   costEuro: string;
   billingPeriod: string;
   customPeriodDays: string;
+  renewalIncreasePercent: string;
   autoRenew: boolean;
   active: boolean;
 };
@@ -32,6 +33,7 @@ const EMPTY: ServiceValues = {
   costEuro: "",
   billingPeriod: "ANNUALE",
   customPeriodDays: "",
+  renewalIncreasePercent: "0",
   autoRenew: true,
   active: true,
 };
@@ -81,6 +83,7 @@ export function ServiceForm({
       customPeriodDays: isCustom
         ? parseInt(values.customPeriodDays, 10) || undefined
         : null,
+      renewalIncreasePercent: parseInt(values.renewalIncreasePercent, 10) || 0,
       autoRenew: values.autoRenew,
       active: values.active,
     };
@@ -278,6 +281,27 @@ export function ServiceForm({
               ) : null}
             </div>
           ) : null}
+          <div>
+            <label htmlFor="renewalIncreasePercent" className="field-label">
+              Incremento % al rinnovo
+            </label>
+            <input
+              id="renewalIncreasePercent"
+              inputMode="numeric"
+              placeholder="0"
+              className="field"
+              value={values.renewalIncreasePercent}
+              onChange={(e) => setV("renewalIncreasePercent", e.target.value)}
+            />
+            <p className="mt-1 text-xs text-slate-500">
+              Percentuale applicata al prezzo a ogni rinnovo successivo.
+            </p>
+            {errors.renewalIncreasePercent ? (
+              <p className="mt-1 text-xs text-red-600">
+                {errors.renewalIncreasePercent}
+              </p>
+            ) : null}
+          </div>
         </div>
 
         <div className="flex flex-wrap gap-6 pt-2">

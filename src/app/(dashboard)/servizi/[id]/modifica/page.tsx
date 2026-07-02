@@ -44,6 +44,7 @@ export default async function ModificaServizioPage({
           costEuro: centsToEuro(service.costCents),
           billingPeriod: service.billingPeriod,
           customPeriodDays: service.customPeriodDays?.toString() ?? "",
+          renewalIncreasePercent: service.renewalIncreasePercent.toString(),
           autoRenew: service.autoRenew,
           active: service.active,
         }}

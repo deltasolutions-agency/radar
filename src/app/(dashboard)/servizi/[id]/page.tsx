@@ -107,6 +107,14 @@ export default async function ServizioDettaglioPage({
               label="Rinnovo auto"
               value={service.autoRenew ? "Sì" : "No"}
             />
+            <Row
+              label="Incremento rinnovo"
+              value={
+                service.renewalIncreasePercent > 0
+                  ? `+${service.renewalIncreasePercent}%`
+                  : "—"
+              }
+            />
           </dl>
         </section>
       </div>

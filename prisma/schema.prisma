@@ -167,6 +167,9 @@ model Service {
   autoRenew Boolean @default(true)
   active    Boolean @default(true)
 
+  // Incremento percentuale applicato al prezzo a ogni rinnovo (5 = +5%).
+  renewalIncreasePercent Int @default(0)
+
   subscriptions Subscription[]
 
   createdAt DateTime @default(now())
@@ -204,6 +207,9 @@ model Subscription {
 
   paymentMethod PaymentMethod @default(MANUALE)
   autoRenew     Boolean       @default(true)
+
+  // Data dell'ultimo rinnovo confermato (null = mai rinnovato).
+  lastRenewalAt DateTime?
 
   // Riferimenti Stripe (se gestito come subscription ricorrente lato Stripe).
   stripeSubscriptionId String? @unique
