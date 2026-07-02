@@ -10,6 +10,7 @@ import { CeaseButton } from "../cease-button";
 import { PaymentActions } from "../payment-actions";
 import { ReactivateButton } from "../reactivate-button";
 import { RegenerateLinkButton } from "../regenerate-link-button";
+import { RefundButton } from "../refund-button";
 import {
   isReceiptPubliclyAccessible,
   getReceiptExpiryDate,
@@ -227,9 +228,22 @@ export default async function AbbonamentoDettaglioPage({
                     </span>
                   </td>
                   <td className="px-5 py-3">
-                    <PaymentStatusBadge
-                      status={p.status as PaymentStatusValue}
-                    />
+                    <div className="flex flex-col items-start gap-1.5">
+                      <PaymentStatusBadge
+                        status={p.status as PaymentStatusValue}
+                      />
+                      {p.method === "STRIPE" && p.status === "CONFERMATO" ? (
+                        <RefundButton
+                          paymentId={p.id}
+                          amountLabel={formatEur(p.amountCents, p.currency)}
+                          previousEndDateLabel={
+                            p.previousEndDate
+                              ? formatDate(p.previousEndDate)
+                              : null
+                          }
+                        />
+                      ) : null}
+                    </div>
                   </td>
                   <td className="px-5 py-3">
                     {p.receipt ? (

@@ -261,6 +261,13 @@ model Payment {
   checkoutExpiresAt DateTime?
   linkSentAt        DateTime?
 
+  // Snapshot dei valori della subscription PRIMA del rinnovo prodotto da questo
+  // pagamento (null se non ha rinnovato nulla). Serve a disfare il rinnovo in
+  // caso di storno.
+  previousEndDate       DateTime?
+  previousPriceCents    Int?
+  previousLastRenewalAt DateTime?
+
   // Note libere (es. "bonifico ricevuto il 12/06").
   note String?
 

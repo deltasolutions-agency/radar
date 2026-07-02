@@ -87,7 +87,10 @@ export async function confirmPaymentAndRenew(
       ? sub.priceCents
       : Math.round(sub.priceCents * (1 + service.renewalIncreasePercent / 100));
 
-    // ── Conferma Payment + periodo coperto ──────────────────────────────────
+    // ── Conferma Payment + periodo coperto + snapshot pre-rinnovo ────────────
+    // sub.* contiene ancora i valori ATTUALI (la subscription non è ancora stata
+    // aggiornata): li salviamo sul Payment per poter disfare il rinnovo in caso
+    // di storno. Solo se c'è stato un rinnovo (non renewalSkipped).
     const updatedPayment = await tx.payment.update({
       where: { id: payment.id },
       data: {
@@ -96,7 +99,13 @@ export async function confirmPaymentAndRenew(
         // Il pagamento copre vecchio endDate → nuovo endDate (solo se rinnovato).
         ...(renewalSkipped
           ? {}
-          : { periodStart: sub.endDate, periodEnd: newEndDate }),
+          : {
+              periodStart: sub.endDate,
+              periodEnd: newEndDate,
+              previousEndDate: sub.endDate,
+              previousPriceCents: sub.priceCents,
+              previousLastRenewalAt: sub.lastRenewalAt,
+            }),
       },
     });
 
