@@ -7,8 +7,10 @@ ADD COLUMN "autoChargeEndDate" TIMESTAMP(3),
 ADD COLUMN "autoChargeFailCount" INTEGER NOT NULL DEFAULT 0,
 ADD COLUMN "autoChargeLastAttemptAt" TIMESTAMP(3);
 
--- AlterTable
-ALTER TABLE "payments" ADD COLUMN "payToken" TEXT NOT NULL;
+-- AlterTable (payToken: aggiunta sicura per righe esistenti in produzione)
+ALTER TABLE "payments" ADD COLUMN "payToken" TEXT;
+UPDATE "payments" SET "payToken" = md5(random()::text || clock_timestamp()::text || id) WHERE "payToken" IS NULL;
+ALTER TABLE "payments" ALTER COLUMN "payToken" SET NOT NULL;
 
 -- CreateTable
 CREATE TABLE "consent_logs" (
