@@ -15,7 +15,7 @@ export default function NuovoAbbonamentoPage() {
           Nuovo abbonamento
         </h1>
       </div>
-      <SubscriptionForm mode="create" />
+      <SubscriptionForm />
     </div>
   );
 }

@@ -5,7 +5,7 @@ import { subscriptionUpdateSchema } from "@/lib/validations";
 
 type Params = { params: { id: string } };
 
-// GET /api/subscriptions/[id]  → singolo (client, service, payments inclusi)
+// GET /api/subscriptions/[id]  → contenitore con cliente, righe e pagamenti
 export function GET(_req: NextRequest, { params }: Params) {
   return withApi(async () => {
     await requireSession();
@@ -13,9 +13,14 @@ export function GET(_req: NextRequest, { params }: Params) {
       where: { id: params.id },
       include: {
         client: true,
-        service: true,
+        items: { include: { service: true }, orderBy: { endDate: "asc" } },
         payments: {
-          include: { receipt: true },
+          include: {
+            receipt: true,
+            items: {
+              include: { subscriptionItem: { include: { service: true } } },
+            },
+          },
           orderBy: { createdAt: "desc" },
         },
       },
@@ -25,7 +30,7 @@ export function GET(_req: NextRequest, { params }: Params) {
   });
 }
 
-// PATCH /api/subscriptions/[id]
+// PATCH /api/subscriptions/[id]  → aggiorna il contenitore (solo note)
 export function PATCH(req: NextRequest, { params }: Params) {
   return withApi(async () => {
     await requireSession();
@@ -56,11 +61,13 @@ export function DELETE(_req: NextRequest, { params }: Params) {
 
     if (subscription._count.payments > 0) {
       return error(
-        "Impossibile eliminare: l'abbonamento ha pagamenti registrati. Puoi cessarlo invece.",
+        "Impossibile eliminare: l'abbonamento ha pagamenti registrati. Puoi cessarne le righe o usare l'eliminazione forzata.",
         409,
       );
     }
 
+    // Le righe (SubscriptionItem) cascano con il contenitore; senza pagamenti
+    // non ci sono PaymentItem che ne blocchino la cancellazione (Restrict).
     await prisma.subscription.delete({ where: { id: params.id } });
     return json({ ok: true });
   });

@@ -1,38 +1,53 @@
 import "server-only";
-import type { Payment, Receipt, Subscription, Service } from "@prisma/client";
+import type { Payment, Receipt, SubscriptionItem } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { createReceiptForPayment } from "@/lib/create-receipt";
 import { buildConfirmationEmail } from "@/lib/email-templates";
 import { sendEmail } from "@/lib/send-email";
 import { MS_PER_DAY, periodDurationDays } from "@/lib/billing-period";
 
+/** Esito del rinnovo di una singola riga (SubscriptionItem) del pagamento. */
+export type ConfirmPaymentItemResult = {
+  subscriptionItem: SubscriptionItem;
+  serviceName: string;
+  amountCents: number;
+  /** Nuova scadenza della riga dopo il rinnovo (o quella corrente se saltato). */
+  newEndDate: Date;
+  /** true se il rinnovo di questa riga è stato saltato (vedi renewalReason). */
+  renewalSkipped: boolean;
+  renewalReason?: string;
+};
+
 export type ConfirmPaymentResult = {
   payment: Payment;
   receipt: Receipt;
-  subscription: Subscription;
-  /** true se il rinnovo della data/prezzo è stato saltato (vedi renewalReason). */
-  renewalSkipped: boolean;
-  renewalReason?: string;
+  /** Un elemento per ciascun PaymentItem confermato in questo pagamento. */
+  items: ConfirmPaymentItemResult[];
   /** true se il pagamento era già stato confermato ed elaborato (retry). */
   alreadyProcessed: boolean;
 };
 
 /**
- * Punto UNICO in cui un pagamento passa a CONFERMATO e la subscription viene
- * rinnovata. La usano sia il webhook Stripe sia il pagamento manuale.
+ * Punto UNICO in cui un pagamento passa a CONFERMATO e le righe di servizio
+ * coperte vengono rinnovate. La usano sia il webhook Stripe sia il pagamento
+ * manuale.
  *
- * Tutto avviene in una singola transazione (conferma + rinnovo + ricevuta):
- * questo garantisce che non esista mai lo stato "CONFERMATO senza ricevuta ma
- * già rinnovato", che permetterebbe a un retry di raddoppiare il rinnovo.
+ * Tutto avviene in una singola transazione (conferma + rinnovo di OGNI riga +
+ * ricevuta): garantisce che non esista mai lo stato "CONFERMATO senza ricevuta
+ * ma già rinnovato", che permetterebbe a un retry di raddoppiare il rinnovo.
  *
  * Idempotente: se il Payment è già CONFERMATO E ha già una ricevuta, ritorna
  * gli oggetti esistenti SENZA rinnovare di nuovo (retry del webhook Stripe).
- * Il controllo avviene PRIMA di toccare la subscription.
+ * Il controllo avviene PRIMA di toccare le righe.
  *
- * Controllo difensivo: se billingPeriod è PERSONALIZZATA ma customPeriodDays è
- * null, il pagamento e la ricevuta vengono comunque registrati ma la data NON
- * viene rinnovata (renewalSkipped: true) — nessuna eccezione, così il pagamento
- * non viene annullato dal rollback.
+ * NOTA CRITICA: il calcolo del rinnovo è INDIPENDENTE per ogni riga — item con
+ * periodi diversi nello stesso pagamento avanzano ciascuno della propria durata,
+ * non una durata comune.
+ *
+ * Controllo difensivo per singola riga: se billingPeriod è PERSONALIZZATA ma
+ * customPeriodDays è null, quella riga viene registrata come pagata ma NON
+ * rinnovata (renewalSkipped: true) — senza bloccare le altre righe né annullare
+ * il pagamento.
  */
 export async function confirmPaymentAndRenew(
   paymentId: string,
@@ -42,7 +57,9 @@ export async function confirmPaymentAndRenew(
       where: { id: paymentId },
       include: {
         receipt: true,
-        subscription: { include: { service: true } },
+        items: {
+          include: { subscriptionItem: { include: { service: true } } },
+        },
       },
     });
 
@@ -50,81 +67,101 @@ export async function confirmPaymentAndRenew(
       throw new Error(`Payment ${paymentId} non trovato`);
     }
 
-    // ── Idempotenza (PRIMA di toccare la subscription) ──────────────────────
+    // ── Idempotenza (PRIMA di toccare le righe) ─────────────────────────────
     // Già confermato e con ricevuta → retry: ritorna l'esistente senza rinnovo.
     if (payment.status === "CONFERMATO" && payment.receipt) {
-      const { subscription } = payment;
-      const { service: _service, ...subscriptionOnly } = subscription;
+      const items: ConfirmPaymentItemResult[] = payment.items.map((pi) => {
+        const { service, ...itemOnly } = pi.subscriptionItem;
+        return {
+          subscriptionItem: itemOnly,
+          serviceName: service.name,
+          amountCents: pi.amountCents,
+          newEndDate: itemOnly.endDate,
+          renewalSkipped: false,
+        };
+      });
       return {
         payment,
         receipt: payment.receipt,
-        subscription: subscriptionOnly,
-        renewalSkipped: false,
+        items,
         alreadyProcessed: true,
       };
     }
 
-    const sub = payment.subscription;
-    const service: Service = sub.service;
     const paidAt = payment.paidAt ?? new Date();
+    const now = new Date();
 
-    // ── Calcolo rinnovo ─────────────────────────────────────────────────────
-    const durationDays = periodDurationDays(sub);
-    const renewalSkipped =
-      sub.billingPeriod === "PERSONALIZZATA" && durationDays == null;
-    const renewalReason = renewalSkipped
-      ? "Periodicità PERSONALIZZATA senza customPeriodDays: rinnovo della data saltato."
-      : undefined;
+    // ── Rinnovo INDIPENDENTE di ciascuna riga ───────────────────────────────
+    const items: ConfirmPaymentItemResult[] = [];
+    for (const pi of payment.items) {
+      const { service, ...itemOnly } = pi.subscriptionItem;
 
-    // Nuovo endDate ANCORATO al vecchio endDate (mai alla data di pagamento).
-    const newEndDate =
-      !renewalSkipped && durationDays != null
-        ? new Date(sub.endDate.getTime() + durationDays * MS_PER_DAY)
-        : sub.endDate;
+      const durationDays = periodDurationDays(itemOnly);
+      const renewalSkipped =
+        itemOnly.billingPeriod === "PERSONALIZZATA" && durationDays == null;
+      const renewalReason = renewalSkipped
+        ? "Periodicità PERSONALIZZATA senza customPeriodDays: rinnovo della data saltato."
+        : undefined;
 
-    // Incremento composto sul priceCents CORRENTE della subscription.
-    const newPriceCents = renewalSkipped
-      ? sub.priceCents
-      : Math.round(sub.priceCents * (1 + service.renewalIncreasePercent / 100));
+      // Nuovo endDate ANCORATO al vecchio endDate (mai alla data di pagamento).
+      const newEndDate =
+        !renewalSkipped && durationDays != null
+          ? new Date(itemOnly.endDate.getTime() + durationDays * MS_PER_DAY)
+          : itemOnly.endDate;
 
-    // ── Conferma Payment + periodo coperto + snapshot pre-rinnovo ────────────
-    // sub.* contiene ancora i valori ATTUALI (la subscription non è ancora stata
-    // aggiornata): li salviamo sul Payment per poter disfare il rinnovo in caso
-    // di storno. Solo se c'è stato un rinnovo (non renewalSkipped).
-    const updatedPayment = await tx.payment.update({
-      where: { id: payment.id },
-      data: {
-        status: "CONFERMATO",
-        paidAt,
-        // Il pagamento copre vecchio endDate → nuovo endDate (solo se rinnovato).
-        ...(renewalSkipped
-          ? {}
-          : {
-              periodStart: sub.endDate,
-              periodEnd: newEndDate,
-              previousEndDate: sub.endDate,
-              previousPriceCents: sub.priceCents,
-              previousLastRenewalAt: sub.lastRenewalAt,
-            }),
-      },
-    });
+      // Incremento composto sul priceCents CORRENTE della riga.
+      const newPriceCents = renewalSkipped
+        ? itemOnly.priceCents
+        : Math.round(
+            itemOnly.priceCents * (1 + service.renewalIncreasePercent / 100),
+          );
 
-    // ── Rinnovo Subscription (solo se non saltato) ──────────────────────────
-    let updatedSubscription: Subscription;
-    if (renewalSkipped) {
-      const { service: _s, ...subscriptionOnly } = sub;
-      updatedSubscription = subscriptionOnly;
-    } else {
-      updatedSubscription = await tx.subscription.update({
-        where: { id: sub.id },
+      // Conferma della riga di pagamento + snapshot pre-rinnovo (per lo storno).
+      // periodStart/periodEnd sono già stati impostati alla creazione del
+      // pagamento (checkout / manuale) e non vengono toccati qui.
+      await tx.paymentItem.update({
+        where: { id: pi.id },
         data: {
-          endDate: newEndDate,
-          priceCents: newPriceCents,
-          lastRenewalAt: new Date(),
-          status: "RINNOVATO",
+          status: "CONFERMATO",
+          ...(renewalSkipped
+            ? {}
+            : {
+                previousEndDate: itemOnly.endDate,
+                previousPriceCents: itemOnly.priceCents,
+                previousLastRenewalAt: itemOnly.lastRenewalAt,
+              }),
         },
       });
+
+      // Rinnovo della riga di servizio (solo se non saltato).
+      let updatedItem: SubscriptionItem = itemOnly;
+      if (!renewalSkipped) {
+        updatedItem = await tx.subscriptionItem.update({
+          where: { id: itemOnly.id },
+          data: {
+            endDate: newEndDate,
+            priceCents: newPriceCents,
+            lastRenewalAt: now,
+            status: "RINNOVATO",
+          },
+        });
+      }
+
+      items.push({
+        subscriptionItem: updatedItem,
+        serviceName: service.name,
+        amountCents: pi.amountCents,
+        newEndDate,
+        renewalSkipped,
+        renewalReason,
+      });
     }
+
+    // ── Conferma del Payment (stato aggregato) ──────────────────────────────
+    const updatedPayment = await tx.payment.update({
+      where: { id: payment.id },
+      data: { status: "CONFERMATO", paidAt },
+    });
 
     // ── Ricevuta (dentro la stessa transazione) ─────────────────────────────
     const receipt = await createReceiptForPayment(payment.id, tx);
@@ -132,9 +169,7 @@ export async function confirmPaymentAndRenew(
     return {
       payment: updatedPayment,
       receipt,
-      subscription: updatedSubscription,
-      renewalSkipped,
-      renewalReason,
+      items,
       alreadyProcessed: false,
     };
   });
@@ -154,24 +189,31 @@ export async function confirmPaymentAndRenew(
  * distinto per ciascun destinatario.
  *
  * Due record (dedupeKey "{paymentId}-admin" e "{paymentId}-client") anziché uno:
- * rispettano il vincolo @@unique([subscriptionId, type, dedupeKey]) e tracciano
- * separatamente l'esito dei due invii (uno può fallire senza l'altro).
+ * tracciano separatamente l'esito dei due invii (uno può fallire senza l'altro).
  *
  * Ogni invio è isolato e non-bloccante: un errore verso il cliente non impedisce
  * l'invio all'admin, né viceversa, né la conferma del pagamento.
+ *
+ * Il pagamento può coprire PIÙ servizi: l'email elenca ogni riga (servizio,
+ * importo, nuova scadenza) con il totale, consumando `result.items`.
  */
 async function sendConfirmationEmail(
   paymentId: string,
   result: ConfirmPaymentResult,
 ): Promise<void> {
   const receipt = result.receipt;
+  const subscriptionId = result.payment.subscriptionId;
+
   const commonData = {
-    subscriptionId: result.subscription.id,
+    subscriptionId,
     clientName: receipt.clientName,
-    serviceName: receipt.serviceName,
-    amountCents: receipt.amountCents,
+    items: result.items.map((i) => ({
+      serviceName: i.serviceName,
+      amountCents: i.amountCents,
+      newEndDate: i.newEndDate,
+    })),
+    totalCents: receipt.amountCents,
     currency: receipt.currency,
-    endDate: result.subscription.endDate,
     method: result.payment.method,
     receiptToken: receipt.token,
   };
@@ -179,7 +221,6 @@ async function sendConfirmationEmail(
   // Invio all'admin (destinatario di default = ADMIN_EMAIL).
   await deliverConfirmation({
     paymentId,
-    subscriptionId: result.subscription.id,
     dedupeKey: `${paymentId}-admin`,
     recipient: process.env.ADMIN_EMAIL,
     content: buildConfirmationEmail({ ...commonData, audience: "admin" }),
@@ -189,7 +230,6 @@ async function sendConfirmationEmail(
   if (receipt.clientEmail) {
     await deliverConfirmation({
       paymentId,
-      subscriptionId: result.subscription.id,
       dedupeKey: `${paymentId}-client`,
       recipient: receipt.clientEmail,
       content: buildConfirmationEmail({ ...commonData, audience: "client" }),
@@ -200,10 +240,13 @@ async function sendConfirmationEmail(
 /**
  * Invia una singola email di conferma e registra il relativo NotificationLog.
  * Idempotente sul dedupeKey; non lancia mai (errori loggati e ignorati).
+ *
+ * L'email è a livello di PAGAMENTO (non di singola riga): il NotificationLog non
+ * è legato a un subscriptionItemId specifico — la de-duplicazione avviene su
+ * (type, dedupeKey), con dedupeKey univoco per paymentId+destinatario.
  */
 async function deliverConfirmation(params: {
   paymentId: string;
-  subscriptionId: string;
   dedupeKey: string;
   recipient?: string;
   content: { subject: string; text: string; html: string };
@@ -219,7 +262,6 @@ async function deliverConfirmation(params: {
 
     await prisma.notificationLog.create({
       data: {
-        subscriptionId: params.subscriptionId,
         paymentId: params.paymentId,
         type: "CONFERMA_ACQUISTO",
         status: sent.status,

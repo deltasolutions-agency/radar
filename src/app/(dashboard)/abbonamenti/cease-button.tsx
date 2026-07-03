@@ -4,16 +4,16 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 
 /**
- * Bottone "Cessa abbonamento" con conferma inline in due passaggi.
- * Consentito da ATTIVO / IN_SCADENZA / SCADUTO / RINNOVATO: negli altri casi
- * il componente non renderizza nulla.
+ * Bottone "Cessa" di una riga di servizio (SubscriptionItem) con conferma inline
+ * in due passaggi. Consentito da ATTIVO / IN_SCADENZA / SCADUTO / RINNOVATO:
+ * negli altri casi il componente non renderizza nulla.
  */
 export function CeaseButton({
-  id,
+  itemId,
   status,
   className = "btn-ghost",
 }: {
-  id: string;
+  itemId: string;
   status: string;
   className?: string;
 }) {
@@ -31,7 +31,7 @@ export function CeaseButton({
     setPending(true);
     setError(null);
     try {
-      const res = await fetch(`/api/subscriptions/${id}/cease`, {
+      const res = await fetch(`/api/subscription-items/${itemId}/cease`, {
         method: "POST",
       });
       if (!res.ok) {
@@ -64,7 +64,7 @@ export function CeaseButton({
   return (
     <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3">
       <p className="text-sm text-amber-800">
-        Cessare questo abbonamento? Lo stato diventerà CESSATO.
+        Cessare questo servizio? Lo stato della riga diventerà CESSATO.
       </p>
       {error ? (
         <p className="mt-2 text-sm font-medium text-red-700">{error}</p>

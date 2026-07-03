@@ -42,13 +42,13 @@ export function DELETE(_req: NextRequest, { params }: Params) {
     await requireSession();
     const service = await prisma.service.findUnique({
       where: { id: params.id },
-      select: { id: true, _count: { select: { subscriptions: true } } },
+      select: { id: true, _count: { select: { subscriptionItems: true } } },
     });
     if (!service) return error("Servizio non trovato", 404);
 
-    // Con abbonamenti collegati la cancellazione fisica è vietata: si preferisce
-    // la disattivazione (PATCH { active: false }) per preservare lo storico.
-    if (service._count.subscriptions > 0) {
+    // Con righe di abbonamento collegate la cancellazione fisica è vietata: si
+    // preferisce la disattivazione (PATCH { active: false }) per lo storico.
+    if (service._count.subscriptionItems > 0) {
       return error(
         "Impossibile eliminare: il servizio ha abbonamenti collegati. " +
           "Disattivalo invece di eliminarlo.",

@@ -5,23 +5,23 @@ import { json, error, withApi, requireSession } from "@/lib/api";
 type Params = { params: { id: string } };
 
 // DELETE /api/subscriptions/[id]/force-delete
-// Elimina PERMANENTEMENTE la subscription e TUTTI i dati collegati (Payment,
-// Receipt, NotificationLog). Protetto da conferma testuale esatta.
+// Elimina PERMANENTEMENTE l'abbonamento e TUTTI i dati collegati (righe,
+// pagamenti, ricevute, notifiche). Protetto da conferma testuale esatta =
+// nome cliente visualizzato.
 export function DELETE(req: NextRequest, { params }: Params) {
   return withApi(async () => {
     await requireSession();
 
     const subscription = await prisma.subscription.findUnique({
       where: { id: params.id },
-      include: { client: true, service: true },
+      include: { client: true },
     });
     if (!subscription) return error("Abbonamento non trovato", 404);
 
-    // Stringa attesa: stessa formula del nome mostrato in UI.
-    const clientName = subscription.client.ragioneSociale?.trim()
+    // Stringa attesa: il nome cliente mostrato in UI (ragione sociale se presente).
+    const expected = subscription.client.ragioneSociale?.trim()
       ? subscription.client.ragioneSociale
       : subscription.client.name;
-    const expected = `${clientName} / ${subscription.service.name}`;
 
     const body = await req.json().catch(() => ({}));
     const confirmText =
@@ -32,7 +32,15 @@ export function DELETE(req: NextRequest, { params }: Params) {
     }
 
     // Eliminazione esplicita in ordine, in un'unica transazione.
+    // I NotificationLog vanno rimossi prima (payment→SetNull li lascerebbe
+    // orfani; item→Cascade li rimuove ma solo alla delete del contenitore).
     await prisma.$transaction(async (tx) => {
+      const items = await tx.subscriptionItem.findMany({
+        where: { subscriptionId: params.id },
+        select: { id: true },
+      });
+      const itemIds = items.map((i) => i.id);
+
       const payments = await tx.payment.findMany({
         where: { subscriptionId: params.id },
         select: { id: true },
@@ -42,17 +50,14 @@ export function DELETE(req: NextRequest, { params }: Params) {
       await tx.notificationLog.deleteMany({
         where: {
           OR: [
-            { subscriptionId: params.id },
+            { subscriptionItemId: { in: itemIds } },
             { paymentId: { in: paymentIds } },
           ],
         },
       });
-      await tx.receipt.deleteMany({
-        where: { paymentId: { in: paymentIds } },
-      });
-      await tx.payment.deleteMany({
-        where: { subscriptionId: params.id },
-      });
+      // Cancellando i pagamenti cascano PaymentItem, Receipt e ReceiptLine.
+      await tx.payment.deleteMany({ where: { subscriptionId: params.id } });
+      // Cancellando il contenitore cascano le righe (SubscriptionItem).
       await tx.subscription.delete({ where: { id: params.id } });
     });
 

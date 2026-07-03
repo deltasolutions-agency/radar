@@ -14,15 +14,15 @@ export async function activateAutoCharge(formData: FormData): Promise<void> {
   const token = String(formData.get("token") ?? "");
   const consentGiven = formData.get("consent") === "on";
 
-  const sub = await prisma.subscription.findUnique({
+  const item = await prisma.subscriptionItem.findUnique({
     where: { autoChargeSetupToken: token },
-    include: { client: true },
+    include: { subscription: { include: { client: true } } },
   });
-  if (!sub) {
+  if (!item) {
     redirect(`/attiva-rinnovo/${token}`);
   }
 
-  const client = sub.client;
+  const client = item.subscription.client;
   const existingConsent = await prisma.consentLog.findFirst({
     where: { clientId: client.id, version: CURRENT_CONSENT_VERSION },
     select: { id: true },
@@ -50,8 +50,8 @@ export async function activateAutoCharge(formData: FormData): Promise<void> {
   try {
     url = await createSetupCheckoutUrl(
       {
-        id: sub.id,
-        currency: sub.currency,
+        id: item.subscriptionId,
+        currency: item.currency,
         client: {
           id: client.id,
           email: client.email,

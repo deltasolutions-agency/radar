@@ -38,12 +38,12 @@ export default async function AttivaRinnovoPage({
   params: { token: string };
   searchParams: { done?: string; annullato?: string; error?: string };
 }) {
-  const sub = await prisma.subscription.findUnique({
+  const item = await prisma.subscriptionItem.findUnique({
     where: { autoChargeSetupToken: params.token },
-    include: { client: true, service: true },
+    include: { service: true, subscription: { include: { client: true } } },
   });
 
-  if (!sub) {
+  if (!item) {
     return (
       <Message
         title="Link non valido"
@@ -51,6 +51,8 @@ export default async function AttivaRinnovoPage({
       />
     );
   }
+
+  const client = item.subscription.client;
 
   // Carta registrata con successo.
   if (searchParams.done) {
@@ -63,13 +65,13 @@ export default async function AttivaRinnovoPage({
   }
 
   const needsConsent = !(await prisma.consentLog.findFirst({
-    where: { clientId: sub.clientId, version: CURRENT_CONSENT_VERSION },
+    where: { clientId: client.id, version: CURRENT_CONSENT_VERSION },
     select: { id: true },
   }));
 
   const periodicity = formatBillingPeriod(
-    sub.billingPeriod as BillingPeriodValue,
-    sub.customPeriodDays,
+    item.billingPeriod as BillingPeriodValue,
+    item.customPeriodDays,
   );
 
   return (
@@ -77,12 +79,12 @@ export default async function AttivaRinnovoPage({
       <h1 className="text-lg font-semibold tracking-tight">
         Attiva il rinnovo automatico
       </h1>
-      <p className="mt-1 text-sm text-slate-500">{sub.client.name}</p>
+      <p className="mt-1 text-sm text-slate-500">{client.name}</p>
 
       <dl className="mt-5 space-y-2 border-y border-line-soft py-4 text-sm">
         <div className="flex justify-between gap-4">
           <dt className="text-slate-500">Servizio</dt>
-          <dd className="text-right text-ink">{sub.service.name}</dd>
+          <dd className="text-right text-ink">{item.service.name}</dd>
         </div>
         <div className="flex justify-between gap-4">
           <dt className="text-slate-500">Periodicità</dt>
@@ -91,7 +93,7 @@ export default async function AttivaRinnovoPage({
         <div className="flex justify-between gap-4">
           <dt className="text-slate-500">Importo per addebito</dt>
           <dd className="text-right font-mono text-base font-semibold text-ink">
-            {formatEur(sub.priceCents, sub.currency)}
+            {formatEur(item.priceCents, item.currency)}
           </dd>
         </div>
       </dl>

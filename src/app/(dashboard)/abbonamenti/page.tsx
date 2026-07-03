@@ -12,6 +12,7 @@ import {
 
 export const dynamic = "force-dynamic";
 
+// Scadenzario: una riga per servizio (SubscriptionItem), ordinata per scadenza.
 export default async function AbbonamentiPage({
   searchParams,
 }: {
@@ -23,12 +24,12 @@ export default async function AbbonamentiPage({
       ? (searchParams.status as SubscriptionStatusValue)
       : undefined;
 
-  const subscriptions = await prisma.subscription.findMany({
+  const items = await prisma.subscriptionItem.findMany({
     where: status ? { status } : undefined,
     include: {
-      client: true,
       service: true,
-      _count: { select: { payments: true } },
+      subscription: { include: { client: true } },
+      _count: { select: { paymentItems: true } },
     },
     orderBy: { endDate: "asc" },
   });
@@ -39,8 +40,7 @@ export default async function AbbonamentiPage({
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Abbonamenti</h1>
           <p className="mt-1 text-sm text-slate-500">
-            {subscriptions.length}{" "}
-            {subscriptions.length === 1 ? "abbonamento" : "abbonamenti"}
+            {items.length} {items.length === 1 ? "servizio" : "servizi"}
             {status ? ` · ${SUBSCRIPTION_STATUS_LABELS[status]}` : ""}
           </p>
         </div>
@@ -68,11 +68,11 @@ export default async function AbbonamentiPage({
       </div>
 
       <div className="card overflow-hidden">
-        {subscriptions.length === 0 ? (
+        {items.length === 0 ? (
           <div className="px-6 py-12 text-center text-sm text-slate-500">
-            Nessun abbonamento.{" "}
+            Nessun servizio.{" "}
             <Link href="/abbonamenti/nuovo" className="text-brand underline">
-              Creane uno
+              Crea un abbonamento
             </Link>
             .
           </div>
@@ -89,62 +89,66 @@ export default async function AbbonamentiPage({
               </tr>
             </thead>
             <tbody>
-              {subscriptions.map((sub) => (
-                <tr
-                  key={sub.id}
-                  className="border-b border-line-soft transition last:border-0 hover:bg-canvas"
-                >
-                  <td className="px-5 py-3">
-                    <Link
-                      href={`/abbonamenti/${sub.id}`}
-                      className="font-medium text-ink hover:underline"
-                    >
-                      {sub.client.ragioneSociale?.trim()
-                        ? sub.client.ragioneSociale
-                        : sub.client.name}
-                    </Link>
-                  </td>
-                  <td className="px-5 py-3 text-slate-600">
-                    {sub.service.name}
-                  </td>
-                  <td className="px-5 py-3 text-slate-600">
-                    {formatDate(sub.endDate)}
-                  </td>
-                  <td className="px-5 py-3 font-mono text-xs text-slate-600">
-                    {formatEur(sub.priceCents, sub.currency)}
-                  </td>
-                  <td className="px-5 py-3">
-                    <SubscriptionStatusBadge
-                      status={sub.status as SubscriptionStatusValue}
-                    />
-                  </td>
-                  <td className="px-5 py-3">
-                    <div className="flex items-center gap-3">
+              {items.map((it) => {
+                const client = it.subscription.client;
+                const clientName = client.ragioneSociale?.trim()
+                  ? client.ragioneSociale
+                  : client.name;
+                return (
+                  <tr
+                    key={it.id}
+                    className="border-b border-line-soft transition last:border-0 hover:bg-canvas"
+                  >
+                    <td className="px-5 py-3">
                       <Link
-                        href={`/abbonamenti/${sub.id}`}
-                        className="text-brand hover:underline"
+                        href={`/abbonamenti/${it.subscriptionId}`}
+                        className="font-medium text-ink hover:underline"
                       >
-                        Dettaglio
+                        {clientName}
                       </Link>
-                      {sub.status === "CESSATO" ? null : sub._count.payments ===
-                        0 ? (
-                        <DeleteButton
-                          endpoint={`/api/subscriptions/${sub.id}`}
-                          redirectTo="/abbonamenti"
-                          entityLabel="questo abbonamento"
-                          className="text-xs font-medium text-red-600 hover:underline"
-                        />
-                      ) : (
-                        <CeaseButton
-                          id={sub.id}
-                          status={sub.status}
-                          className="text-xs font-medium text-slate-600 hover:underline"
-                        />
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              ))}
+                    </td>
+                    <td className="px-5 py-3 text-slate-600">
+                      {it.service.name}
+                    </td>
+                    <td className="px-5 py-3 text-slate-600">
+                      {formatDate(it.endDate)}
+                    </td>
+                    <td className="px-5 py-3 font-mono text-xs text-slate-600">
+                      {formatEur(it.priceCents, it.currency)}
+                    </td>
+                    <td className="px-5 py-3">
+                      <SubscriptionStatusBadge
+                        status={it.status as SubscriptionStatusValue}
+                      />
+                    </td>
+                    <td className="px-5 py-3">
+                      <div className="flex items-center gap-3">
+                        <Link
+                          href={`/abbonamenti/${it.subscriptionId}`}
+                          className="text-brand hover:underline"
+                        >
+                          Dettaglio
+                        </Link>
+                        {it.status === "CESSATO" ? null : it._count
+                            .paymentItems === 0 ? (
+                          <DeleteButton
+                            endpoint={`/api/subscription-items/${it.id}`}
+                            redirectTo="/abbonamenti"
+                            entityLabel="questo servizio"
+                            className="text-xs font-medium text-red-600 hover:underline"
+                          />
+                        ) : (
+                          <CeaseButton
+                            itemId={it.id}
+                            status={it.status}
+                            className="text-xs font-medium text-slate-600 hover:underline"
+                          />
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         )}

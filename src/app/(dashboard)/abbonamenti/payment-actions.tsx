@@ -1,37 +1,43 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { manualPaymentSchema } from "@/lib/validations";
+import { formatEur, formatDate } from "@/lib/format";
 
-/** "12,50" / "12.50" → 1250 centesimi; "" → NaN. */
-function euroToCents(input: string): number {
-  const n = parseFloat(input.replace(",", ".").trim());
-  return Math.round(n * 100);
-}
+export type PayableItem = {
+  id: string;
+  serviceName: string;
+  priceCents: number;
+  currency: string;
+  status: string;
+  /** Scadenza corrente della riga (YYYY-MM-DD), per segnalare scadenze diverse. */
+  endDate: string;
+};
 
 /**
- * Azioni di pagamento sul dettaglio abbonamento:
+ * Azioni di pagamento sul dettaglio abbonamento. L'admin seleziona quali righe
+ * (servizi) coprire; le righe selezionate vengono raggruppate in un unico
+ * Payment/addebito:
  * - "Registra pagamento manuale": form inline → POST /pay-manual
- * - "Avvia pagamento Stripe": crea la sessione di checkout → redirect (solo
- *   se il metodo dell'abbonamento è STRIPE)
+ * - "Invia link" / "Apri checkout": Stripe Checkout con una line per servizio.
  */
 export function PaymentActions({
   subscriptionId,
-  paymentMethod,
-  defaultAmountEuro,
+  items,
 }: {
   subscriptionId: string;
-  paymentMethod: string;
-  defaultAmountEuro: string;
+  items: PayableItem[];
 }) {
   const router = useRouter();
 
+  // Selezione righe: default = tutte le righe pagabili (non cessate).
+  const [selected, setSelected] = useState<Record<string, boolean>>(() =>
+    Object.fromEntries(items.map((it) => [it.id, true])),
+  );
+
   const [showManual, setShowManual] = useState(false);
-  const [amountEuro, setAmountEuro] = useState(defaultAmountEuro);
   const [paidAt, setPaidAt] = useState("");
   const [note, setNote] = useState("");
-  const [errors, setErrors] = useState<Record<string, string>>({});
   const [manualPending, setManualPending] = useState(false);
 
   const [stripePending, setStripePending] = useState(false);
@@ -39,45 +45,34 @@ export function PaymentActions({
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
-  // Apre/chiude il form manuale. All'apertura ripristina l'importo al prezzo
-  // corrente (che può essere cambiato dopo un rinnovo) mantenendolo editabile.
-  function toggleManual() {
-    setShowManual((v) => {
-      const next = !v;
-      if (next) {
-        setAmountEuro(defaultAmountEuro);
-        setPaidAt("");
-        setNote("");
-        setErrors({});
-        setError(null);
-      }
-      return next;
-    });
+  const selectedItems = useMemo(
+    () => items.filter((it) => selected[it.id]),
+    [items, selected],
+  );
+  const selectedIds = selectedItems.map((it) => it.id);
+  const totalCents = selectedItems.reduce((s, it) => s + it.priceCents, 0);
+  const currency = selectedItems[0]?.currency ?? "eur";
+
+  // Valute diverse → un unico addebito non è possibile (blocco).
+  const mixedCurrency =
+    new Set(selectedItems.map((it) => it.currency)).size > 1;
+  // Scadenze diverse → prepagamento di righe non ancora scadute (avviso).
+  const mixedScadenza =
+    new Set(selectedItems.map((it) => it.endDate)).size > 1;
+
+  const canPay = selectedItems.length > 0 && !mixedCurrency;
+
+  function toggle(id: string) {
+    setSelected((s) => ({ ...s, [id]: !s[id] }));
   }
 
   async function submitManual(e: React.FormEvent) {
     e.preventDefault();
-    setErrors({});
     setError(null);
-
-    const amountCents = euroToCents(amountEuro);
-    const payload = {
-      amountCents: Number.isNaN(amountCents) ? undefined : amountCents,
-      note,
-      paidAt: paidAt || undefined,
-    };
-    const parsed = manualPaymentSchema.safeParse(payload);
-    if (!parsed.success) {
-      const fe: Record<string, string> = {};
-      for (const issue of parsed.error.issues) {
-        const key = issue.path.join(".") || "_";
-        if (key === "amountCents") fe.amountEuro = issue.message;
-        else if (!fe[key]) fe[key] = issue.message;
-      }
-      setErrors(fe);
+    if (!canPay) {
+      setError("Seleziona almeno un servizio da pagare");
       return;
     }
-
     setManualPending(true);
     try {
       const res = await fetch(
@@ -85,7 +80,14 @@ export function PaymentActions({
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(parsed.data),
+          body: JSON.stringify({
+            subscriptionItemIds: selectedIds,
+            // L'importo è ricalcolato lato server dai prezzi delle righe; lo
+            // inviamo comunque (lo schema lo richiede) coerente con il totale.
+            amountCents: totalCents,
+            note: note || undefined,
+            paidAt: paidAt || undefined,
+          }),
         },
       );
       const body = await res.json().catch(() => ({}));
@@ -103,43 +105,37 @@ export function PaymentActions({
     }
   }
 
-  // "Apri checkout ora": redirect immediato dell'admin al checkout Stripe.
-  async function openCheckout() {
-    setStripePending(true);
+  async function checkout(mode: "direct" | "send") {
     setError(null);
     setNotice(null);
-    try {
-      const res = await fetch(
-        `/api/subscriptions/${subscriptionId}/checkout?mode=direct`,
-        { method: "POST" },
-      );
-      const body = await res.json().catch(() => ({}));
-      if (!res.ok || !body.url) {
-        setError(body.error ?? "Avvio pagamento non riuscito");
-        setStripePending(false);
-        return;
-      }
-      window.location.href = body.url;
-    } catch {
-      setError("Errore di rete");
-      setStripePending(false);
+    if (!canPay) {
+      setError("Seleziona almeno un servizio da pagare");
+      return;
     }
-  }
-
-  // "Invia link al cliente": crea la sessione e la invia via email.
-  async function sendLink() {
-    setSendPending(true);
-    setError(null);
-    setNotice(null);
+    const setPending = mode === "direct" ? setStripePending : setSendPending;
+    setPending(true);
     try {
       const res = await fetch(
-        `/api/subscriptions/${subscriptionId}/checkout?mode=send`,
-        { method: "POST" },
+        `/api/subscriptions/${subscriptionId}/checkout?mode=${mode}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ subscriptionItemIds: selectedIds }),
+        },
       );
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setError(body.error ?? "Invio link non riuscito");
-        setSendPending(false);
+        setError(body.error ?? "Operazione non riuscita");
+        setPending(false);
+        return;
+      }
+      if (mode === "direct") {
+        if (!body.url) {
+          setError("Avvio pagamento non riuscito");
+          setPending(false);
+          return;
+        }
+        window.location.href = body.url;
         return;
       }
       if (body.sent) {
@@ -149,40 +145,100 @@ export function PaymentActions({
           "Link creato ma invio email non riuscito. Verifica la configurazione Resend.",
         );
       }
-      setSendPending(false);
+      setPending(false);
       router.refresh();
     } catch {
       setError("Errore di rete");
-      setSendPending(false);
+      setPending(false);
     }
+  }
+
+  if (items.length === 0) {
+    return (
+      <p className="text-sm text-slate-500">
+        Nessun servizio pagabile: aggiungi una riga o riattiva un servizio
+        cessato.
+      </p>
+    );
   }
 
   return (
     <div className="space-y-3">
+      {/* Selezione righe da pagare */}
+      <div className="space-y-1.5 rounded-lg border border-line bg-canvas p-4">
+        <p className="mono-label mb-1">Servizi da pagare</p>
+        {items.map((it) => (
+          <label
+            key={it.id}
+            className="flex items-center justify-between gap-3 text-sm"
+          >
+            <span className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={!!selected[it.id]}
+                onChange={() => toggle(it.id)}
+              />
+              {it.serviceName}
+            </span>
+            <span className="flex items-center gap-3">
+              <span className="text-xs text-slate-500">
+                scad. {formatDate(it.endDate)}
+              </span>
+              <span className="font-mono text-xs text-slate-600">
+                {formatEur(it.priceCents, it.currency)}
+              </span>
+            </span>
+          </label>
+        ))}
+        <div className="mt-2 flex items-center justify-between border-t border-line-soft pt-2 text-sm font-medium">
+          <span>Totale</span>
+          <span className="font-mono">{formatEur(totalCents, currency)}</span>
+        </div>
+      </div>
+
+      {mixedCurrency ? (
+        <p className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          I servizi selezionati hanno valute diverse: non è possibile
+          raggrupparli in un unico pagamento. Seleziona righe con la stessa
+          valuta.
+        </p>
+      ) : mixedScadenza ? (
+        <p className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          I servizi selezionati hanno scadenze diverse: verranno pagati insieme e
+          ciascuno sarà rinnovato a partire dalla propria scadenza (i servizi non
+          ancora scaduti risulteranno prepagati). Puoi procedere comunque.
+        </p>
+      ) : null}
+
       <div className="flex flex-wrap gap-2">
-        <button type="button" className="btn-primary" onClick={toggleManual}>
+        <button
+          type="button"
+          className="btn-primary"
+          disabled={!canPay}
+          onClick={() => {
+            setShowManual((v) => !v);
+            setError(null);
+            setNotice(null);
+          }}
+        >
           Registra pagamento manuale
         </button>
-        {paymentMethod === "STRIPE" ? (
-          <>
-            <button
-              type="button"
-              className="btn-ghost"
-              disabled={sendPending}
-              onClick={sendLink}
-            >
-              {sendPending ? "Invio…" : "Invia link di pagamento al cliente"}
-            </button>
-            <button
-              type="button"
-              className="btn-ghost"
-              disabled={stripePending}
-              onClick={openCheckout}
-            >
-              {stripePending ? "Apertura…" : "Apri checkout ora"}
-            </button>
-          </>
-        ) : null}
+        <button
+          type="button"
+          className="btn-ghost"
+          disabled={!canPay || sendPending}
+          onClick={() => checkout("send")}
+        >
+          {sendPending ? "Invio…" : "Invia link di pagamento al cliente"}
+        </button>
+        <button
+          type="button"
+          className="btn-ghost"
+          disabled={!canPay || stripePending}
+          onClick={() => checkout("direct")}
+        >
+          {stripePending ? "Apertura…" : "Apri checkout ora"}
+        </button>
       </div>
 
       {notice ? (
@@ -190,7 +246,6 @@ export function PaymentActions({
           {notice}
         </p>
       ) : null}
-
       {error ? (
         <p className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">
           {error}
@@ -202,22 +257,16 @@ export function PaymentActions({
           onSubmit={submitManual}
           className="space-y-4 rounded-lg border border-line bg-canvas p-4"
         >
+          <p className="text-sm text-ink">
+            Importo totale:{" "}
+            <span className="font-mono font-medium">
+              {formatEur(totalCents, currency)}
+            </span>{" "}
+            <span className="text-xs text-slate-500">
+              (somma dei servizi selezionati)
+            </span>
+          </p>
           <div className="grid gap-4 sm:grid-cols-2">
-            <div>
-              <label htmlFor="amountEuro" className="field-label">
-                Importo (€) <span className="text-red-600">*</span>
-              </label>
-              <input
-                id="amountEuro"
-                inputMode="decimal"
-                className="field"
-                value={amountEuro}
-                onChange={(e) => setAmountEuro(e.target.value)}
-              />
-              {errors.amountEuro ? (
-                <p className="mt-1 text-xs text-red-600">{errors.amountEuro}</p>
-              ) : null}
-            </div>
             <div>
               <label htmlFor="paidAt" className="field-label">
                 Data pagamento
@@ -229,22 +278,19 @@ export function PaymentActions({
                 value={paidAt}
                 onChange={(e) => setPaidAt(e.target.value)}
               />
-              {errors.paidAt ? (
-                <p className="mt-1 text-xs text-red-600">{errors.paidAt}</p>
-              ) : null}
             </div>
-          </div>
-          <div>
-            <label htmlFor="manualNote" className="field-label">
-              Note
-            </label>
-            <input
-              id="manualNote"
-              className="field"
-              placeholder="es. bonifico ricevuto il 12/06"
-              value={note}
-              onChange={(e) => setNote(e.target.value)}
-            />
+            <div>
+              <label htmlFor="manualNote" className="field-label">
+                Note
+              </label>
+              <input
+                id="manualNote"
+                className="field"
+                placeholder="es. bonifico ricevuto il 12/06"
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+              />
+            </div>
           </div>
           <div className="flex gap-2">
             <button

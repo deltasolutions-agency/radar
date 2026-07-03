@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { computeSubscriptionStatus } from "@/lib/subscription-status";
+import { computeItemStatus } from "@/lib/subscription-status";
 import { getReminderMilestone } from "@/lib/reminder-schedule";
 import { buildReminderEmail } from "@/lib/email-templates";
 import { sendEmail } from "@/lib/send-email";
@@ -22,9 +22,9 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Non autorizzato" }, { status: 401 });
   }
 
-  // ── 1. RICALCOLO STATUS (prima dei reminder) ───────────────────────────────
+  // ── 1. RICALCOLO STATUS PER RIGA (prima dei reminder) ──────────────────────
   let statusUpdated = 0;
-  const toRecalc = await prisma.subscription.findMany({
+  const toRecalc = await prisma.subscriptionItem.findMany({
     where: { status: { notIn: [...BLOCKING] } },
     select: {
       id: true,
@@ -35,22 +35,22 @@ export async function GET(request: NextRequest) {
       lastRenewalAt: true,
     },
   });
-  for (const sub of toRecalc) {
-    const newStatus = computeSubscriptionStatus(sub);
-    if (newStatus !== sub.status) {
+  for (const item of toRecalc) {
+    const newStatus = computeItemStatus(item);
+    if (newStatus !== item.status) {
       try {
-        await prisma.subscription.update({
-          where: { id: sub.id },
+        await prisma.subscriptionItem.update({
+          where: { id: item.id },
           data: { status: newStatus },
         });
         statusUpdated++;
       } catch (e) {
-        console.error(`[cron] ricalcolo status fallito per ${sub.id}:`, e);
+        console.error(`[cron] ricalcolo status fallito per item ${item.id}:`, e);
       }
     }
   }
 
-  // ── 2. REMINDER + CESSAZIONE ───────────────────────────────────────────────
+  // ── 2. REMINDER + CESSAZIONE (per riga) ────────────────────────────────────
   let remindersSent = 0;
   let remindersSkipped = 0;
   let remindersFailed = 0;
@@ -59,23 +59,30 @@ export async function GET(request: NextRequest) {
   const now = new Date();
   const dedupeKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
 
-  const subs = await prisma.subscription.findMany({
+  const items = await prisma.subscriptionItem.findMany({
     where: { status: { notIn: [...BLOCKING] } },
-    include: { client: true, service: true },
+    include: {
+      service: true,
+      subscription: { include: { client: true } },
+    },
   });
 
-  for (const sub of subs) {
+  for (const item of items) {
     try {
       const milestone = getReminderMilestone({
-        endDate: sub.endDate,
-        billingPeriod: sub.billingPeriod,
-        customPeriodDays: sub.customPeriodDays,
+        endDate: item.endDate,
+        billingPeriod: item.billingPeriod,
+        customPeriodDays: item.customPeriodDays,
       });
       if (!milestone) continue;
 
-      // Dedupe: già inviato oggi per questo type?
+      // Dedupe: già inviato oggi per questo type/riga?
       const existing = await prisma.notificationLog.findFirst({
-        where: { subscriptionId: sub.id, type: milestone.type, dedupeKey },
+        where: {
+          subscriptionItemId: item.id,
+          type: milestone.type,
+          dedupeKey,
+        },
         select: { id: true },
       });
       if (existing) {
@@ -84,17 +91,18 @@ export async function GET(request: NextRequest) {
       }
 
       const diffDays = Math.ceil(
-        (sub.endDate.getTime() - now.getTime()) / MS_PER_DAY,
+        (item.endDate.getTime() - now.getTime()) / MS_PER_DAY,
       );
-      const clientName = sub.client.ragioneSociale?.trim()
-        ? sub.client.ragioneSociale
-        : sub.client.name;
+      const client = item.subscription.client;
+      const clientName = client.ragioneSociale?.trim()
+        ? client.ragioneSociale
+        : client.name;
 
       const content = buildReminderEmail(milestone.type, {
-        subscriptionId: sub.id,
+        subscriptionId: item.subscriptionId,
         clientName,
-        serviceName: sub.service.name,
-        endDate: sub.endDate,
+        serviceName: item.service.name,
+        endDate: item.endDate,
         diffDays,
       });
 
@@ -103,7 +111,7 @@ export async function GET(request: NextRequest) {
       const recipient = process.env.ADMIN_EMAIL ?? "(non configurato)";
 
       const logData = {
-        subscriptionId: sub.id,
+        subscriptionItemId: item.id,
         type: milestone.type,
         status: sent.status,
         recipient,
@@ -117,8 +125,8 @@ export async function GET(request: NextRequest) {
         // Un fallimento email NON impedisce la cessazione (caso critico).
         await prisma.$transaction([
           prisma.notificationLog.create({ data: logData }),
-          prisma.subscription.updateMany({
-            where: { id: sub.id, status: { notIn: [...BLOCKING] } },
+          prisma.subscriptionItem.updateMany({
+            where: { id: item.id, status: { notIn: [...BLOCKING] } },
             data: { status: "CESSATO" },
           }),
         ]);
@@ -130,8 +138,8 @@ export async function GET(request: NextRequest) {
       if (sent.status === "INVIATA") remindersSent++;
       else remindersFailed++;
     } catch (e) {
-      // Un errore su un abbonamento non blocca gli altri.
-      console.error(`[cron] errore su subscription ${sub.id}:`, e);
+      // Un errore su una riga non blocca le altre.
+      console.error(`[cron] errore su subscription item ${item.id}:`, e);
       remindersFailed++;
     }
   }

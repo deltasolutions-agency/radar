@@ -4,21 +4,21 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 
 /**
- * Pannello rinnovo automatico sul dettaglio abbonamento:
+ * Pannello rinnovo automatico di UNA riga di servizio (SubscriptionItem):
  * - se la carta non è ancora registrata → invia al cliente la richiesta di
  *   attivazione (email con link self-service + gate consenso);
  * - se la carta c'è ma l'addebito è disattivo → form di attivazione (+ data fine);
  * - se attivo → stato con periodicità ed eventuale scadenza + disattivazione.
  */
 export function AutoChargePanel({
-  subscriptionId,
+  itemId,
   hasCard,
   autoChargeEnabled,
   autoChargeEndDateInput,
   autoChargeEndDateLabel,
   periodicityLabel,
 }: {
-  subscriptionId: string;
+  itemId: string;
   hasCard: boolean;
   autoChargeEnabled: boolean;
   autoChargeEndDateInput: string;
@@ -39,7 +39,7 @@ export function AutoChargePanel({
     setNotice(null);
     try {
       const res = await fetch(
-        `/api/subscriptions/${subscriptionId}/setup-auto-charge`,
+        `/api/subscription-items/${itemId}/setup-auto-charge`,
         { method: "POST" },
       );
       const body = await res.json().catch(() => ({}));
@@ -65,7 +65,7 @@ export function AutoChargePanel({
     setPending(true);
     setError(null);
     try {
-      const res = await fetch(`/api/subscriptions/${subscriptionId}`, {
+      const res = await fetch(`/api/subscription-items/${itemId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(data),

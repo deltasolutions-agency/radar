@@ -5,8 +5,8 @@ import { useRouter } from "next/navigation";
 
 /**
  * Zona pericolosa: eliminazione permanente dell'abbonamento e di TUTTI i dati
- * collegati (pagamenti, ricevute, notifiche). Il pulsante si abilita solo dopo
- * aver digitato ESATTAMENTE la stringa attesa "{clientName} / {serviceName}".
+ * collegati (righe, pagamenti, ricevute, notifiche). Il pulsante si abilita solo
+ * dopo aver digitato ESATTAMENTE la stringa attesa (il nome del cliente).
  */
 export function ForceDeleteSection({
   subscriptionId,

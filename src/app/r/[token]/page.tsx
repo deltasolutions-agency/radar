@@ -34,6 +34,7 @@ export default async function RicevutaPubblicaPage({
 }) {
   const receipt = await prisma.receipt.findUnique({
     where: { token: params.token },
+    include: { lines: true },
   });
   if (!receipt) notFound();
 
@@ -72,11 +73,6 @@ export default async function RicevutaPubblicaPage({
     ? { label: "Partita IVA", value: receipt.partitaIva }
     : receipt.codiceFiscale
       ? { label: "Codice fiscale", value: receipt.codiceFiscale }
-      : null;
-
-  const period =
-    receipt.periodStart && receipt.periodEnd
-      ? `${formatDate(receipt.periodStart)} → ${formatDate(receipt.periodEnd)}`
       : null;
 
   return (
@@ -129,18 +125,42 @@ export default async function RicevutaPubblicaPage({
           </dl>
         </section>
 
-        {/* Servizio */}
+        {/* Servizi */}
         <section className="border-b border-line-soft py-5">
-          <h2 className="mb-2 font-mono text-xs uppercase tracking-wide text-slate-500">
-            Servizio
+          <h2 className="mb-3 font-mono text-xs uppercase tracking-wide text-slate-500">
+            {receipt.lines.length === 1 ? "Servizio" : "Servizi"}
           </h2>
-          <dl>
-            <Field label="Servizio" value={receipt.serviceName} />
-            {receipt.description?.trim() ? (
-              <Field label="Descrizione" value={receipt.description} />
-            ) : null}
-            {period ? <Field label="Periodo coperto" value={period} /> : null}
-          </dl>
+          <div className="space-y-2">
+            {receipt.lines.map((line) => {
+              const linePeriod =
+                line.periodStart && line.periodEnd
+                  ? `${formatDate(line.periodStart)} → ${formatDate(line.periodEnd)}`
+                  : null;
+              return (
+                <div
+                  key={line.id}
+                  className="flex items-start justify-between gap-4 border-b border-line-soft pb-2 last:border-0 last:pb-0"
+                >
+                  <div>
+                    <p className="text-sm text-ink">{line.serviceName}</p>
+                    {line.description?.trim() ? (
+                      <p className="text-xs text-slate-500">
+                        {line.description}
+                      </p>
+                    ) : null}
+                    {linePeriod ? (
+                      <p className="font-mono text-xs text-slate-500">
+                        {linePeriod}
+                      </p>
+                    ) : null}
+                  </div>
+                  <p className="shrink-0 font-mono text-sm text-ink">
+                    {formatEur(line.amountCents, receipt.currency)}
+                  </p>
+                </div>
+              );
+            })}
+          </div>
         </section>
 
         {/* Pagamento */}

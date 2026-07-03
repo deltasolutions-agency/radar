@@ -1,11 +1,11 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
-import { SubscriptionNotesForm } from "../../subscription-notes-form";
+import { ItemForm } from "../../../item-form";
 
 export const dynamic = "force-dynamic";
 
-export default async function ModificaAbbonamentoPage({
+export default async function NuovaRigaPage({
   params,
 }: {
   params: { id: string };
@@ -30,17 +30,10 @@ export default async function ModificaAbbonamentoPage({
           ← {clientName}
         </Link>
         <h1 className="mt-1 text-2xl font-semibold tracking-tight">
-          Modifica abbonamento
+          Aggiungi servizio
         </h1>
-        <p className="mt-1 text-sm text-slate-500">
-          I servizi (prezzi, scadenze, rinnovo automatico) si gestiscono come
-          righe dal dettaglio dell&apos;abbonamento.
-        </p>
       </div>
-      <SubscriptionNotesForm
-        subscriptionId={sub.id}
-        initialNotes={sub.notes ?? ""}
-      />
+      <ItemForm mode="create" subscriptionId={sub.id} />
     </div>
   );
 }

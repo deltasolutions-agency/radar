@@ -219,11 +219,16 @@ export const PAYMENT_STATUS_LABELS: Record<PaymentStatusValue, string> = {
 };
 
 // ──────────────────────────────────────────────────────────────────────────
-// SUBSCRIPTION — schemi
+// SUBSCRIPTION ITEM — schemi
 // ──────────────────────────────────────────────────────────────────────────
+//
+// In Fase 8 un Subscription è un contenitore per un cliente; i servizi vivono
+// come righe (SubscriptionItem) con propria scadenza/prezzo/stato/auto-charge.
+// La creazione di un abbonamento è quindi { clientId, notes?, items: [...] }.
 
-const subscriptionObject = z.object({
-  clientId: z.string().trim().min(1, "Seleziona un cliente"),
+// Oggetto base di una riga di servizio, riusato per create (intero, dentro
+// l'abbonamento o aggiunto in seguito) e update (parziale).
+const subscriptionItemObject = z.object({
   serviceId: z.string().trim().min(1, "Seleziona un servizio"),
   startDate: z.coerce.date({
     errorMap: () => ({ message: "Data di inizio non valida" }),
@@ -243,11 +248,12 @@ const subscriptionObject = z.object({
     errorMap: () => ({ message: "Periodicità non valida" }),
   }),
   customPeriodDays: z.number().int().positive().optional().nullable(),
-  paymentMethod: z.enum(PAYMENT_METHODS, {
-    errorMap: () => ({ message: "Metodo di pagamento non valido" }),
-  }).default("MANUALE"),
-  autoRenew: z.boolean().default(true),
-  note: z.preprocess(emptyToUndef, z.string().trim().max(5000).optional()),
+  autoChargeEnabled: z.boolean().default(false),
+  autoChargeEndDate: z.preprocess(
+    emptyToUndef,
+    z.coerce.date().nullable().optional(),
+  ),
+  notes: z.preprocess(emptyToUndef, z.string().trim().max(5000).optional()),
 });
 
 // La scadenza deve essere successiva all'inizio (quando entrambe presenti).
@@ -259,22 +265,56 @@ const endAfterStartIssue = {
   path: ["endDate"] as (string | number)[],
 };
 
-export const subscriptionCreateSchema = subscriptionObject.refine(
-  endAfterStart,
-  endAfterStartIssue,
-);
+// Per la periodicità PERSONALIZZATA i giorni sono obbligatori (come per Service).
+const itemRequireCustomDays = (s: {
+  billingPeriod?: BillingPeriodValue;
+  customPeriodDays?: number | null;
+}) =>
+  s.billingPeriod !== "PERSONALIZZATA" ||
+  (s.customPeriodDays != null && s.customPeriodDays > 0);
 
-export const subscriptionUpdateSchema = subscriptionObject
+// Riga completa validata (usata sia come elemento dell'array in creazione
+// abbonamento, sia come schema per aggiungere una riga a un abbonamento esistente).
+const subscriptionItemInput = subscriptionItemObject
+  .refine(itemRequireCustomDays, customDaysIssue)
+  .refine(endAfterStart, endAfterStartIssue);
+
+/** Aggiunta di una riga di servizio a un abbonamento già esistente. */
+export const subscriptionItemCreateSchema = subscriptionItemInput;
+
+/** Modifica di una riga di servizio esistente (tutti i campi opzionali). */
+export const subscriptionItemUpdateSchema = subscriptionItemObject
   .partial()
   .extend({
     status: z.enum(SUBSCRIPTION_STATUSES).optional(),
-    autoChargeEnabled: z.boolean().optional(),
-    autoChargeEndDate: z.preprocess(
-      emptyToUndef,
-      z.coerce.date().nullable().optional(),
-    ),
   })
+  .refine(itemRequireCustomDays, customDaysIssue)
   .refine(endAfterStart, endAfterStartIssue);
+
+export type SubscriptionItemCreateInput = z.infer<
+  typeof subscriptionItemCreateSchema
+>;
+export type SubscriptionItemUpdateInput = z.infer<
+  typeof subscriptionItemUpdateSchema
+>;
+
+// ──────────────────────────────────────────────────────────────────────────
+// SUBSCRIPTION (contenitore) — schemi
+// ──────────────────────────────────────────────────────────────────────────
+
+/** Creazione dell'abbonamento: contenitore cliente + almeno una riga servizio. */
+export const subscriptionCreateSchema = z.object({
+  clientId: z.string().trim().min(1, "Seleziona un cliente"),
+  notes: z.preprocess(emptyToUndef, z.string().trim().max(5000).optional()),
+  items: z
+    .array(subscriptionItemInput)
+    .min(1, "Aggiungi almeno un servizio all'abbonamento"),
+});
+
+/** Aggiornamento del contenitore (solo metadati; le righe si gestiscono a parte). */
+export const subscriptionUpdateSchema = z.object({
+  notes: z.preprocess(emptyToUndef, z.string().trim().max(5000).optional()),
+});
 
 export type SubscriptionCreateInput = z.infer<typeof subscriptionCreateSchema>;
 

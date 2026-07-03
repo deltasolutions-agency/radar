@@ -53,9 +53,11 @@ async function nextReceiptNumber(db: Db): Promise<string> {
 /**
  * Crea la Receipt a partire da un Payment già CONFERMATO.
  *
- * Legge Payment → Subscription → Client + Service e denormalizza i dati nei
- * campi flat della ricevuta, così che il documento resti immutabile anche se
- * cliente o servizio verranno modificati in seguito.
+ * Legge Payment → Subscription → Client (snapshot cliente, uguale per tutti gli
+ * item dato che appartengono allo stesso abbonamento/cliente) e Payment →
+ * PaymentItem → SubscriptionItem → Service (una ReceiptLine per ciascuna riga
+ * pagata). I dati sono denormalizzati così che il documento resti immutabile
+ * anche se cliente o servizio verranno modificati in seguito.
  *
  * È idempotente: se il Payment ha già una ricevuta, la restituisce senza
  * crearne una nuova (importante per i retry del webhook Stripe).
@@ -73,8 +75,9 @@ export async function createReceiptForPayment(
     where: { id: paymentId },
     include: {
       receipt: true,
-      subscription: {
-        include: { client: true, service: true },
+      subscription: { include: { client: true } },
+      items: {
+        include: { subscriptionItem: { include: { service: true } } },
       },
     },
   });
@@ -95,7 +98,17 @@ export async function createReceiptForPayment(
   }
 
   const paidAt = payment.paidAt ?? new Date();
-  const { client, service } = payment.subscription;
+  const { client } = payment.subscription;
+
+  // Una riga per ciascun PaymentItem; il totale è la somma delle righe.
+  const lines = payment.items.map((pi) => ({
+    serviceName: pi.subscriptionItem.service.name,
+    description: pi.subscriptionItem.service.description,
+    periodStart: pi.periodStart,
+    periodEnd: pi.periodEnd,
+    amountCents: pi.amountCents,
+  }));
+  const amountCents = lines.reduce((sum, l) => sum + l.amountCents, 0);
 
   const number = await nextReceiptNumber(db);
 
@@ -112,17 +125,14 @@ export async function createReceiptForPayment(
       clientEmail: client.email,
       clientAddress: formatClientAddress(client),
 
-      // Snapshot servizio.
-      serviceName: service.name,
-      description: service.description,
-
       // Snapshot economico.
-      amountCents: payment.amountCents,
+      amountCents,
       currency: payment.currency,
       method: payment.method,
-      periodStart: payment.periodStart,
-      periodEnd: payment.periodEnd,
       paidAt,
+
+      // Righe di dettaglio (una per servizio pagato).
+      lines: { create: lines },
     },
   });
 }

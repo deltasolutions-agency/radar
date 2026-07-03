@@ -19,9 +19,8 @@ import {
 } from "@/lib/receipt-access";
 import { formatEur, formatDate } from "@/lib/format";
 import {
-  BILLING_PERIOD_LABELS,
-  PAYMENT_METHOD_LABELS,
   formatBillingPeriod,
+  PAYMENT_METHOD_LABELS,
   type SubscriptionStatusValue,
   type BillingPeriodValue,
   type PaymentMethodValue,
@@ -29,15 +28,6 @@ import {
 } from "@/lib/validations";
 
 export const dynamic = "force-dynamic";
-
-function Row({ label, value }: { label: string; value: React.ReactNode }) {
-  return (
-    <div className="flex flex-col gap-0.5 border-b border-line-soft py-2 last:border-0 sm:flex-row sm:gap-4">
-      <dt className="mono-label w-40 shrink-0 sm:pt-0.5">{label}</dt>
-      <dd className="text-sm text-ink">{value}</dd>
-    </div>
-  );
-}
 
 export default async function AbbonamentoDettaglioPage({
   params,
@@ -50,17 +40,43 @@ export default async function AbbonamentoDettaglioPage({
     where: { id: params.id },
     include: {
       client: true,
-      service: true,
+      items: {
+        include: {
+          service: true,
+          _count: { select: { paymentItems: true } },
+        },
+        orderBy: { endDate: "asc" },
+      },
       payments: {
-        include: { receipt: true },
+        include: {
+          receipt: true,
+          items: {
+            include: { subscriptionItem: { include: { service: true } } },
+          },
+        },
         orderBy: { createdAt: "desc" },
       },
     },
   });
   if (!sub) notFound();
 
-  const status = sub.status as SubscriptionStatusValue;
+  const clientName = sub.client.ragioneSociale?.trim()
+    ? sub.client.ragioneSociale
+    : sub.client.name;
   const hasPayments = sub.payments.length > 0;
+  const hasCard = !!sub.client.stripeDefaultPaymentMethodId;
+
+  // Righe pagabili (non cessate) per il pannello pagamento.
+  const payableItems = sub.items
+    .filter((it) => it.status !== "CESSATO")
+    .map((it) => ({
+      id: it.id,
+      serviceName: it.service.name,
+      priceCents: it.priceCents,
+      currency: it.currency,
+      status: it.status,
+      endDate: it.endDate.toISOString().slice(0, 10),
+    }));
 
   return (
     <div className="space-y-6">
@@ -72,17 +88,12 @@ export default async function AbbonamentoDettaglioPage({
           ← Abbonamenti
         </Link>
         <div className="mt-1 flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-semibold tracking-tight">
-              {sub.client.ragioneSociale?.trim()
-                ? sub.client.ragioneSociale
-                : sub.client.name}
-            </h1>
-            <SubscriptionStatusBadge status={status} />
-          </div>
+          <h1 className="text-2xl font-semibold tracking-tight">
+            {clientName}
+          </h1>
           <div className="flex items-center gap-2">
             <Link href={`/abbonamenti/${sub.id}/modifica`} className="btn-ghost">
-              Modifica
+              Modifica note
             </Link>
             {!hasPayments ? (
               <DeleteButton
@@ -118,94 +129,159 @@ export default async function AbbonamentoDettaglioPage({
         </p>
       ) : null}
 
-      <div className="grid gap-6 lg:grid-cols-2">
-        <section className="card p-6">
-          <h2 className="mono-label mb-3">Dati abbonamento</h2>
-          <dl>
-            <Row
-              label="Cliente"
-              value={
-                <Link
-                  href={`/clienti/${sub.clientId}`}
-                  className="text-brand hover:underline"
-                >
-                  {sub.client.name}
-                </Link>
-              }
-            />
-            <Row
-              label="Servizio"
-              value={
-                <Link
-                  href={`/servizi/${sub.serviceId}`}
-                  className="text-brand hover:underline"
-                >
-                  {sub.service.name}
-                </Link>
-              }
-            />
-            <Row
-              label="Periodo"
-              value={`${formatDate(sub.startDate)} → ${formatDate(sub.endDate)}`}
-            />
-            <Row
-              label="Prezzo"
-              value={formatEur(sub.priceCents, sub.currency)}
-            />
-            <Row
-              label="Periodicità"
-              value={
-                BILLING_PERIOD_LABELS[sub.billingPeriod as BillingPeriodValue] +
-                (sub.billingPeriod === "PERSONALIZZATA" && sub.customPeriodDays
-                  ? ` (${sub.customPeriodDays} giorni)`
-                  : "")
-              }
-            />
-            <Row
-              label="Metodo"
-              value={
-                PAYMENT_METHOD_LABELS[sub.paymentMethod as PaymentMethodValue]
-              }
-            />
-            <Row label="Rinnovo auto" value={sub.autoRenew ? "Sì" : "No"} />
-            <Row label="Note" value={sub.note?.trim() ? sub.note : "—"} />
-          </dl>
-        </section>
-
-        <section className="card space-y-4 p-6">
-          <h2 className="mono-label">Azioni</h2>
-          <PaymentActions
-            subscriptionId={sub.id}
-            paymentMethod={sub.paymentMethod}
-            defaultAmountEuro={(sub.priceCents / 100).toFixed(2)}
-          />
-          <div className="border-t border-line-soft pt-4">
-            <CeaseButton id={sub.id} status={sub.status} />
+      {/* Contenitore: cliente + note */}
+      <section className="card p-6">
+        <h2 className="mono-label mb-3">Abbonamento</h2>
+        <dl>
+          <div className="flex flex-col gap-0.5 border-b border-line-soft py-2 sm:flex-row sm:gap-4">
+            <dt className="mono-label w-40 shrink-0 sm:pt-0.5">Cliente</dt>
+            <dd className="text-sm text-ink">
+              <Link
+                href={`/clienti/${sub.clientId}`}
+                className="text-brand hover:underline"
+              >
+                {sub.client.name}
+              </Link>
+            </dd>
           </div>
-        </section>
-      </div>
-
-      <section className="card space-y-3 p-6">
-        <h2 className="mono-label">Rinnovo automatico</h2>
-        <AutoChargePanel
-          subscriptionId={sub.id}
-          hasCard={!!sub.client.stripeDefaultPaymentMethodId}
-          autoChargeEnabled={sub.autoChargeEnabled}
-          autoChargeEndDateInput={
-            sub.autoChargeEndDate
-              ? sub.autoChargeEndDate.toISOString().slice(0, 10)
-              : ""
-          }
-          autoChargeEndDateLabel={
-            sub.autoChargeEndDate ? formatDate(sub.autoChargeEndDate) : null
-          }
-          periodicityLabel={formatBillingPeriod(
-            sub.billingPeriod as BillingPeriodValue,
-            sub.customPeriodDays,
-          )}
-        />
+          <div className="flex flex-col gap-0.5 py-2 sm:flex-row sm:gap-4">
+            <dt className="mono-label w-40 shrink-0 sm:pt-0.5">Note</dt>
+            <dd className="text-sm text-ink">
+              {sub.notes?.trim() ? sub.notes : "—"}
+            </dd>
+          </div>
+        </dl>
       </section>
 
+      {/* Righe di servizio */}
+      <section className="space-y-4">
+        <div className="flex items-center justify-between">
+          <h2 className="mono-label">
+            Servizi ({sub.items.length})
+          </h2>
+          <Link
+            href={`/abbonamenti/${sub.id}/righe/nuovo`}
+            className="btn-ghost text-sm"
+          >
+            + Aggiungi servizio
+          </Link>
+        </div>
+
+        {sub.items.length === 0 ? (
+          <div className="card px-6 py-8 text-center text-sm text-slate-500">
+            Nessun servizio in questo abbonamento.{" "}
+            <Link
+              href={`/abbonamenti/${sub.id}/righe/nuovo`}
+              className="text-brand underline"
+            >
+              Aggiungine uno
+            </Link>
+            .
+          </div>
+        ) : (
+          <div className="grid gap-4">
+            {sub.items.map((it) => (
+              <div key={it.id} className="card space-y-4 p-6">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    <Link
+                      href={`/servizi/${it.serviceId}`}
+                      className="text-base font-medium text-ink hover:underline"
+                    >
+                      {it.service.name}
+                    </Link>
+                    <SubscriptionStatusBadge
+                      status={it.status as SubscriptionStatusValue}
+                    />
+                  </div>
+                  <div className="flex items-center gap-3 text-sm">
+                    <Link
+                      href={`/abbonamenti/${sub.id}/righe/${it.id}/modifica`}
+                      className="text-brand hover:underline"
+                    >
+                      Modifica
+                    </Link>
+                    <CeaseButton
+                      itemId={it.id}
+                      status={it.status}
+                      className="text-slate-600 hover:underline"
+                    />
+                    {it._count.paymentItems === 0 ? (
+                      <DeleteButton
+                        endpoint={`/api/subscription-items/${it.id}`}
+                        redirectTo={`/abbonamenti/${sub.id}`}
+                        entityLabel="questa riga di servizio"
+                        className="text-red-600 hover:underline"
+                      />
+                    ) : null}
+                  </div>
+                </div>
+
+                <dl className="grid gap-x-6 gap-y-1 sm:grid-cols-2">
+                  <div className="flex gap-2 text-sm">
+                    <dt className="mono-label w-28 shrink-0">Periodo</dt>
+                    <dd className="text-ink">
+                      {formatDate(it.startDate)} → {formatDate(it.endDate)}
+                    </dd>
+                  </div>
+                  <div className="flex gap-2 text-sm">
+                    <dt className="mono-label w-28 shrink-0">Prezzo</dt>
+                    <dd className="text-ink">
+                      {formatEur(it.priceCents, it.currency)}
+                    </dd>
+                  </div>
+                  <div className="flex gap-2 text-sm">
+                    <dt className="mono-label w-28 shrink-0">Periodicità</dt>
+                    <dd className="text-ink">
+                      {formatBillingPeriod(
+                        it.billingPeriod as BillingPeriodValue,
+                        it.customPeriodDays,
+                      )}
+                    </dd>
+                  </div>
+                  {it.notes?.trim() ? (
+                    <div className="flex gap-2 text-sm">
+                      <dt className="mono-label w-28 shrink-0">Note</dt>
+                      <dd className="text-ink">{it.notes}</dd>
+                    </div>
+                  ) : null}
+                </dl>
+
+                <div className="border-t border-line-soft pt-4">
+                  <h3 className="mono-label mb-2">Rinnovo automatico</h3>
+                  <AutoChargePanel
+                    itemId={it.id}
+                    hasCard={hasCard}
+                    autoChargeEnabled={it.autoChargeEnabled}
+                    autoChargeEndDateInput={
+                      it.autoChargeEndDate
+                        ? it.autoChargeEndDate.toISOString().slice(0, 10)
+                        : ""
+                    }
+                    autoChargeEndDateLabel={
+                      it.autoChargeEndDate
+                        ? formatDate(it.autoChargeEndDate)
+                        : null
+                    }
+                    periodicityLabel={formatBillingPeriod(
+                      it.billingPeriod as BillingPeriodValue,
+                      it.customPeriodDays,
+                    )}
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
+      {/* Registrazione pagamento (righe raggruppate) */}
+      <section className="card space-y-4 p-6">
+        <h2 className="mono-label">Registra pagamento</h2>
+        <PaymentActions subscriptionId={sub.id} items={payableItems} />
+      </section>
+
+      {/* Storico pagamenti */}
       <section className="card overflow-hidden">
         <h2 className="mono-label px-5 pt-5">Storico pagamenti</h2>
         {sub.payments.length === 0 ? (
@@ -217,6 +293,7 @@ export default async function AbbonamentoDettaglioPage({
             <thead>
               <tr className="border-b border-line text-left mono-label">
                 <th className="px-5 py-3 font-medium">Data</th>
+                <th className="px-5 py-3 font-medium">Servizi</th>
                 <th className="px-5 py-3 font-medium">Importo</th>
                 <th className="px-5 py-3 font-medium">Metodo</th>
                 <th className="px-5 py-3 font-medium">Stato</th>
@@ -224,111 +301,134 @@ export default async function AbbonamentoDettaglioPage({
               </tr>
             </thead>
             <tbody>
-              {sub.payments.map((p) => (
-                <tr
-                  key={p.id}
-                  className="border-b border-line-soft last:border-0"
-                >
-                  <td className="px-5 py-3 text-slate-600">
-                    {p.paidAt ? formatDate(p.paidAt) : formatDate(p.createdAt)}
-                  </td>
-                  <td className="px-5 py-3 font-mono text-xs text-slate-600">
-                    {formatEur(p.amountCents, p.currency)}
-                  </td>
-                  <td className="px-5 py-3 text-slate-600">
-                    <span className="inline-flex items-center gap-1.5">
-                      {PAYMENT_METHOD_LABELS[p.method as PaymentMethodValue]}
-                      {p.note?.trim() ? (
-                        <span
-                          title={p.note}
-                          aria-label={`Nota: ${p.note}`}
-                          className="cursor-help text-slate-400"
-                        >
-                          <svg
-                            xmlns="http://www.w3.org/2000/svg"
-                            width="14"
-                            height="14"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="2"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            aria-hidden="true"
+              {sub.payments.map((p) => {
+                const refundable = p.items.filter(
+                  (pi) => pi.status === "CONFERMATO",
+                );
+                return (
+                  <tr
+                    key={p.id}
+                    className="border-b border-line-soft align-top last:border-0"
+                  >
+                    <td className="px-5 py-3 text-slate-600">
+                      {p.paidAt ? formatDate(p.paidAt) : formatDate(p.createdAt)}
+                    </td>
+                    <td className="px-5 py-3 text-slate-600">
+                      <ul className="space-y-0.5">
+                        {p.items.map((pi) => (
+                          <li key={pi.id} className="flex items-center gap-1.5">
+                            <span>{pi.subscriptionItem.service.name}</span>
+                            {pi.status === "RIMBORSATO" ? (
+                              <span className="text-xs text-violet-600">
+                                (stornato)
+                              </span>
+                            ) : null}
+                          </li>
+                        ))}
+                      </ul>
+                    </td>
+                    <td className="px-5 py-3 font-mono text-xs text-slate-600">
+                      {formatEur(p.amountCents, p.currency)}
+                    </td>
+                    <td className="px-5 py-3 text-slate-600">
+                      <span className="inline-flex items-center gap-1.5">
+                        {PAYMENT_METHOD_LABELS[p.method as PaymentMethodValue]}
+                        {p.note?.trim() ? (
+                          <span
+                            title={p.note}
+                            aria-label={`Nota: ${p.note}`}
+                            className="cursor-help text-slate-400"
                           >
-                            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-                          </svg>
-                        </span>
-                      ) : null}
-                    </span>
-                  </td>
-                  <td className="px-5 py-3">
-                    <div className="flex flex-col items-start gap-1.5">
-                      <PaymentStatusBadge
-                        status={p.status as PaymentStatusValue}
-                      />
-                      {p.method === "STRIPE" && p.status === "CONFERMATO" ? (
-                        <RefundButton
-                          paymentId={p.id}
-                          amountLabel={formatEur(p.amountCents, p.currency)}
-                          previousEndDateLabel={
-                            p.previousEndDate
-                              ? formatDate(p.previousEndDate)
-                              : null
-                          }
-                        />
-                      ) : null}
-                    </div>
-                  </td>
-                  <td className="px-5 py-3">
-                    {p.receipt ? (
-                      isReceiptPubliclyAccessible(p.receipt) ? (
-                        <div className="flex flex-col gap-0.5">
-                          <Link
-                            href={`/r/${p.receipt.token}`}
-                            className="text-brand hover:underline"
-                            target="_blank"
-                          >
-                            {p.receipt.number}
-                          </Link>
-                          <span className="text-xs text-slate-400">
-                            scade il {formatDate(getReceiptExpiryDate(p.receipt))}
+                            <svg
+                              xmlns="http://www.w3.org/2000/svg"
+                              width="14"
+                              height="14"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              aria-hidden="true"
+                            >
+                              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+                            </svg>
                           </span>
-                        </div>
-                      ) : (
-                        <div className="flex flex-col gap-0.5">
-                          <span className="text-xs text-slate-500">
-                            {p.receipt.number} · Link scaduto
-                          </span>
-                          <ReactivateButton receiptId={p.receipt.id} />
-                        </div>
-                      )
-                    ) : p.status === "CONFERMATO" ? (
-                      <span className="text-xs text-slate-500">
-                        Ricevuta in generazione — ricarica tra qualche istante
+                        ) : null}
                       </span>
-                    ) : p.status === "IN_ATTESA" && p.method === "STRIPE" ? (
-                      p.checkoutExpiresAt &&
-                      p.checkoutExpiresAt.getTime() > Date.now() ? (
+                    </td>
+                    <td className="px-5 py-3">
+                      <div className="flex flex-col items-start gap-1.5">
+                        <PaymentStatusBadge
+                          status={p.status as PaymentStatusValue}
+                        />
+                        {p.method === "STRIPE" && refundable.length > 0 ? (
+                          <RefundButton
+                            paymentId={p.id}
+                            items={refundable.map((pi) => ({
+                              id: pi.id,
+                              serviceName: pi.subscriptionItem.service.name,
+                              amountCents: pi.amountCents,
+                              currency: p.currency,
+                              previousEndDateLabel: pi.previousEndDate
+                                ? formatDate(pi.previousEndDate)
+                                : null,
+                            }))}
+                          />
+                        ) : null}
+                      </div>
+                    </td>
+                    <td className="px-5 py-3">
+                      {p.receipt ? (
+                        isReceiptPubliclyAccessible(p.receipt) ? (
+                          <div className="flex flex-col gap-0.5">
+                            <Link
+                              href={`/r/${p.receipt.token}`}
+                              className="text-brand hover:underline"
+                              target="_blank"
+                            >
+                              {p.receipt.number}
+                            </Link>
+                            <span className="text-xs text-slate-400">
+                              scade il{" "}
+                              {formatDate(getReceiptExpiryDate(p.receipt))}
+                            </span>
+                          </div>
+                        ) : (
+                          <div className="flex flex-col gap-0.5">
+                            <span className="text-xs text-slate-500">
+                              {p.receipt.number} · Link scaduto
+                            </span>
+                            <ReactivateButton receiptId={p.receipt.id} />
+                          </div>
+                        )
+                      ) : p.status === "CONFERMATO" ? (
                         <span className="text-xs text-slate-500">
-                          Link inviato, in attesa di pagamento
-                          <br />
-                          (scade il {formatDate(p.checkoutExpiresAt)})
+                          Ricevuta in generazione — ricarica tra qualche istante
                         </span>
-                      ) : (
-                        <div className="flex flex-col gap-0.5">
+                      ) : p.status === "IN_ATTESA" && p.method === "STRIPE" ? (
+                        p.checkoutExpiresAt &&
+                        p.checkoutExpiresAt.getTime() > Date.now() ? (
                           <span className="text-xs text-slate-500">
-                            Link scaduto
+                            Link inviato, in attesa di pagamento
+                            <br />
+                            (scade il {formatDate(p.checkoutExpiresAt)})
                           </span>
-                          <RegenerateLinkButton paymentId={p.id} />
-                        </div>
-                      )
-                    ) : (
-                      <span className="text-slate-400">—</span>
-                    )}
-                  </td>
-                </tr>
-              ))}
+                        ) : (
+                          <div className="flex flex-col gap-0.5">
+                            <span className="text-xs text-slate-500">
+                              Link scaduto
+                            </span>
+                            <RegenerateLinkButton paymentId={p.id} />
+                          </div>
+                        )
+                      ) : (
+                        <span className="text-slate-400">—</span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         )}
@@ -341,11 +441,7 @@ export default async function AbbonamentoDettaglioPage({
       {hasPayments ? (
         <ForceDeleteSection
           subscriptionId={sub.id}
-          expectedText={`${
-            sub.client.ragioneSociale?.trim()
-              ? sub.client.ragioneSociale
-              : sub.client.name
-          } / ${sub.service.name}`}
+          expectedText={clientName}
         />
       ) : null}
     </div>

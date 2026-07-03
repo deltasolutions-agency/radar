@@ -9,24 +9,27 @@ import { formatBillingPeriod, type BillingPeriodValue } from "@/lib/validations"
 
 type Params = { params: { id: string } };
 
-// POST /api/subscriptions/[id]/setup-auto-charge
-// Genera (se serve) un token di attivazione e invia al cliente il link alla
-// pagina self-service /attiva-rinnovo/{token} (con gate di consenso). Ritorna
-// anche l'URL, così l'admin può eventualmente dettarlo al telefono.
+// POST /api/subscription-items/[id]/setup-auto-charge
+// Genera (se serve) un token di attivazione sulla RIGA e invia al cliente il
+// link alla pagina self-service /attiva-rinnovo/{token} (con gate di consenso).
+// Ritorna anche l'URL, così l'admin può eventualmente dettarlo al telefono.
 export function POST(_req: NextRequest, { params }: Params) {
   return withApi(async () => {
     await requireSession();
 
-    const subscription = await prisma.subscription.findUnique({
+    const item = await prisma.subscriptionItem.findUnique({
       where: { id: params.id },
-      include: { client: true, service: true },
+      include: {
+        service: true,
+        subscription: { include: { client: true } },
+      },
     });
-    if (!subscription) return error("Abbonamento non trovato", 404);
+    if (!item) return error("Riga non trovata", 404);
 
     const appUrl = process.env.APP_URL;
     if (!appUrl) return error("APP_URL non configurata", 500);
 
-    const client = subscription.client;
+    const client = item.subscription.client;
     if (!client.email) {
       return error(
         "Il cliente non ha un indirizzo email: impossibile inviare la richiesta.",
@@ -35,22 +38,22 @@ export function POST(_req: NextRequest, { params }: Params) {
     }
 
     // Riusa il token esistente o ne genera uno nuovo.
-    let token = subscription.autoChargeSetupToken;
+    let token = item.autoChargeSetupToken;
     if (!token) {
       token = randomUUID();
-      await prisma.subscription.update({
-        where: { id: subscription.id },
+      await prisma.subscriptionItem.update({
+        where: { id: item.id },
         data: { autoChargeSetupToken: token },
       });
     }
 
     const activationUrl = `${appUrl}/attiva-rinnovo/${token}`;
     const content = buildAutoChargeRequestEmail({
-      serviceName: subscription.service.name,
-      amountLabel: formatEur(subscription.priceCents, subscription.currency),
+      serviceName: item.service.name,
+      amountLabel: formatEur(item.priceCents, item.currency),
       periodicityLabel: formatBillingPeriod(
-        subscription.billingPeriod as BillingPeriodValue,
-        subscription.customPeriodDays,
+        item.billingPeriod as BillingPeriodValue,
+        item.customPeriodDays,
       ),
       activationUrl,
     });

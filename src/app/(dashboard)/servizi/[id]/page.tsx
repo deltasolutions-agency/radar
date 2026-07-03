@@ -28,7 +28,7 @@ export default async function ServizioDettaglioPage({
 }) {
   const service = await prisma.service.findUnique({
     where: { id: params.id },
-    include: { _count: { select: { subscriptions: true } } },
+    include: { _count: { select: { subscriptionItems: true } } },
   });
   if (!service) notFound();
 
@@ -121,7 +121,7 @@ export default async function ServizioDettaglioPage({
 
       <p className="font-mono text-xs text-slate-400">
         id {service.id} · creato {formatDate(service.createdAt)} ·{" "}
-        {service._count.subscriptions} abbonamenti
+        {service._count.subscriptionItems} righe di abbonamento
       </p>
     </div>
   );

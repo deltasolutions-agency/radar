@@ -138,6 +138,9 @@ model Client {
   // Metodo di pagamento salvato per gli addebiti automatici (SetupIntent).
   stripeDefaultPaymentMethodId String?
 
+  // Momento di invio della mail di benvenuto (una sola volta per cliente).
+  welcomeEmailSentAt DateTime?
+
   subscriptions Subscription[]
   consentLogs   ConsentLog[]
 
@@ -194,7 +197,7 @@ model Service {
   // Incremento percentuale applicato al prezzo a ogni rinnovo (5 = +5%).
   renewalIncreasePercent Int @default(0)
 
-  subscriptions Subscription[]
+  subscriptionItems SubscriptionItem[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -208,78 +211,87 @@ model Service {
 // ABBONAMENTI
 // ──────────────────────────────────────────────────────────────────────────
 
-/// Abbonamento: collega un cliente a un servizio, con stato e scadenza.
+/// Abbonamento: contenitore per un cliente, dentro cui vivono N servizi
+/// (SubscriptionItem), ciascuno con propria scadenza/prezzo/stato indipendenti.
 model Subscription {
-  id String @id @default(cuid())
+  id       String @id @default(cuid())
+  clientId String
+  client   Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
 
-  clientId  String
-  client    Client  @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  serviceId String
-  service   Service @relation(fields: [serviceId], references: [id], onDelete: Restrict)
+  notes String?
 
-  status SubscriptionStatus @default(ATTIVO)
-
-  startDate DateTime @default(now())
-  endDate   DateTime // data di scadenza corrente
-
-  // Snapshot economico al momento della sottoscrizione: rende l'abbonamento
-  // indipendente da future modifiche al catalogo.
-  priceCents       Int
-  currency         String        @default("eur")
-  billingPeriod    BillingPeriod
-  customPeriodDays Int?
-
-  paymentMethod PaymentMethod @default(MANUALE)
-  autoRenew     Boolean       @default(true)
-
-  // Data dell'ultimo rinnovo confermato (null = mai rinnovato).
-  lastRenewalAt DateTime?
-
-  // Rinnovo automatico con addebito ricorrente (Setup Intent + off_session).
-  autoChargeEnabled       Boolean   @default(false)
-  autoChargeEndDate       DateTime? // oltre questa data l'addebito automatico si ferma
-  autoChargeFailCount     Int       @default(0)
-  autoChargeLastAttemptAt DateTime?
-  // Token pubblico per la pagina self-service di attivazione (con gate consenso).
-  autoChargeSetupToken    String?   @unique
-
-  // Riferimenti Stripe (se gestito come subscription ricorrente lato Stripe).
-  stripeSubscriptionId String? @unique
-
-  note String?
-
-  payments      Payment[]
-  notifications NotificationLog[]
+  items    SubscriptionItem[]
+  payments Payment[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([clientId])
+  @@map("subscriptions")
+}
+
+/// Riga di servizio dentro un abbonamento: propria scadenza, prezzo, stato e
+/// addebito automatico indipendenti. È l'unità di rinnovo e di scadenza.
+model SubscriptionItem {
+  id             String       @id @default(cuid())
+  subscriptionId String
+  subscription   Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  serviceId      String
+  service        Service      @relation(fields: [serviceId], references: [id], onDelete: Restrict)
+
+  status    SubscriptionStatus @default(ATTIVO)
+  startDate DateTime           @default(now())
+  endDate   DateTime // data di scadenza corrente della riga
+
+  // Snapshot economico al momento della sottoscrizione della riga.
+  priceCents       Int
+  currency         String        @default("eur")
+  billingPeriod    BillingPeriod
+  customPeriodDays Int?
+
+  // Data dell'ultimo rinnovo confermato per questa riga (null = mai rinnovato).
+  lastRenewalAt DateTime?
+
+  // Rinnovo automatico con addebito ricorrente (Setup Intent + off_session).
+  autoChargeEnabled       Boolean   @default(false)
+  autoChargeEndDate       DateTime?
+  autoChargeFailCount     Int       @default(0)
+  autoChargeLastAttemptAt DateTime?
+  // Token pubblico per la pagina self-service di attivazione (con gate consenso).
+  autoChargeSetupToken    String?   @unique
+
+  notes String?
+
+  paymentItems  PaymentItem[]
+  notifications NotificationLog[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([subscriptionId])
   @@index([serviceId])
   @@index([status])
   @@index([endDate])
-  @@map("subscriptions")
+  @@map("subscription_items")
 }
 
 // ──────────────────────────────────────────────────────────────────────────
 // PAGAMENTI
 // ──────────────────────────────────────────────────────────────────────────
 
-/// Pagamento collegato a un abbonamento (Stripe o manuale).
+/// Pagamento collegato a un abbonamento. Può raggruppare più righe di servizio
+/// (PaymentItem) con scadenza comune in un unico addebito, ma ciascuna riga
+/// resta stornabile singolarmente.
 model Payment {
-  id String @id @default(cuid())
-
+  id             String       @id @default(cuid())
   subscriptionId String
   subscription   Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
 
-  amountCents Int
+  amountCents Int // somma dei PaymentItem
   currency    String        @default("eur")
   method      PaymentMethod
+  // Stato aggregato indicativo: la fonte di verità granulare è PaymentItem.status.
   status      PaymentStatus @default(IN_ATTESA)
-
-  // Periodo coperto dal pagamento (utile per il rinnovo).
-  periodStart DateTime?
-  periodEnd   DateTime?
 
   paidAt DateTime?
 
@@ -287,20 +299,13 @@ model Payment {
   stripeCheckoutSessionId String? @unique
   stripePaymentIntentId   String? @unique
 
+  // Token pubblico per la pagina intermedia di pagamento con gate di consenso.
+  payToken String @unique @default(cuid())
+
   // Scadenza della Stripe Checkout Session corrente (per sapere se il link è
   // ancora valido) e momento di invio del link al cliente (null = mai inviato).
   checkoutExpiresAt DateTime?
   linkSentAt        DateTime?
-
-  // Snapshot dei valori della subscription PRIMA del rinnovo prodotto da questo
-  // pagamento (null se non ha rinnovato nulla). Serve a disfare il rinnovo in
-  // caso di storno.
-  previousEndDate       DateTime?
-  previousPriceCents    Int?
-  previousLastRenewalAt DateTime?
-
-  // Token pubblico per la pagina intermedia di pagamento con gate di consenso.
-  payToken String @unique @default(cuid())
 
   // Note libere (es. "bonifico ricevuto il 12/06").
   note String?
@@ -309,6 +314,7 @@ model Payment {
   recordedById String?
   recordedBy   User?   @relation("PaymentRecordedBy", fields: [recordedById], references: [id], onDelete: SetNull)
 
+  items         PaymentItem[]
   // Ricevuta non fiscale generata alla conferma (1:1).
   receipt       Receipt?
   notifications NotificationLog[]
@@ -318,8 +324,37 @@ model Payment {
 
   @@index([subscriptionId])
   @@index([status])
-  @@index([method])
   @@map("payments")
+}
+
+/// Riga di un pagamento riferita a una singola SubscriptionItem: consente
+/// storno parziale e conserva lo snapshot pre-rinnovo per il ripristino.
+model PaymentItem {
+  id                 String           @id @default(cuid())
+  paymentId          String
+  payment            Payment          @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  subscriptionItemId String
+  subscriptionItem   SubscriptionItem @relation(fields: [subscriptionItemId], references: [id], onDelete: Restrict)
+
+  amountCents Int
+  // Stato PER RIGA: consente lo storno parziale di un singolo servizio.
+  status      PaymentStatus @default(IN_ATTESA)
+
+  // Periodo coperto da questa riga (utile per il rinnovo).
+  periodStart DateTime?
+  periodEnd   DateTime?
+
+  // Snapshot pre-rinnovo per questo item specifico (per ripristino su storno).
+  previousEndDate       DateTime?
+  previousPriceCents    Int?
+  previousLastRenewalAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([paymentId])
+  @@index([subscriptionItemId])
+  @@map("payment_items")
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -328,7 +363,8 @@ model Payment {
 
 /// Ricevuta NON fiscale: pagina HTML pubblica accessibile via token univoco.
 /// I dati sono denormalizzati (snapshot) così la ricevuta resta immutabile
-/// anche se cliente/servizio cambiano in seguito.
+/// anche se cliente/servizio cambiano in seguito. Le singole voci di servizio
+/// sono righe (ReceiptLine).
 model Receipt {
   id String @id @default(cuid())
 
@@ -348,26 +384,38 @@ model Receipt {
   clientEmail    String?
   clientAddress  String? // indirizzo completo formattato
 
-  serviceName String
-  description String?
-
-  amountCents Int
+  amountCents Int // totale
   currency    String        @default("eur")
   method      PaymentMethod
-  periodStart DateTime?
-  periodEnd   DateTime?
   paidAt      DateTime
-
-  issuedAt  DateTime @default(now())
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
 
   // Se valorizzato, la finestra di accesso pubblico (10gg) riparte da qui
   // invece che da issuedAt (riattivazione manuale dell'admin).
   publicAccessResetAt DateTime?
 
+  lines ReceiptLine[]
+
+  issuedAt  DateTime @default(now())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
   @@index([token])
   @@map("receipts")
+}
+
+/// Singola voce di servizio all'interno di una ricevuta (snapshot immutabile).
+model ReceiptLine {
+  id          String    @id @default(cuid())
+  receiptId   String
+  receipt     Receipt   @relation(fields: [receiptId], references: [id], onDelete: Cascade)
+  serviceName String
+  description String?
+  periodStart DateTime?
+  periodEnd   DateTime?
+  amountCents Int
+
+  @@index([receiptId])
+  @@map("receipt_lines")
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -378,8 +426,8 @@ model Receipt {
 model NotificationLog {
   id String @id @default(cuid())
 
-  subscriptionId String?
-  subscription   Subscription? @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  subscriptionItemId String?
+  subscriptionItem   SubscriptionItem? @relation(fields: [subscriptionItemId], references: [id], onDelete: Cascade)
 
   paymentId String?
   payment   Payment? @relation(fields: [paymentId], references: [id], onDelete: SetNull)
@@ -393,14 +441,14 @@ model NotificationLog {
   error    String?
 
   // Chiave-giorno (YYYY-MM-DD) usata per de-duplicare gli invii giornalieri
-  // (es. promemoria/solleciti): un solo invio per tipo/abbonamento/giorno.
+  // (es. promemoria/solleciti): un solo invio per tipo/riga/giorno.
   dedupeKey String?
 
   sentAt    DateTime @default(now())
   createdAt DateTime @default(now())
 
-  @@unique([subscriptionId, type, dedupeKey])
-  @@index([subscriptionId])
+  @@unique([subscriptionItemId, type, dedupeKey])
+  @@index([subscriptionItemId])
   @@index([paymentId])
   @@index([type])
   @@map("notification_logs")

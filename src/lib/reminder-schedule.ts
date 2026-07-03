@@ -50,25 +50,28 @@ export type ReminderMilestone = {
 };
 
 /**
- * Determina se oggi cade su una milestone di reminder per questo abbonamento.
+ * Determina se oggi cade su una milestone di reminder per questa riga di
+ * servizio (SubscriptionItem).
  *
  * - diffDays = giorni mancanti a endDate (Math.ceil sulla differenza in ms,
- *   come computeSubscriptionStatus)
+ *   come computeItemStatus)
  * - diffDaysAfter = giorni trascorsi da endDate = -diffDays
  *
  * Ritorna null se oggi non è una milestone.
  */
-export function getReminderMilestone(sub: {
+export function getReminderMilestone(item: {
   endDate: Date;
   billingPeriod: BillingPeriod;
   customPeriodDays: number | null;
 }): ReminderMilestone | null {
   const now = new Date();
-  const diffDays = Math.ceil((sub.endDate.getTime() - now.getTime()) / MS_PER_DAY);
+  const diffDays = Math.ceil(
+    (item.endDate.getTime() - now.getTime()) / MS_PER_DAY,
+  );
 
   // ── PRE-SCADENZA ──────────────────────────────────────────────────────────
   if (diffDays > 0) {
-    const table = isShortPeriod(sub.billingPeriod, sub.customPeriodDays)
+    const table = isShortPeriod(item.billingPeriod, item.customPeriodDays)
       ? PRE_EXPIRY_SHORT
       : PRE_EXPIRY_LONG;
     const type = table[diffDays];

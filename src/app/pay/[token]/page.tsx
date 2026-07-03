@@ -40,7 +40,10 @@ export default async function PayPage({
   const payment = await prisma.payment.findUnique({
     where: { payToken: params.token },
     include: {
-      subscription: { include: { client: true, service: true } },
+      subscription: { include: { client: true } },
+      items: {
+        include: { subscriptionItem: { include: { service: true } } },
+      },
     },
   });
 
@@ -66,18 +69,12 @@ export default async function PayPage({
   }
 
   const client = payment.subscription.client;
-  const service = payment.subscription.service;
 
   const existingConsent = await prisma.consentLog.findFirst({
     where: { clientId: client.id, version: CURRENT_CONSENT_VERSION },
     select: { id: true },
   });
   const needsConsent = !existingConsent;
-
-  const period =
-    payment.periodStart && payment.periodEnd
-      ? `${formatDate(payment.periodStart)} → ${formatDate(payment.periodEnd)}`
-      : null;
 
   return (
     <Shell>
@@ -86,19 +83,30 @@ export default async function PayPage({
       </h1>
       <p className="mt-1 text-sm text-slate-500">{client.name}</p>
 
-      <dl className="mt-5 space-y-2 border-y border-line-soft py-4 text-sm">
-        <div className="flex justify-between gap-4">
-          <dt className="text-slate-500">Servizio</dt>
-          <dd className="text-right text-ink">{service.name}</dd>
-        </div>
-        {period ? (
-          <div className="flex justify-between gap-4">
-            <dt className="text-slate-500">Periodo</dt>
-            <dd className="text-right font-mono text-xs text-ink">{period}</dd>
-          </div>
-        ) : null}
-        <div className="flex justify-between gap-4">
-          <dt className="text-slate-500">Importo</dt>
+      <dl className="mt-5 space-y-3 border-y border-line-soft py-4 text-sm">
+        {payment.items.map((pi) => {
+          const period =
+            pi.periodStart && pi.periodEnd
+              ? `${formatDate(pi.periodStart)} → ${formatDate(pi.periodEnd)}`
+              : null;
+          return (
+            <div key={pi.id} className="flex justify-between gap-4">
+              <dt className="text-slate-500">
+                {pi.subscriptionItem.service.name}
+                {period ? (
+                  <span className="block font-mono text-xs text-slate-400">
+                    {period}
+                  </span>
+                ) : null}
+              </dt>
+              <dd className="text-right font-mono text-xs text-ink">
+                {formatEur(pi.amountCents, payment.currency)}
+              </dd>
+            </div>
+          );
+        })}
+        <div className="flex justify-between gap-4 border-t border-line-soft pt-3">
+          <dt className="text-slate-500">Importo totale</dt>
           <dd className="text-right font-mono text-base font-semibold text-ink">
             {formatEur(payment.amountCents, payment.currency)}
           </dd>

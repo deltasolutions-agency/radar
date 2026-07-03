@@ -91,9 +91,13 @@ export async function POST(request: NextRequest) {
         }
 
         const result = await confirmPaymentAndRenew(payment.id);
-        if (result.renewalSkipped) {
+        const skipped = result.items.filter((i) => i.renewalSkipped);
+        if (skipped.length > 0) {
           console.warn(
-            `[stripe-webhook] rinnovo saltato per Payment ${payment.id}: ${result.renewalReason}`,
+            `[stripe-webhook] rinnovo saltato per Payment ${payment.id}: ` +
+              skipped
+                .map((i) => `${i.serviceName} — ${i.renewalReason ?? ""}`)
+                .join("; "),
           );
         }
         break;

@@ -4,31 +4,31 @@ import { json, error, withApi, requireSession } from "@/lib/api";
 
 type Params = { params: { id: string } };
 
-// POST /api/subscriptions/[id]/cease  → imposta status = CESSATO
+// POST /api/subscription-items/[id]/cease  → imposta status = CESSATO sulla riga
 // Consentito dagli stati ATTIVO / IN_SCADENZA / SCADUTO / RINNOVATO
 // (bloccato solo da CESSATO e SOSPESO).
 export function POST(_req: NextRequest, { params }: Params) {
   return withApi(async () => {
     await requireSession();
 
-    const subscription = await prisma.subscription.findUnique({
+    const item = await prisma.subscriptionItem.findUnique({
       where: { id: params.id },
       select: { id: true, status: true },
     });
-    if (!subscription) return error("Abbonamento non trovato", 404);
+    if (!item) return error("Riga non trovata", 404);
 
     const ceasable = ["ATTIVO", "IN_SCADENZA", "SCADUTO", "RINNOVATO"];
-    if (!ceasable.includes(subscription.status)) {
+    if (!ceasable.includes(item.status)) {
       return error(
-        `Impossibile cessare un abbonamento in stato ${subscription.status}.`,
+        `Impossibile cessare una riga in stato ${item.status}.`,
         409,
       );
     }
 
-    const updated = await prisma.subscription.update({
+    const updated = await prisma.subscriptionItem.update({
       where: { id: params.id },
       data: { status: "CESSATO" },
     });
-    return json({ subscription: updated });
+    return json({ item: updated });
   });
 }
