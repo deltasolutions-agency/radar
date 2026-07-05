@@ -14,6 +14,7 @@ import { RefundButton } from "../refund-button";
 import { PaymentDeleteButton } from "../payment-delete-button";
 import { AutoChargeRequestPanel } from "../auto-charge-request-panel";
 import { AutoChargeItemBadge } from "../auto-charge-item-badge";
+import { ServiceFeeToggle } from "../service-fee-toggle";
 import { ForceDeleteSection } from "../force-delete-section";
 import { paymentDeleteConfirmText } from "@/lib/payment-delete";
 import {
@@ -168,10 +169,21 @@ export default async function AbbonamentoDettaglioPage({
               </Link>
             </dd>
           </div>
-          <div className="flex flex-col gap-0.5 py-2 sm:flex-row sm:gap-4">
+          <div className="flex flex-col gap-0.5 border-b border-line-soft py-2 sm:flex-row sm:gap-4">
             <dt className="mono-label w-40 shrink-0 sm:pt-0.5">Note</dt>
             <dd className="text-sm text-ink">
               {sub.notes?.trim() ? sub.notes : "—"}
+            </dd>
+          </div>
+          <div className="flex flex-col gap-1 py-2 sm:flex-row sm:gap-4">
+            <dt className="mono-label w-40 shrink-0 sm:pt-0.5">
+              Costi di servizio (1,5%)
+            </dt>
+            <dd className="text-sm text-ink">
+              <ServiceFeeToggle
+                subscriptionId={sub.id}
+                initialEnabled={sub.serviceFeeEnabled}
+              />
             </dd>
           </div>
         </dl>
