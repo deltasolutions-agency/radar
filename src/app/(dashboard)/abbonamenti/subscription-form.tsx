@@ -23,6 +23,8 @@ export function SubscriptionForm() {
   const router = useRouter();
   const [clientId, setClientId] = useState("");
   const [notes, setNotes] = useState("");
+  const [serviceFeeEnabled, setServiceFeeEnabled] = useState(false);
+  const [requestAutoCharge, setRequestAutoCharge] = useState(false);
   const [items, setItems] = useState<ItemValues[]>([{ ...EMPTY_ITEM }]);
 
   const [clients, setClients] = useState<ClientOption[]>([]);
@@ -76,6 +78,8 @@ export function SubscriptionForm() {
     const payload = {
       clientId,
       notes: notes || undefined,
+      serviceFeeEnabled,
+      requestAutoCharge,
       items: items.map(itemValuesToApi),
     };
 
@@ -164,6 +168,42 @@ export function SubscriptionForm() {
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
           />
+        </div>
+        <div className="rounded-lg border border-line-soft bg-canvas p-4">
+          <label className="flex items-start gap-2.5 text-sm">
+            <input
+              type="checkbox"
+              className="mt-0.5"
+              checked={serviceFeeEnabled}
+              onChange={(e) => setServiceFeeEnabled(e.target.checked)}
+            />
+            <span>
+              Applica costi di servizio (1,5%)
+              <span className="mt-0.5 block text-xs text-slate-500">
+                Se attivo, aggiunge un costo di servizio dell&apos;1,5% ai
+                pagamenti Stripe di questo abbonamento.
+              </span>
+            </span>
+          </label>
+        </div>
+        <div className="rounded-lg border border-line-soft bg-canvas p-4">
+          <label className="flex items-start gap-2.5 text-sm">
+            <input
+              type="checkbox"
+              className="mt-0.5"
+              checked={requestAutoCharge}
+              onChange={(e) => setRequestAutoCharge(e.target.checked)}
+            />
+            <span>
+              Richiedi al cliente l&apos;attivazione del rinnovo automatico
+              <span className="mt-0.5 block text-xs text-slate-500">
+                Alla creazione invia al cliente il link per registrare la carta e
+                attivare il rinnovo automatico su tutti i servizi di questo
+                abbonamento (integrato nella mail di benvenuto se è il primo
+                abbonamento del cliente).
+              </span>
+            </span>
+          </label>
         </div>
       </section>
 

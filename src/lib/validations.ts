@@ -311,6 +311,11 @@ export type SubscriptionItemUpdateInput = z.infer<
 export const subscriptionCreateSchema = z.object({
   clientId: z.string().trim().min(1, "Seleziona un cliente"),
   notes: z.preprocess(emptyToUndef, z.string().trim().max(5000).optional()),
+  // Costo di servizio 1,5% sui pagamenti Stripe (spunta a livello contenitore).
+  serviceFeeEnabled: z.boolean().optional(),
+  // Se true, dopo la creazione genera una richiesta di attivazione del rinnovo
+  // automatico per tutti gli item e la integra nella mail di benvenuto (J.2/L.3).
+  requestAutoCharge: z.boolean().optional(),
   items: z
     .array(subscriptionItemInput)
     .min(1, "Aggiungi almeno un servizio all'abbonamento"),

@@ -4,10 +4,16 @@ import { json, error, withApi, requireSession } from "@/lib/api";
 import {
   subscriptionCreateSchema,
   SUBSCRIPTION_STATUSES,
+  formatBillingPeriod,
+  type BillingPeriodValue,
 } from "@/lib/validations";
 import { computeItemStatus } from "@/lib/subscription-status";
 import { sendEmail } from "@/lib/send-email";
-import { buildWelcomeEmail } from "@/lib/email-templates";
+import {
+  buildWelcomeEmail,
+  buildAutoChargeRequestEmail,
+} from "@/lib/email-templates";
+import { formatEur } from "@/lib/format";
 import type { SubscriptionStatus } from "@prisma/client";
 
 // GET /api/subscriptions?status=...
@@ -81,6 +87,7 @@ export function POST(req: NextRequest) {
       data: {
         clientId: data.clientId,
         notes: data.notes,
+        serviceFeeEnabled: data.serviceFeeEnabled ?? false,
         items: {
           create: data.items.map((it) => {
             const customPeriodDays = it.customPeriodDays ?? null;
@@ -116,15 +123,40 @@ export function POST(req: NextRequest) {
       },
     });
 
+    const clientName = client.ragioneSociale?.trim()
+      ? client.ragioneSociale
+      : client.name;
+
+    // L.3 — Richiesta di attivazione rinnovo automatico (se richiesto in creazione):
+    // crea una AutoChargeRequest per TUTTI gli item appena creati e prepara il link.
+    // La richiesta viene comunque creata anche se l'email non parte (l'admin può
+    // reinviarla dal dettaglio). Non bloccante.
+    let autoChargeUrl: string | null = null;
+    if (data.requestAutoCharge) {
+      try {
+        const appUrl = process.env.APP_URL;
+        const request = await prisma.autoChargeRequest.create({
+          data: {
+            clientId: client.id,
+            itemIds: subscription.items.map((it) => it.id),
+          },
+        });
+        if (appUrl) autoChargeUrl = `${appUrl}/attiva-rinnovo/${request.token}`;
+      } catch (e) {
+        console.error(
+          `[subscriptions] creazione AutoChargeRequest fallita (client ${client.id}):`,
+          e,
+        );
+      }
+    }
+
     // Mail di benvenuto: solo al PRIMO abbonamento del cliente (welcomeEmailSentAt
     // ancora null) e se ha un'email. Non bloccante: un fallimento non deve far
     // fallire la creazione dell'abbonamento. Il timestamp viene impostato solo a
     // invio riuscito, così un errore transitorio verrà ritentato al prossimo giro.
+    // Se richiesto, integra la sezione rinnovo automatico (nessuna mail separata).
     if (!client.welcomeEmailSentAt && client.email) {
       try {
-        const clientName = client.ragioneSociale?.trim()
-          ? client.ragioneSociale
-          : client.name;
         const content = buildWelcomeEmail({
           clientName,
           items: subscription.items.map((it) => ({
@@ -135,6 +167,7 @@ export function POST(req: NextRequest) {
             billingPeriod: it.billingPeriod,
             customPeriodDays: it.customPeriodDays,
           })),
+          autoChargeUrl,
         });
         const sent = await sendEmail(content, client.email);
         if (sent.status === "INVIATA") {
@@ -146,6 +179,31 @@ export function POST(req: NextRequest) {
       } catch (e) {
         console.error(
           `[subscriptions] invio mail di benvenuto fallito (client ${client.id}):`,
+          e,
+        );
+      }
+    } else if (autoChargeUrl && client.email) {
+      // Cliente già "onboardato" (benvenuto già inviato) ma è stato richiesto il
+      // rinnovo automatico: invia la richiesta di attivazione come mail dedicata.
+      try {
+        const content = buildAutoChargeRequestEmail({
+          items: subscription.items.map((it) => ({
+            serviceName:
+              it.quantity > 1
+                ? `${it.service.name} ×${it.quantity}`
+                : it.service.name,
+            amountLabel: formatEur(it.priceCents * it.quantity, it.currency),
+            periodicityLabel: formatBillingPeriod(
+              it.billingPeriod as BillingPeriodValue,
+              it.customPeriodDays,
+            ),
+          })),
+          activationUrl: autoChargeUrl,
+        });
+        await sendEmail(content, client.email);
+      } catch (e) {
+        console.error(
+          `[subscriptions] invio richiesta rinnovo automatico fallito (client ${client.id}):`,
           e,
         );
       }

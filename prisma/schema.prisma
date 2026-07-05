@@ -172,8 +172,23 @@ model AutoChargeRequest {
   usedAt    DateTime?
   createdAt DateTime  @default(now())
 
+  activationReminders AutoChargeActivationReminder[]
+
   @@index([clientId])
   @@map("auto_charge_requests")
+}
+
+/// Traccia i solleciti di attivazione già inviati per una richiesta, per soglia
+/// oraria (12h/24h), così da non reinviare lo stesso sollecito due volte.
+model AutoChargeActivationReminder {
+  id                  String            @id @default(cuid())
+  autoChargeRequestId String
+  autoChargeRequest   AutoChargeRequest @relation(fields: [autoChargeRequestId], references: [id], onDelete: Cascade)
+  hoursMark           Int // es. 12 o 24
+  sentAt              DateTime          @default(now())
+
+  @@unique([autoChargeRequestId, hoursMark])
+  @@map("auto_charge_activation_reminders")
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -479,6 +494,9 @@ model ReminderSettings {
   overdueDays         Int[]  @default([0, 1, 2, 7, 10])
   // Giorno-dopo-la-scadenza in cui scatta la cessazione per morosità.
   cessationDay        Int    @default(11)
+  // Ore dalla creazione di una AutoChargeRequest in cui sollecitare l'attivazione
+  // (soglia intermedia = reminder al cliente; ultima soglia = escalation admin).
+  autoChargeReminderHours Int[] @default([12, 24])
 
   updatedAt DateTime @updatedAt
 

@@ -467,6 +467,12 @@ export type WelcomeEmailData = {
   clientName: string;
   /** Servizi attivati con questo primo abbonamento. */
   items: WelcomeEmailItem[];
+  /**
+   * Se valorizzato (flag "richiedi rinnovo automatico" in creazione), la mail
+   * include una sezione dedicata con la spiegazione del rinnovo automatico e la
+   * CTA al link pubblico di attivazione (/attiva-rinnovo/{token}).
+   */
+  autoChargeUrl?: string | null;
 };
 
 const CONTACT_EMAIL = "hello@deltasolutions.agency";
@@ -502,6 +508,16 @@ export function buildWelcomeEmail(d: WelcomeEmailData): EmailContent {
     return `- ${name}: ${price} · ${period}`;
   });
 
+  // Sezione rinnovo automatico (solo se richiesto in creazione).
+  const autoChargeText = d.autoChargeUrl
+    ? [
+        "",
+        "Rinnovo automatico",
+        "Per non pensare più alle scadenze, puoi attivare il rinnovo automatico: registri una carta una sola volta e i servizi indicati verranno rinnovati e addebitati in automatico. Puoi revocarlo quando vuoi.",
+        `Attiva ora: ${d.autoChargeUrl}`,
+      ]
+    : [];
+
   const text = [
     `Ciao ${d.clientName},`,
     "",
@@ -511,6 +527,7 @@ export function buildWelcomeEmail(d: WelcomeEmailData): EmailContent {
     ...itemLinesText,
     "",
     explanation,
+    ...autoChargeText,
     "",
     `Privacy Policy: ${privacyUrl}`,
     `Termini e Condizioni: ${termsUrl}`,
@@ -549,6 +566,15 @@ export function buildWelcomeEmail(d: WelcomeEmailData): EmailContent {
         <tbody>${itemRowsHtml}</tbody>
       </table>
       <p style="font-size:14px;line-height:1.5">${explanation}</p>
+      ${
+        d.autoChargeUrl
+          ? `<div style="margin:16px 0;border:1px solid #e2e8f0;border-radius:12px;padding:16px;background:#f8fafc">
+        <h3 style="font-size:15px;margin:0 0 6px">Attiva il rinnovo automatico</h3>
+        <p style="font-size:14px;line-height:1.5;margin:0 0 12px">Per non pensare più alle scadenze, registra una carta una sola volta: i servizi indicati verranno rinnovati e addebitati in automatico. Puoi revocarlo quando vuoi.</p>
+        <a href="${d.autoChargeUrl}" style="display:inline-block;background:#4f46e5;color:#ffffff;text-decoration:none;font-family:sans-serif;font-size:14px;font-weight:600;padding:12px 20px;border-radius:8px">Attiva rinnovo automatico →</a>
+      </div>`
+          : ""
+      }
       <p style="font-size:13px;color:#64748b;line-height:1.6">
         Consulta la nostra <a href="${privacyUrl}" style="color:#4f46e5">Privacy Policy</a>
         e i <a href="${termsUrl}" style="color:#4f46e5">Termini e Condizioni</a>.<br/>
@@ -631,6 +657,70 @@ export function buildAutoChargeRequestEmail(d: {
       </p>
       <hr style="border:none;border-top:1px solid #e2e8f0;margin:24px 0" />
       <p style="font-size:12px;color:#94a3b8">Radar — Delta Solutions</p>
+    </div>`;
+
+  return { subject, text, html };
+}
+
+/**
+ * Sollecito GENTILE al cliente che ha ricevuto una richiesta di attivazione del
+ * rinnovo automatico ma non l'ha ancora completata. Ripropone lo stesso link.
+ */
+export function buildAutoChargeReminderEmail(d: {
+  clientName: string;
+  activationUrl: string;
+}): EmailContent {
+  const subject = "Radar — Completa l'attivazione del rinnovo automatico";
+  const intro =
+    "ti avevamo proposto l'attivazione del rinnovo automatico, ma non risulta ancora completata. Bastano un paio di minuti: registri la carta una sola volta e non dovrai più pensare alle scadenze.";
+
+  const text = [
+    `Ciao ${d.clientName},`,
+    "",
+    intro,
+    "",
+    `Completa l'attivazione: ${d.activationUrl}`,
+    "",
+    "Se preferisci non attivarlo o hai domande, scrivici a hello@deltasolutions.agency.",
+  ].join("\n");
+
+  const html = `
+    <div style="max-width:560px;margin:0 auto;font-family:sans-serif;color:#1e293b">
+      ${emailHeaderHtml()}
+      <h2 style="font-size:18px;margin:0 0 8px">Completa l'attivazione del rinnovo automatico</h2>
+      <p style="font-size:14px;line-height:1.5">Ciao ${d.clientName}, ${intro}</p>
+      <p style="margin:20px 0">
+        <a href="${d.activationUrl}" style="display:inline-block;background:#4f46e5;color:#ffffff;text-decoration:none;font-family:sans-serif;font-size:14px;font-weight:600;padding:12px 20px;border-radius:8px">Completa l'attivazione →</a>
+      </p>
+      <p style="font-size:13px;color:#64748b;line-height:1.5">Se preferisci non attivarlo o hai domande, scrivici a <a href="mailto:hello@deltasolutions.agency" style="color:#4f46e5">hello@deltasolutions.agency</a>.</p>
+      <hr style="border:none;border-top:1px solid #e2e8f0;margin:24px 0" />
+      <p style="font-size:12px;color:#94a3b8">Radar — Delta Solutions</p>
+    </div>`;
+
+  return { subject, text, html };
+}
+
+/**
+ * Escalation all'ADMIN: il cliente non ha completato l'attivazione del rinnovo
+ * automatico entro l'ultima soglia. NON auto-agisce: informa soltanto, la
+ * decisione (reinviare, contattare, pagamento manuale) resta all'admin.
+ */
+export function buildAutoChargeNotConfirmedEmail(d: {
+  clientName: string;
+  requestedAt: Date;
+}): EmailContent {
+  const subject = `[Radar] Rinnovo automatico non completato: ${d.clientName}`;
+  const intro = `Il cliente ${d.clientName} non ha ancora completato l'attivazione del rinnovo automatico richiesta il ${formatDate(d.requestedAt)}. Valuta se reinviare la richiesta, contattarlo direttamente, o procedere con un pagamento manuale.`;
+
+  const text = [intro].join("\n");
+
+  const html = `
+    <div style="max-width:560px;margin:0 auto;font-family:sans-serif;color:#1e293b">
+      ${emailHeaderHtml()}
+      <h2 style="font-size:18px;margin:0 0 8px">Rinnovo automatico non completato</h2>
+      <p style="font-size:14px;line-height:1.5">${intro}</p>
+      <hr style="border:none;border-top:1px solid #e2e8f0;margin:24px 0" />
+      <p style="font-size:12px;color:#94a3b8">Radar — Delta Solutions · notifica automatica</p>
     </div>`;
 
   return { subject, text, html };

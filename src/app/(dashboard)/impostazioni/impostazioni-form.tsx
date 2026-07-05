@@ -17,6 +17,7 @@ export type ImpostazioniInitial = {
   thresholdsShortDays: string;
   overdueDays: string;
   cessationDay: string;
+  autoChargeReminderHours: string;
   templates: TemplateField[];
 };
 
@@ -36,6 +37,9 @@ export function ImpostazioniForm({ initial }: { initial: ImpostazioniInitial }) 
   const [shortDays, setShortDays] = useState(initial.thresholdsShortDays);
   const [overdue, setOverdue] = useState(initial.overdueDays);
   const [cessation, setCessation] = useState(initial.cessationDay);
+  const [autoChargeHours, setAutoChargeHours] = useState(
+    initial.autoChargeReminderHours,
+  );
   const [templates, setTemplates] = useState(initial.templates);
 
   const [pending, setPending] = useState(false);
@@ -59,6 +63,7 @@ export function ImpostazioniForm({ initial }: { initial: ImpostazioniInitial }) 
       thresholdsShortDays: parseIntList(shortDays),
       overdueDays: parseIntList(overdue),
       cessationDay: parseInt(cessation, 10) || 0,
+      autoChargeReminderHours: parseIntList(autoChargeHours),
       templates: Object.fromEntries(
         templates.map((t) => [
           t.type,
@@ -161,6 +166,22 @@ export function ImpostazioniForm({ initial }: { initial: ImpostazioniInitial }) 
               onChange={(e) => setCessation(e.target.value)}
               placeholder="11"
             />
+          </div>
+          <div className="sm:col-span-2">
+            <label htmlFor="autoChargeHours" className="field-label">
+              Solleciti attivazione rinnovo automatico · ore dalla richiesta
+            </label>
+            <input
+              id="autoChargeHours"
+              className="field"
+              value={autoChargeHours}
+              onChange={(e) => setAutoChargeHours(e.target.value)}
+              placeholder="12, 24"
+            />
+            <p className="mt-1 text-xs text-slate-500">
+              Alle soglie intermedie viene inviato un sollecito al cliente; alla
+              soglia più alta scatta l&apos;escalation all&apos;admin.
+            </p>
           </div>
         </div>
       </section>

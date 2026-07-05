@@ -17,11 +17,18 @@ const overrideSchema = z.object({
   body: z.string().trim().max(5000).nullable().optional(),
 });
 
+// Ore ≥ 1 (soglie di sollecito attivazione rinnovo automatico).
+const hourArray = z
+  .array(z.number().int().min(1).max(720))
+  .max(20)
+  .transform((arr) => [...new Set(arr)]);
+
 const bodySchema = z.object({
   thresholdsLongDays: intArray.optional(),
   thresholdsShortDays: intArray.optional(),
   overdueDays: intArray.optional(),
   cessationDay: z.number().int().min(0).max(3650).optional(),
+  autoChargeReminderHours: hourArray.optional(),
   templates: z.record(z.string(), overrideSchema).optional(),
 });
 
@@ -51,6 +58,9 @@ export function PATCH(req: NextRequest) {
         : {}),
       ...(data.cessationDay !== undefined
         ? { cessationDay: data.cessationDay }
+        : {}),
+      ...(data.autoChargeReminderHours !== undefined
+        ? { autoChargeReminderHours: data.autoChargeReminderHours }
         : {}),
     };
 
