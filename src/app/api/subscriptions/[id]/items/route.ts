@@ -45,6 +45,7 @@ export function POST(req: NextRequest, { params }: Params) {
         startDate: data.startDate,
         endDate: data.endDate,
         priceCents: data.priceCents,
+        quantity: data.quantity ?? 1,
         currency: data.currency,
         billingPeriod: data.billingPeriod,
         customPeriodDays,

@@ -220,6 +220,11 @@ model Subscription {
 
   notes String?
 
+  // Se true, ai pagamenti Stripe di questo contenitore viene aggiunto il
+  // costo di servizio Radar (1,5% del totale servizi). Spunta a livello di
+  // contenitore, applicata solo ai pagamenti con metodo STRIPE.
+  serviceFeeEnabled Boolean @default(false)
+
   items    SubscriptionItem[]
   payments Payment[]
 
@@ -242,6 +247,10 @@ model SubscriptionItem {
   status    SubscriptionStatus @default(ATTIVO)
   startDate DateTime           @default(now())
   endDate   DateTime // data di scadenza corrente della riga
+
+  // Quantità del servizio in questa riga: moltiplica priceCents per ottenere
+  // l'importo effettivo della riga (es. 3 caselle email a 10€ = 30€).
+  quantity  Int                @default(1)
 
   // Snapshot economico al momento della sottoscrizione della riga.
   priceCents       Int
@@ -287,7 +296,11 @@ model Payment {
   subscriptionId String
   subscription   Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
 
-  amountCents Int // somma dei PaymentItem
+  amountCents Int // somma dei PaymentItem + eventuale costo di servizio
+  // Costo di servizio Radar (1,5%) applicato SOLO ai pagamenti Stripe quando
+  // Subscription.serviceFeeEnabled è true. NON è un PaymentItem: è un importo
+  // aggiuntivo incluso in amountCents ma non stornabile singolarmente.
+  serviceFeeCents Int       @default(0)
   currency    String        @default("eur")
   method      PaymentMethod
   // Stato aggregato indicativo: la fonte di verità granulare è PaymentItem.status.
@@ -384,7 +397,12 @@ model Receipt {
   clientEmail    String?
   clientAddress  String? // indirizzo completo formattato
 
-  amountCents Int // totale
+  amountCents Int // totale pagato (imponibile + IVA, incluso costo di servizio)
+  // Scorporo IVA 22%: imponibile = round(amountCents / 1.22), IVA = totale − imponibile.
+  taxableAmountCents Int @default(0)
+  vatAmountCents     Int @default(0)
+  // Costo di servizio Radar (1,5%) incluso nel totale, mostrato come riga a parte.
+  serviceFeeCents    Int @default(0)
   currency    String        @default("eur")
   method      PaymentMethod
   paidAt      DateTime
@@ -412,10 +430,47 @@ model ReceiptLine {
   description String?
   periodStart DateTime?
   periodEnd   DateTime?
+  // Quantità (snapshot) e importo TOTALE della riga (unitario × quantità).
+  quantity    Int       @default(1)
   amountCents Int
 
   @@index([receiptId])
   @@map("receipt_lines")
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// IMPOSTAZIONI REMINDER (configurabili da UI)
+// ──────────────────────────────────────────────────────────────────────────
+
+/// Singolo record (singleton, id="singleton") con le soglie temporali dei
+/// reminder, rese configurabili. I testi email personalizzati sono in
+/// ReminderTemplate (una riga per NotificationType).
+model ReminderSettings {
+  id                  String @id @default("singleton")
+  // Giorni-mancanti alla scadenza per i promemoria di periodi lunghi (annuali).
+  thresholdsLongDays  Int[]  @default([30, 15, 7])
+  // Idem, riscalati per periodi corti (mensili).
+  thresholdsShortDays Int[]  @default([10, 5, 1])
+  // Giorni-dopo-la-scadenza in cui inviare un SOLLECITO.
+  overdueDays         Int[]  @default([0, 1, 2, 7, 10])
+  // Giorno-dopo-la-scadenza in cui scatta la cessazione per morosità.
+  cessationDay        Int    @default(11)
+
+  updatedAt DateTime @updatedAt
+
+  @@map("reminder_settings")
+}
+
+/// Override testuale (oggetto/corpo) di una email di reminder, per tipo.
+/// Campi null = usa il testo di default (REMINDER_DEFAULTS in email-templates).
+model ReminderTemplate {
+  type    NotificationType @id
+  subject String?
+  body    String?
+
+  updatedAt DateTime @updatedAt
+
+  @@map("reminder_templates")
 }
 
 // ──────────────────────────────────────────────────────────────────────────

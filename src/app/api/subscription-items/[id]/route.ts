@@ -58,6 +58,7 @@ export function PATCH(req: NextRequest, { params }: Params) {
         startDate: data.startDate,
         endDate: data.endDate,
         priceCents: data.priceCents,
+        quantity: data.quantity,
         currency: data.currency,
         billingPeriod: data.billingPeriod,
         customPeriodDays: data.customPeriodDays,

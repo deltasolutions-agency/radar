@@ -240,6 +240,11 @@ const subscriptionItemObject = z.object({
     .number({ invalid_type_error: "Prezzo non valido" })
     .int("Il prezzo deve essere in centesimi (intero)")
     .min(0, "Il prezzo non può essere negativo"),
+  quantity: z
+    .number({ invalid_type_error: "Quantità non valida" })
+    .int("La quantità deve essere un numero intero")
+    .min(1, "La quantità minima è 1")
+    .default(1),
   currency: z.preprocess(
     emptyToUndef,
     z.string().trim().toLowerCase().length(3).default("eur"),
@@ -314,6 +319,8 @@ export const subscriptionCreateSchema = z.object({
 /** Aggiornamento del contenitore (solo metadati; le righe si gestiscono a parte). */
 export const subscriptionUpdateSchema = z.object({
   notes: z.preprocess(emptyToUndef, z.string().trim().max(5000).optional()),
+  // Costo di servizio 1,5% sui pagamenti Stripe (spunta a livello contenitore).
+  serviceFeeEnabled: z.boolean().optional(),
 });
 
 export type SubscriptionCreateInput = z.infer<typeof subscriptionCreateSchema>;

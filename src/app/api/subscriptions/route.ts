@@ -6,6 +6,8 @@ import {
   SUBSCRIPTION_STATUSES,
 } from "@/lib/validations";
 import { computeItemStatus } from "@/lib/subscription-status";
+import { sendEmail } from "@/lib/send-email";
+import { buildWelcomeEmail } from "@/lib/email-templates";
 import type { SubscriptionStatus } from "@prisma/client";
 
 // GET /api/subscriptions?status=...
@@ -50,7 +52,13 @@ export function POST(req: NextRequest) {
     // Verifica esistenza cliente.
     const client = await prisma.client.findUnique({
       where: { id: data.clientId },
-      select: { id: true },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        ragioneSociale: true,
+        welcomeEmailSentAt: true,
+      },
     });
     if (!client)
       return error("Cliente non trovato", 400, {
@@ -90,6 +98,7 @@ export function POST(req: NextRequest) {
               startDate: it.startDate,
               endDate: it.endDate,
               priceCents: it.priceCents,
+              quantity: it.quantity ?? 1,
               currency: it.currency,
               billingPeriod: it.billingPeriod,
               customPeriodDays,
@@ -106,6 +115,41 @@ export function POST(req: NextRequest) {
         items: { include: { service: true }, orderBy: { endDate: "asc" } },
       },
     });
+
+    // Mail di benvenuto: solo al PRIMO abbonamento del cliente (welcomeEmailSentAt
+    // ancora null) e se ha un'email. Non bloccante: un fallimento non deve far
+    // fallire la creazione dell'abbonamento. Il timestamp viene impostato solo a
+    // invio riuscito, così un errore transitorio verrà ritentato al prossimo giro.
+    if (!client.welcomeEmailSentAt && client.email) {
+      try {
+        const clientName = client.ragioneSociale?.trim()
+          ? client.ragioneSociale
+          : client.name;
+        const content = buildWelcomeEmail({
+          clientName,
+          items: subscription.items.map((it) => ({
+            serviceName: it.service.name,
+            priceCents: it.priceCents,
+            quantity: it.quantity,
+            currency: it.currency,
+            billingPeriod: it.billingPeriod,
+            customPeriodDays: it.customPeriodDays,
+          })),
+        });
+        const sent = await sendEmail(content, client.email);
+        if (sent.status === "INVIATA") {
+          await prisma.client.update({
+            where: { id: client.id },
+            data: { welcomeEmailSentAt: new Date() },
+          });
+        }
+      } catch (e) {
+        console.error(
+          `[subscriptions] invio mail di benvenuto fallito (client ${client.id}):`,
+          e,
+        );
+      }
+    }
 
     return json({ subscription }, 201);
   });

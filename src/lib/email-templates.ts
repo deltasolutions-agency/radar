@@ -1,6 +1,8 @@
 import "server-only";
 import { NotificationType, type PaymentMethod } from "@prisma/client";
 import { formatDate, formatEur } from "@/lib/format";
+import { formatBillingPeriod, type BillingPeriodValue } from "@/lib/validations";
+import { splitVatFromGross } from "@/lib/vat";
 
 /**
  * Dati necessari a comporre le email di reminder/sollecito/cessazione.
@@ -80,63 +82,104 @@ function wrapHtml(title: string, intro: string, d: ReminderEmailData): string {
     </div>`;
 }
 
+/** Tipi di notifica reminder personalizzabili da Impostazioni (esclude CONFERMA_ACQUISTO). */
+export const REMINDER_CONFIGURABLE_TYPES = [
+  "PROMEMORIA_30",
+  "PROMEMORIA_15",
+  "PROMEMORIA_7",
+  "SOLLECITO",
+  "CESSAZIONE_MOROSITA",
+] as const;
+export type ReminderConfigurableType =
+  (typeof REMINDER_CONFIGURABLE_TYPES)[number];
+
+/**
+ * Testi di DEFAULT (oggetto/corpo/titolo) di ciascun reminder. subject e body
+ * supportano i segnaposto: {clientName} {serviceName} {endDate} {diffDays}
+ * {diffDaysAfter}. Usati sia come fallback quando non c'è override, sia come
+ * placeholder nel form di Impostazioni.
+ */
+export const REMINDER_DEFAULTS: Record<
+  ReminderConfigurableType,
+  { subject: string; body: string; title: string }
+> = {
+  PROMEMORIA_30: {
+    subject:
+      "[Radar] Abbonamento in scadenza: {clientName} — {serviceName} (tra {diffDays} giorni)",
+    body: "L'abbonamento sta per scadere: mancano {diffDays} giorni alla data di rinnovo.",
+    title: "Abbonamento in scadenza",
+  },
+  PROMEMORIA_15: {
+    subject:
+      "[Radar] Abbonamento in scadenza: {clientName} — {serviceName} (tra {diffDays} giorni)",
+    body: "L'abbonamento sta per scadere: mancano {diffDays} giorni alla data di rinnovo.",
+    title: "Abbonamento in scadenza",
+  },
+  PROMEMORIA_7: {
+    subject:
+      "[Radar] Abbonamento in scadenza: {clientName} — {serviceName} (tra {diffDays} giorni)",
+    body: "L'abbonamento sta per scadere: mancano {diffDays} giorni alla data di rinnovo.",
+    title: "Abbonamento in scadenza",
+  },
+  SOLLECITO: {
+    subject:
+      "[Radar] Abbonamento scaduto: {clientName} — {serviceName} (scaduto da {diffDaysAfter} giorni)",
+    body: "L'abbonamento risulta SCADUTO da {diffDaysAfter} giorni e non ancora rinnovato. Si consiglia di regolarizzare il pagamento o contattare il cliente al più presto.",
+    title: "Abbonamento scaduto — sollecito",
+  },
+  CESSAZIONE_MOROSITA: {
+    subject:
+      "[Radar] Servizio cessato per mancato pagamento: {clientName} — {serviceName}",
+    body: "Il servizio è stato CESSATO automaticamente per mancato pagamento, trascorsi i giorni previsti dalla scadenza senza rinnovo. Valuta se comunicare la cessazione al cliente.",
+    title: "Servizio cessato per morosità",
+  },
+};
+
+/** Sostituisce i segnaposto {token} con i valori del reminder. */
+function fillReminderPlaceholders(tpl: string, d: ReminderEmailData): string {
+  const diffDaysAfter = -d.diffDays;
+  return tpl
+    .replaceAll("{clientName}", d.clientName)
+    .replaceAll("{serviceName}", d.serviceName)
+    .replaceAll("{endDate}", formatDate(d.endDate))
+    .replaceAll("{diffDays}", String(d.diffDays))
+    .replaceAll("{diffDaysAfter}", String(diffDaysAfter));
+}
+
+/** Override testuale (oggetto/corpo) per un reminder; null/undefined = default. */
+export type ReminderOverride = {
+  subject?: string | null;
+  body?: string | null;
+};
+
 /**
  * Genera oggetto + corpo (testo e HTML) per il tipo di notifica indicato.
  * Il destinatario (ADMIN_EMAIL) è gestito dal chiamante (cron).
+ *
+ * `override` (opzionale, da ReminderTemplate) sostituisce oggetto e/o corpo:
+ * i campi vuoti/null ricadono sul default. Entrambi supportano i segnaposto.
  */
 export function buildReminderEmail(
   type: NotificationType,
   d: ReminderEmailData,
+  override?: ReminderOverride,
 ): EmailContent {
-  const diffDaysAfter = -d.diffDays;
+  const def = REMINDER_DEFAULTS[type as ReminderConfigurableType];
 
-  switch (type) {
-    case "PROMEMORIA_30":
-    case "PROMEMORIA_15":
-    case "PROMEMORIA_7": {
-      const subject = `[Radar] Abbonamento in scadenza: ${d.clientName} — ${d.serviceName} (tra ${d.diffDays} giorni)`;
-      const intro = `L'abbonamento sta per scadere: mancano ${d.diffDays} giorni alla data di rinnovo.`;
-      const text = `${intro}\n\n${detailsText(d)}`;
-      return {
-        subject,
-        text,
-        html: wrapHtml("Abbonamento in scadenza", intro, d),
-      };
-    }
-
-    case "SOLLECITO": {
-      const subject = `[Radar] Abbonamento scaduto: ${d.clientName} — ${d.serviceName} (scaduto da ${diffDaysAfter} giorni)`;
-      const intro = `L'abbonamento risulta SCADUTO da ${diffDaysAfter} giorni e non ancora rinnovato. Si consiglia di regolarizzare il pagamento o contattare il cliente al più presto.`;
-      const text = `${intro}\n\n${detailsText(d)}`;
-      return {
-        subject,
-        text,
-        html: wrapHtml("Abbonamento scaduto — sollecito", intro, d),
-      };
-    }
-
-    case "CESSAZIONE_MOROSITA": {
-      const subject = `[Radar] Servizio cessato per mancato pagamento: ${d.clientName} — ${d.serviceName}`;
-      const intro = `Il servizio è stato CESSATO automaticamente per mancato pagamento, trascorsi 11 giorni dalla scadenza senza rinnovo. Valuta se comunicare la cessazione al cliente.`;
-      const text = `${intro}\n\n${detailsText(d)}`;
-      return {
-        subject,
-        text,
-        html: wrapHtml("Servizio cessato per morosità", intro, d),
-      };
-    }
-
-    default: {
-      // Type non gestiti da questo generatore (es. CONFERMA_ACQUISTO ha il suo).
-      const subject = `[Radar] Notifica abbonamento: ${d.clientName} — ${d.serviceName}`;
-      const text = detailsText(d);
-      return {
-        subject,
-        text,
-        html: wrapHtml("Notifica abbonamento", "", d),
-      };
-    }
+  // Type non gestito (es. CONFERMA_ACQUISTO ha il suo generatore).
+  if (!def) {
+    const subject = `[Radar] Notifica abbonamento: ${d.clientName} — ${d.serviceName}`;
+    return { subject, text: detailsText(d), html: wrapHtml("Notifica abbonamento", "", d) };
   }
+
+  const subjectTpl = override?.subject?.trim() ? override.subject : def.subject;
+  const bodyTpl = override?.body?.trim() ? override.body : def.body;
+
+  const subject = fillReminderPlaceholders(subjectTpl, d);
+  const intro = fillReminderPlaceholders(bodyTpl, d);
+  const text = `${intro}\n\n${detailsText(d)}`;
+
+  return { subject, text, html: wrapHtml(def.title, intro, d) };
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -192,6 +235,9 @@ export function buildConfirmationEmail(
   const currency = d.currency ?? "eur";
 
   const total = formatEur(d.totalCents, currency);
+  // Scorporo IVA dal totale lordo (coerente con la ricevuta).
+  const vat = splitVatFromGross(d.totalCents);
+  const vatLine = `di cui imponibile ${formatEur(vat.taxableCents, currency)} + IVA 22% ${formatEur(vat.vatCents, currency)}`;
   const base = process.env.APP_URL ?? "";
   const receiptUrl = d.receiptToken ? `${base}/r/${d.receiptToken}` : null;
   // Link dashboard SOLO per l'admin — mai nella versione cliente.
@@ -227,6 +273,7 @@ export function buildConfirmationEmail(
     ...itemLinesText,
     "",
     `Totale:  ${total}`,
+    `         (${vatLine})`,
     `Metodo:  ${methodLabel(d.method)}`,
     "",
     receiptLineText,
@@ -279,6 +326,9 @@ export function buildConfirmationEmail(
             <td style="padding:8px 12px 0 0;font-weight:600;text-align:right">${total}</td>
             <td style="padding:8px 0 0"></td>
           </tr>
+          <tr>
+            <td colspan="3" style="padding:2px 0 0;text-align:right;font-size:12px;color:#94a3b8">${vatLine}</td>
+          </tr>
         </tfoot>
       </table>
       <p style="font-family:sans-serif;font-size:14px;margin-top:8px">
@@ -301,6 +351,118 @@ export function buildConfirmationEmail(
 }
 
 // ──────────────────────────────────────────────────────────────────────────
+// BENVENUTO — email al cliente alla creazione del primo abbonamento
+// ──────────────────────────────────────────────────────────────────────────
+
+export type WelcomeEmailItem = {
+  serviceName: string;
+  priceCents: number; // prezzo unitario
+  quantity: number; // ≥ 1
+  currency?: string;
+  billingPeriod: BillingPeriodValue;
+  customPeriodDays: number | null;
+};
+
+export type WelcomeEmailData = {
+  clientName: string;
+  /** Servizi attivati con questo primo abbonamento. */
+  items: WelcomeEmailItem[];
+};
+
+const CONTACT_EMAIL = "hello@deltasolutions.agency";
+
+/**
+ * Email di BENVENUTO inviata UNA sola volta per cliente, alla creazione del suo
+ * primo abbonamento. Presenta la transizione Deltaweb → Delta Solutions Agency,
+ * elenca i servizi attivati e spiega che Radar gestirà scadenze e pagamenti.
+ * Rivolta al cliente: solo link pubblici (privacy/termini), nessun link interno.
+ */
+export function buildWelcomeEmail(d: WelcomeEmailData): EmailContent {
+  const base = process.env.APP_URL ?? "";
+  const privacyUrl = `${base}/privacy`;
+  const termsUrl = `${base}/termini`;
+
+  const subject = "Benvenuto in Delta Solutions Agency — la tua area Radar";
+
+  const intro =
+    "Ti diamo il benvenuto! Deltaweb è ora Delta Solutions Agency: cambiano il nome e l'immagine, ma restano lo stesso team e la stessa cura dei tuoi servizi. Da oggi la gestione di scadenze, rinnovi e pagamenti passa attraverso Radar, la nostra piattaforma dedicata.";
+
+  const explanation =
+    "Con Radar riceverai promemoria automatici prima di ogni scadenza, link di pagamento sicuri e le ricevute dei tuoi rinnovi, tutto in un unico posto. Non devi fare nulla: ci pensiamo noi a tenere tutto in ordine.";
+
+  const itemLabel = (it: WelcomeEmailItem) => {
+    const name = it.quantity > 1 ? `${it.serviceName} ×${it.quantity}` : it.serviceName;
+    const period = formatBillingPeriod(it.billingPeriod, it.customPeriodDays);
+    const price = formatEur(it.priceCents * it.quantity, it.currency ?? "eur");
+    return { name, period, price };
+  };
+
+  const itemLinesText = d.items.map((it) => {
+    const { name, period, price } = itemLabel(it);
+    return `- ${name}: ${price} · ${period}`;
+  });
+
+  const text = [
+    `Ciao ${d.clientName},`,
+    "",
+    intro,
+    "",
+    "Servizi attivati:",
+    ...itemLinesText,
+    "",
+    explanation,
+    "",
+    `Privacy Policy: ${privacyUrl}`,
+    `Termini e Condizioni: ${termsUrl}`,
+    "",
+    `Per qualsiasi domanda scrivici a ${CONTACT_EMAIL}.`,
+    "",
+    "Il team di Delta Solutions Agency",
+  ].join("\n");
+
+  const itemRowsHtml = d.items
+    .map((it) => {
+      const { name, period, price } = itemLabel(it);
+      return `
+        <tr>
+          <td style="padding:6px 12px 6px 0;border-bottom:1px solid #f1f5f9">${name}</td>
+          <td style="padding:6px 12px 6px 0;border-bottom:1px solid #f1f5f9;color:#64748b">${period}</td>
+          <td style="padding:6px 0;border-bottom:1px solid #f1f5f9;text-align:right;white-space:nowrap">${price}</td>
+        </tr>`;
+    })
+    .join("");
+
+  const html = `
+    <div style="max-width:560px;margin:0 auto;font-family:sans-serif;color:#1e293b">
+      ${emailHeaderHtml()}
+      <h2 style="font-size:18px;margin:0 0 8px">Benvenuto in Delta Solutions Agency</h2>
+      <p style="font-size:14px;line-height:1.5">Ciao ${d.clientName},</p>
+      <p style="font-size:14px;line-height:1.5">${intro}</p>
+      <table style="border-collapse:collapse;width:100%;font-family:sans-serif;font-size:14px;color:#1e293b;margin:8px 0">
+        <thead>
+          <tr style="text-align:left;color:#64748b;font-size:12px;text-transform:uppercase;letter-spacing:0.04em">
+            <th style="padding:0 12px 6px 0;font-weight:500">Servizio</th>
+            <th style="padding:0 12px 6px 0;font-weight:500">Periodicità</th>
+            <th style="padding:0 0 6px;font-weight:500;text-align:right">Prezzo</th>
+          </tr>
+        </thead>
+        <tbody>${itemRowsHtml}</tbody>
+      </table>
+      <p style="font-size:14px;line-height:1.5">${explanation}</p>
+      <p style="font-size:13px;color:#64748b;line-height:1.6">
+        Consulta la nostra <a href="${privacyUrl}" style="color:#4f46e5">Privacy Policy</a>
+        e i <a href="${termsUrl}" style="color:#4f46e5">Termini e Condizioni</a>.<br/>
+        Per qualsiasi domanda scrivici a
+        <a href="mailto:${CONTACT_EMAIL}" style="color:#4f46e5">${CONTACT_EMAIL}</a>.
+      </p>
+      <hr style="border:none;border-top:1px solid #e2e8f0;margin:24px 0" />
+      <p style="font-size:12px;color:#94a3b8">Radar — Delta Solutions Agency</p>
+    </div>`;
+
+  return { subject, text, html };
+}
+
+// ──────────────────────────────────────────────────────────────────────────
 // RICHIESTA ATTIVAZIONE RINNOVO AUTOMATICO — email al cliente
 // ──────────────────────────────────────────────────────────────────────────
 
@@ -317,7 +479,7 @@ export function buildAutoChargeRequestEmail(d: {
 }): EmailContent {
   const subject = `Radar — Attiva il rinnovo automatico per ${d.serviceName}`;
   const intro =
-    "Puoi attivare il rinnovo automatico del tuo abbonamento: registrando la carta autorizzi l'addebito ricorrente alla cadenza indicata. Puoi revocare l'autorizzazione in qualsiasi momento scrivendo a hello@deltasolutions.agency.";
+    "Puoi attivare il rinnovo automatico del tuo abbonamento: registrando una sola carta autorizzi l'addebito ricorrente per tutti i tuoi servizi attivi presso Delta Solutions, ciascuno alla propria cadenza. Nella pagina di attivazione vedrai l'elenco completo. Puoi revocare l'autorizzazione in qualsiasi momento scrivendo a hello@deltasolutions.agency.";
 
   const text = [
     intro,
@@ -342,6 +504,116 @@ export function buildAutoChargeRequestEmail(d: {
       <p style="margin:20px 0">
         <a href="${d.activationUrl}" style="display:inline-block;background:#4f46e5;color:#ffffff;text-decoration:none;font-family:sans-serif;font-size:14px;font-weight:600;padding:12px 20px;border-radius:8px">Attiva rinnovo automatico →</a>
       </p>
+      <hr style="border:none;border-top:1px solid #e2e8f0;margin:24px 0" />
+      <p style="font-size:12px;color:#94a3b8">Radar — Delta Solutions</p>
+    </div>`;
+
+  return { subject, text, html };
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// CONFERMA STORNO / RIMBORSO — email al cliente
+// ──────────────────────────────────────────────────────────────────────────
+
+export type RefundConfirmationItem = {
+  serviceName: string;
+  amountCents: number;
+  /** true se il rinnovo di questo servizio è stato annullato dallo storno. */
+  renewalReverted: boolean;
+};
+
+export type RefundConfirmationData = {
+  clientName: string;
+  /** Servizi rimborsati in questo storno. */
+  items: RefundConfirmationItem[];
+  /** Importo totale rimborsato (somma delle righe stornate). */
+  totalCents: number;
+  currency?: string;
+  /** true se lo storno è totale (tutto il pagamento), false se parziale. */
+  isTotal: boolean;
+};
+
+/**
+ * Email al cliente che conferma un rimborso (storno) parziale o totale: elenca i
+ * servizi rimborsati, l'importo e se il rinnovo di quei servizi è stato
+ * annullato. Rivolta al cliente: nessun link interno.
+ */
+export function buildRefundConfirmationEmail(
+  d: RefundConfirmationData,
+): EmailContent {
+  const currency = d.currency ?? "eur";
+  const total = formatEur(d.totalCents, currency);
+  const label = servicesLabel(d.items);
+  const anyReverted = d.items.some((it) => it.renewalReverted);
+
+  const subject = `Radar — Rimborso effettuato: ${label}`;
+  const intro = `Abbiamo effettuato un rimborso ${
+    d.isTotal ? "totale" : "parziale"
+  } sul tuo pagamento. Di seguito il dettaglio.`;
+
+  const renewalNote = anyReverted
+    ? "Il rinnovo dei servizi rimborsati contrassegnati è stato annullato: la scadenza è tornata a quella precedente."
+    : null;
+
+  const itemLinesText = d.items.map(
+    (it) =>
+      `- ${it.serviceName}: ${formatEur(it.amountCents, currency)}${
+        it.renewalReverted ? " (rinnovo annullato)" : ""
+      }`,
+  );
+
+  const text = [
+    `Ciao ${d.clientName},`,
+    "",
+    intro,
+    "",
+    "Servizi rimborsati:",
+    ...itemLinesText,
+    "",
+    `Totale rimborsato: ${total}`,
+    ...(renewalNote ? ["", renewalNote] : []),
+    "",
+    "Il rimborso sarà visibile sul tuo metodo di pagamento entro qualche giorno lavorativo, secondo i tempi della tua banca.",
+    "",
+    "Per qualsiasi domanda scrivici a hello@deltasolutions.agency.",
+  ].join("\n");
+
+  const itemRowsHtml = d.items
+    .map(
+      (it) => `
+        <tr>
+          <td style="padding:6px 12px 6px 0;border-bottom:1px solid #f1f5f9">${it.serviceName}${
+            it.renewalReverted
+              ? ` <span style="color:#94a3b8;font-size:12px">— rinnovo annullato</span>`
+              : ""
+          }</td>
+          <td style="padding:6px 0;border-bottom:1px solid #f1f5f9;text-align:right;white-space:nowrap">${formatEur(it.amountCents, currency)}</td>
+        </tr>`,
+    )
+    .join("");
+
+  const html = `
+    <div style="max-width:560px;margin:0 auto;font-family:sans-serif;color:#1e293b">
+      ${emailHeaderHtml()}
+      <h2 style="font-size:18px;margin:0 0 8px">Rimborso effettuato</h2>
+      <p style="font-size:14px;line-height:1.5">Ciao ${d.clientName},</p>
+      <p style="font-size:14px;line-height:1.5">${intro}</p>
+      <table style="border-collapse:collapse;width:100%;font-family:sans-serif;font-size:14px;color:#1e293b;margin:8px 0">
+        <tbody>${itemRowsHtml}</tbody>
+        <tfoot>
+          <tr>
+            <td style="padding:8px 12px 0 0;font-weight:600">Totale rimborsato</td>
+            <td style="padding:8px 0 0;font-weight:600;text-align:right">${total}</td>
+          </tr>
+        </tfoot>
+      </table>
+      ${
+        renewalNote
+          ? `<p style="font-size:13px;color:#64748b;line-height:1.5">${renewalNote}</p>`
+          : ""
+      }
+      <p style="font-size:13px;color:#64748b;line-height:1.5">Il rimborso sarà visibile sul tuo metodo di pagamento entro qualche giorno lavorativo, secondo i tempi della tua banca.</p>
+      <p style="font-size:13px;color:#64748b;line-height:1.5">Per qualsiasi domanda scrivici a <a href="mailto:hello@deltasolutions.agency" style="color:#4f46e5">hello@deltasolutions.agency</a>.</p>
       <hr style="border:none;border-top:1px solid #e2e8f0;margin:24px 0" />
       <p style="font-size:12px;color:#94a3b8">Radar — Delta Solutions</p>
     </div>`;

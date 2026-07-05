@@ -52,6 +52,7 @@ export default async function ModificaRigaPage({
           startDate: toDateInput(item.startDate),
           endDate: toDateInput(item.endDate),
           priceEuro: centsToEuro(item.priceCents),
+          quantity: String(item.quantity),
           billingPeriod: item.billingPeriod,
           customPeriodDays: item.customPeriodDays?.toString() ?? "",
           autoChargeEnabled: item.autoChargeEnabled,

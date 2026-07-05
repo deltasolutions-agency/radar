@@ -8,6 +8,7 @@ export type ItemValues = {
   startDate: string; // YYYY-MM-DD
   endDate: string; // YYYY-MM-DD
   priceEuro: string;
+  quantity: string; // intero ≥ 1
   billingPeriod: string;
   customPeriodDays: string;
   autoChargeEnabled: boolean;
@@ -20,6 +21,7 @@ export const EMPTY_ITEM: ItemValues = {
   startDate: "",
   endDate: "",
   priceEuro: "",
+  quantity: "1",
   billingPeriod: "ANNUALE",
   customPeriodDays: "",
   autoChargeEnabled: false,
@@ -47,11 +49,13 @@ export function euroToCents(input: string): number {
 export function itemValuesToApi(v: ItemValues) {
   const isCustom = v.billingPeriod === "PERSONALIZZATA";
   const priceCents = euroToCents(v.priceEuro);
+  const quantity = parseInt(v.quantity, 10);
   return {
     serviceId: v.serviceId,
     startDate: v.startDate,
     endDate: v.endDate,
     priceCents: Number.isNaN(priceCents) ? undefined : priceCents,
+    quantity: Number.isNaN(quantity) ? 1 : quantity,
     currency: "eur",
     billingPeriod: v.billingPeriod,
     customPeriodDays: isCustom
@@ -171,6 +175,29 @@ export function ItemFields({
           {errors.priceEuro ? (
             <p className="mt-1 text-xs text-red-600">{errors.priceEuro}</p>
           ) : null}
+        </div>
+        <div>
+          <label htmlFor={`${idPrefix}-quantity`} className="field-label">
+            Quantità <span className="text-red-600">*</span>
+          </label>
+          <input
+            id={`${idPrefix}-quantity`}
+            type="number"
+            min={1}
+            step={1}
+            inputMode="numeric"
+            placeholder="1"
+            className="field"
+            value={value.quantity}
+            onChange={(e) => onChange({ quantity: e.target.value })}
+          />
+          {errors.quantity ? (
+            <p className="mt-1 text-xs text-red-600">{errors.quantity}</p>
+          ) : (
+            <p className="mt-1 text-xs text-slate-500">
+              Il totale della riga è prezzo × quantità.
+            </p>
+          )}
         </div>
         <div>
           <label htmlFor={`${idPrefix}-billingPeriod`} className="field-label">

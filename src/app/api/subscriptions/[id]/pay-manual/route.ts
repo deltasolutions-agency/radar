@@ -46,7 +46,10 @@ export function POST(req: NextRequest, { params }: Params) {
     }
 
     const items = subscription.items;
-    const totalCents = items.reduce((sum, it) => sum + it.priceCents, 0);
+    const totalCents = items.reduce(
+      (sum, it) => sum + it.priceCents * it.quantity,
+      0,
+    );
     const currency = items[0].currency;
 
     // Crea il Payment CONFERMATO con una PaymentItem per riga (periodo preview),
@@ -66,7 +69,7 @@ export function POST(req: NextRequest, { params }: Params) {
             const duration = periodDurationDays(it);
             return {
               subscriptionItemId: it.id,
-              amountCents: it.priceCents,
+              amountCents: it.priceCents * it.quantity,
               status: "IN_ATTESA" as const,
               periodStart: it.endDate,
               periodEnd:

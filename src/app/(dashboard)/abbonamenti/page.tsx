@@ -1,9 +1,6 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
-import { SubscriptionStatusBadge } from "@/components/badges";
-import { DeleteButton } from "@/components/delete-button";
-import { CeaseButton } from "./cease-button";
-import { formatEur, formatDate } from "@/lib/format";
+import { AbbonamentiTable, type SubscriptionRow } from "./abbonamenti-table";
 import {
   SUBSCRIPTION_STATUSES,
   SUBSCRIPTION_STATUS_LABELS,
@@ -12,7 +9,10 @@ import {
 
 export const dynamic = "force-dynamic";
 
-// Scadenzario: una riga per servizio (SubscriptionItem), ordinata per scadenza.
+// Righe non più "attive" ai fini della prossima scadenza del contenitore.
+const CLOSED_STATUSES = new Set(["CESSATO"]);
+
+// Lista abbonamenti AGGREGATA per cliente/contenitore: una riga per Subscription.
 export default async function AbbonamentiPage({
   searchParams,
 }: {
@@ -24,14 +24,62 @@ export default async function AbbonamentiPage({
       ? (searchParams.status as SubscriptionStatusValue)
       : undefined;
 
-  const items = await prisma.subscriptionItem.findMany({
-    where: status ? { status } : undefined,
+  // Un contenitore compare nel filtro se ALMENO UNA delle sue righe è in quello
+  // stato; mostriamo comunque TUTTE le sue righe.
+  const subscriptions = await prisma.subscription.findMany({
+    where: status ? { items: { some: { status } } } : undefined,
     include: {
-      service: true,
-      subscription: { include: { client: true } },
-      _count: { select: { paymentItems: true } },
+      client: { select: { name: true, ragioneSociale: true } },
+      items: {
+        select: { status: true, endDate: true, service: { select: { name: true } } },
+        orderBy: { endDate: "asc" },
+      },
     },
-    orderBy: { endDate: "asc" },
+  });
+
+  const rows: SubscriptionRow[] = subscriptions.map((sub) => {
+    const clientName = sub.client.ragioneSociale?.trim()
+      ? sub.client.ragioneSociale
+      : sub.client.name;
+
+    const services = sub.items.map((it) => it.service.name);
+
+    // Stato del contenitore: unico se tutte le righe concordano, altrimenti MISTO.
+    const distinctStatuses = new Set(sub.items.map((it) => it.status));
+    const status =
+      sub.items.length === 0
+        ? "MISTO"
+        : distinctStatuses.size === 1
+          ? [...distinctStatuses][0]
+          : "MISTO";
+
+    // Prossima scadenza: la più imminente tra le righe non cessate.
+    const openEndDates = sub.items
+      .filter((it) => !CLOSED_STATUSES.has(it.status))
+      .map((it) => it.endDate.getTime());
+    const nextDueISO =
+      openEndDates.length > 0
+        ? new Date(Math.min(...openEndDates)).toISOString()
+        : null;
+
+    return {
+      subscriptionId: sub.id,
+      clientName,
+      services,
+      status,
+      nextDueISO,
+    };
+  });
+
+  // Ordina i contenitori per scadenza più imminente (senza scadenza in fondo).
+  rows.sort((a, b) => {
+    const ta = a.nextDueISO
+      ? new Date(a.nextDueISO).getTime()
+      : Number.POSITIVE_INFINITY;
+    const tb = b.nextDueISO
+      ? new Date(b.nextDueISO).getTime()
+      : Number.POSITIVE_INFINITY;
+    return ta - tb;
   });
 
   return (
@@ -40,8 +88,8 @@ export default async function AbbonamentiPage({
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Abbonamenti</h1>
           <p className="mt-1 text-sm text-slate-500">
-            {items.length} {items.length === 1 ? "servizio" : "servizi"}
-            {status ? ` · ${SUBSCRIPTION_STATUS_LABELS[status]}` : ""}
+            {rows.length} {rows.length === 1 ? "cliente" : "clienti"}
+            {status ? ` · con servizi ${SUBSCRIPTION_STATUS_LABELS[status]}` : ""}
           </p>
         </div>
         <Link href="/abbonamenti/nuovo" className="btn-primary">
@@ -67,92 +115,7 @@ export default async function AbbonamentiPage({
         ))}
       </div>
 
-      <div className="card overflow-hidden">
-        {items.length === 0 ? (
-          <div className="px-6 py-12 text-center text-sm text-slate-500">
-            Nessun servizio.{" "}
-            <Link href="/abbonamenti/nuovo" className="text-brand underline">
-              Crea un abbonamento
-            </Link>
-            .
-          </div>
-        ) : (
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-line text-left mono-label">
-                <th className="px-5 py-3 font-medium">Cliente</th>
-                <th className="px-5 py-3 font-medium">Servizio</th>
-                <th className="px-5 py-3 font-medium">Scadenza</th>
-                <th className="px-5 py-3 font-medium">Prezzo</th>
-                <th className="px-5 py-3 font-medium">Stato</th>
-                <th className="px-5 py-3 font-medium">Azioni</th>
-              </tr>
-            </thead>
-            <tbody>
-              {items.map((it) => {
-                const client = it.subscription.client;
-                const clientName = client.ragioneSociale?.trim()
-                  ? client.ragioneSociale
-                  : client.name;
-                return (
-                  <tr
-                    key={it.id}
-                    className="border-b border-line-soft transition last:border-0 hover:bg-canvas"
-                  >
-                    <td className="px-5 py-3">
-                      <Link
-                        href={`/abbonamenti/${it.subscriptionId}`}
-                        className="font-medium text-ink hover:underline"
-                      >
-                        {clientName}
-                      </Link>
-                    </td>
-                    <td className="px-5 py-3 text-slate-600">
-                      {it.service.name}
-                    </td>
-                    <td className="px-5 py-3 text-slate-600">
-                      {formatDate(it.endDate)}
-                    </td>
-                    <td className="px-5 py-3 font-mono text-xs text-slate-600">
-                      {formatEur(it.priceCents, it.currency)}
-                    </td>
-                    <td className="px-5 py-3">
-                      <SubscriptionStatusBadge
-                        status={it.status as SubscriptionStatusValue}
-                      />
-                    </td>
-                    <td className="px-5 py-3">
-                      <div className="flex items-center gap-3">
-                        <Link
-                          href={`/abbonamenti/${it.subscriptionId}`}
-                          className="text-brand hover:underline"
-                        >
-                          Dettaglio
-                        </Link>
-                        {it.status === "CESSATO" ? null : it._count
-                            .paymentItems === 0 ? (
-                          <DeleteButton
-                            endpoint={`/api/subscription-items/${it.id}`}
-                            redirectTo="/abbonamenti"
-                            entityLabel="questo servizio"
-                            className="text-xs font-medium text-red-600 hover:underline"
-                          />
-                        ) : (
-                          <CeaseButton
-                            itemId={it.id}
-                            status={it.status}
-                            className="text-xs font-medium text-slate-600 hover:underline"
-                          />
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        )}
-      </div>
+      <AbbonamentiTable rows={rows} />
     </div>
   );
 }
