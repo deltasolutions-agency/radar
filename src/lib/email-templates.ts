@@ -466,40 +466,65 @@ export function buildWelcomeEmail(d: WelcomeEmailData): EmailContent {
 // RICHIESTA ATTIVAZIONE RINNOVO AUTOMATICO — email al cliente
 // ──────────────────────────────────────────────────────────────────────────
 
-/**
- * Email al cliente con il link per attivare il rinnovo automatico (registrazione
- * carta con gate di consenso). Rivolta al cliente: solo il link pubblico
- * /attiva-rinnovo, mai link interni.
- */
-export function buildAutoChargeRequestEmail(d: {
+export type AutoChargeRequestItem = {
   serviceName: string;
   amountLabel: string;
   periodicityLabel: string;
+};
+
+/**
+ * Email al cliente con il link per attivare il rinnovo automatico (registrazione
+ * carta con gate di consenso) per un INSIEME ESPLICITO di servizi scelti
+ * dall'admin. Rivolta al cliente: elenca ESATTAMENTE quei servizi, solo il link
+ * pubblico /attiva-rinnovo, mai link interni.
+ */
+export function buildAutoChargeRequestEmail(d: {
+  items: AutoChargeRequestItem[];
   activationUrl: string;
 }): EmailContent {
-  const subject = `Radar — Attiva il rinnovo automatico per ${d.serviceName}`;
+  const label = servicesLabel(d.items.map((it) => ({ serviceName: it.serviceName })));
+  const subject = `Radar — Attiva il rinnovo automatico per ${label}`;
   const intro =
-    "Puoi attivare il rinnovo automatico del tuo abbonamento: registrando una sola carta autorizzi l'addebito ricorrente per tutti i tuoi servizi attivi presso Delta Solutions, ciascuno alla propria cadenza. Nella pagina di attivazione vedrai l'elenco completo. Puoi revocare l'autorizzazione in qualsiasi momento scrivendo a hello@deltasolutions.agency.";
+    "Puoi attivare il rinnovo automatico registrando una carta: autorizzerai l'addebito ricorrente per i servizi elencati qui sotto, ciascuno alla propria cadenza. Puoi revocare l'autorizzazione in qualsiasi momento scrivendo a hello@deltasolutions.agency.";
+
+  const itemLinesText = d.items.map(
+    (it) => `- ${it.serviceName}: ${it.amountLabel} · ${it.periodicityLabel}`,
+  );
 
   const text = [
     intro,
     "",
-    `Servizio:     ${d.serviceName}`,
-    `Importo:      ${d.amountLabel}`,
-    `Periodicità:  ${d.periodicityLabel}`,
+    "Servizi inclusi:",
+    ...itemLinesText,
     "",
     `Attiva ora: ${d.activationUrl}`,
   ].join("\n");
+
+  const itemRowsHtml = d.items
+    .map(
+      (it) => `
+        <tr>
+          <td style="padding:6px 12px 6px 0;border-bottom:1px solid #f1f5f9">${it.serviceName}</td>
+          <td style="padding:6px 12px 6px 0;border-bottom:1px solid #f1f5f9;color:#64748b">${it.periodicityLabel}</td>
+          <td style="padding:6px 0;border-bottom:1px solid #f1f5f9;text-align:right;white-space:nowrap">${it.amountLabel}</td>
+        </tr>`,
+    )
+    .join("");
 
   const html = `
     <div style="max-width:560px;margin:0 auto;font-family:sans-serif;color:#1e293b">
       ${emailHeaderHtml()}
       <h2 style="font-size:18px;margin:0 0 8px">Attiva il rinnovo automatico</h2>
       <p style="font-size:14px;line-height:1.5">${intro}</p>
-      <table style="border-collapse:collapse;font-family:sans-serif;font-size:14px;color:#1e293b">
-        <tr><td style="padding:2px 12px 2px 0;color:#64748b">Servizio</td><td>${d.serviceName}</td></tr>
-        <tr><td style="padding:2px 12px 2px 0;color:#64748b">Importo</td><td>${d.amountLabel}</td></tr>
-        <tr><td style="padding:2px 12px 2px 0;color:#64748b">Periodicità</td><td>${d.periodicityLabel}</td></tr>
+      <table style="border-collapse:collapse;width:100%;font-family:sans-serif;font-size:14px;color:#1e293b;margin:8px 0">
+        <thead>
+          <tr style="text-align:left;color:#64748b;font-size:12px;text-transform:uppercase;letter-spacing:0.04em">
+            <th style="padding:0 12px 6px 0;font-weight:500">Servizio</th>
+            <th style="padding:0 12px 6px 0;font-weight:500">Periodicità</th>
+            <th style="padding:0 0 6px;font-weight:500;text-align:right">Importo</th>
+          </tr>
+        </thead>
+        <tbody>${itemRowsHtml}</tbody>
       </table>
       <p style="margin:20px 0">
         <a href="${d.activationUrl}" style="display:inline-block;background:#4f46e5;color:#ffffff;text-decoration:none;font-family:sans-serif;font-size:14px;font-weight:600;padding:12px 20px;border-radius:8px">Attiva rinnovo automatico →</a>

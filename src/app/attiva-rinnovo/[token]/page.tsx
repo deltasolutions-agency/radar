@@ -38,12 +38,12 @@ export default async function AttivaRinnovoPage({
   params: { token: string };
   searchParams: { done?: string; annullato?: string; error?: string };
 }) {
-  const item = await prisma.subscriptionItem.findUnique({
-    where: { autoChargeSetupToken: params.token },
-    include: { service: true, subscription: { include: { client: true } } },
+  const request = await prisma.autoChargeRequest.findUnique({
+    where: { token: params.token },
+    include: { client: true },
   });
 
-  if (!item) {
+  if (!request) {
     return (
       <Message
         title="Link non valido"
@@ -52,14 +52,40 @@ export default async function AttivaRinnovoPage({
     );
   }
 
-  const client = item.subscription.client;
-
   // Carta registrata con successo.
   if (searchParams.done) {
     return (
       <Message
         title="Grazie!"
-        body="La carta è stata registrata. Il rinnovo automatico è attivo su tutti i tuoi servizi. Riceverai le conferme di pagamento via email."
+        body="La carta è stata registrata. Il rinnovo automatico è attivo sui servizi indicati. Riceverai le conferme di pagamento via email."
+      />
+    );
+  }
+
+  // Richiesta già completata (senza il flag done): link non più utilizzabile.
+  if (request.usedAt) {
+    return (
+      <Message
+        title="Link già utilizzato"
+        body="Questa richiesta di attivazione è già stata completata. Se hai bisogno di modificare il rinnovo automatico scrivici a hello@deltasolutions.agency."
+      />
+    );
+  }
+
+  const client = request.client;
+
+  // Carica ESATTAMENTE i servizi della richiesta (subset scelto dall'admin).
+  const items = await prisma.subscriptionItem.findMany({
+    where: { id: { in: request.itemIds } },
+    include: { service: true },
+    orderBy: { endDate: "asc" },
+  });
+
+  if (items.length === 0) {
+    return (
+      <Message
+        title="Link non valido"
+        body="I servizi collegati a questa richiesta non sono più disponibili. Contatta hello@deltasolutions.agency."
       />
     );
   }
@@ -69,21 +95,6 @@ export default async function AttivaRinnovoPage({
     select: { id: true },
   }));
 
-  // Rinnovo CUMULATIVO: la carta registrata coprirà TUTTI i servizi attivi del
-  // cliente, non solo quello del token. Elenchiamoli con importo e periodicità.
-  const services = await prisma.subscriptionItem.findMany({
-    where: {
-      subscription: { clientId: client.id },
-      status: { notIn: ["CESSATO", "SOSPESO"] },
-    },
-    include: { service: true },
-    orderBy: { endDate: "asc" },
-  });
-
-  // Fallback difensivo: se per qualche motivo la query non trova righe, mostra
-  // almeno quella del token.
-  const listed = services.length > 0 ? services : [item];
-
   return (
     <Shell>
       <h1 className="text-lg font-semibold tracking-tight">
@@ -92,25 +103,29 @@ export default async function AttivaRinnovoPage({
       <p className="mt-1 text-sm text-slate-500">{client.name}</p>
 
       <p className="mt-4 text-sm text-slate-600">
-        Registrando la carta autorizzi l&apos;addebito automatico ricorrente per{" "}
-        <strong>tutti i tuoi servizi attivi presso Delta Solutions</strong>,
-        ciascuno alla propria scadenza e periodicità:
+        Registrando la carta autorizzi l&apos;addebito automatico ricorrente per
+        i seguenti servizi, ciascuno alla propria scadenza e periodicità:
       </p>
 
       <ul className="mt-4 space-y-2 border-y border-line-soft py-4 text-sm">
-        {listed.map((s) => (
-          <li key={s.id} className="flex items-start justify-between gap-4">
+        {items.map((it) => (
+          <li key={it.id} className="flex items-start justify-between gap-4">
             <div>
-              <p className="text-ink">{s.service.name}</p>
+              <p className="text-ink">
+                {it.service.name}
+                {it.quantity > 1 ? (
+                  <span className="text-slate-500"> ×{it.quantity}</span>
+                ) : null}
+              </p>
               <p className="text-xs text-slate-500">
                 {formatBillingPeriod(
-                  s.billingPeriod as BillingPeriodValue,
-                  s.customPeriodDays,
+                  it.billingPeriod as BillingPeriodValue,
+                  it.customPeriodDays,
                 )}
               </p>
             </div>
             <span className="shrink-0 font-mono text-ink">
-              {formatEur(s.priceCents * s.quantity, s.currency)}
+              {formatEur(it.priceCents * it.quantity, it.currency)}
             </span>
           </li>
         ))}

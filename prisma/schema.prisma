@@ -141,8 +141,9 @@ model Client {
   // Momento di invio della mail di benvenuto (una sola volta per cliente).
   welcomeEmailSentAt DateTime?
 
-  subscriptions Subscription[]
-  consentLogs   ConsentLog[]
+  subscriptions      Subscription[]
+  consentLogs        ConsentLog[]
+  autoChargeRequests AutoChargeRequest[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -150,6 +151,29 @@ model Client {
   @@index([status])
   @@index([email])
   @@map("clients")
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// RICHIESTE DI ATTIVAZIONE RINNOVO AUTOMATICO (selettive, multi-servizio)
+// ──────────────────────────────────────────────────────────────────────────
+
+/// Richiesta di attivazione del rinnovo automatico per un SOTTOINSIEME ESPLICITO
+/// di servizi del cliente, scelto dall'admin. Il cliente, aprendo il link
+/// pubblico, autorizza esattamente quei servizi (itemIds), non tutti. Sostituisce
+/// il meccanismo cumulativo basato su SubscriptionItem.autoChargeSetupToken.
+model AutoChargeRequest {
+  id       String @id @default(cuid())
+  clientId String
+  client   Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  token    String @unique @default(cuid())
+  // id dei SubscriptionItem inclusi in questa specifica richiesta.
+  itemIds  String[]
+  // Valorizzato quando la richiesta è stata completata (carta registrata).
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([clientId])
+  @@map("auto_charge_requests")
 }
 
 // ──────────────────────────────────────────────────────────────────────────

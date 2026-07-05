@@ -3,7 +3,6 @@ import type Stripe from "stripe";
 import { prisma } from "@/lib/prisma";
 import { getStripe } from "@/lib/stripe";
 import { confirmPaymentAndRenew } from "@/lib/confirm-payment";
-import { setClientAutoChargeEnabled } from "@/lib/auto-charge";
 
 // Il webhook deve leggere il RAW body per la verifica firma: nessun parsing
 // JSON prima di constructEvent. Forziamo il runtime Node (Stripe SDK non è
@@ -51,6 +50,7 @@ export async function POST(request: NextRequest) {
               ? session.setup_intent
               : (session.setup_intent?.id ?? null);
           const clientId = session.metadata?.clientId ?? null;
+          const requestId = session.metadata?.requestId ?? null;
           if (setupIntentId && clientId) {
             const stripe = getStripe();
             const setupIntent =
@@ -64,10 +64,32 @@ export async function POST(request: NextRequest) {
                 where: { id: clientId },
                 data: { stripeDefaultPaymentMethodId: pmId },
               });
-              // Attivazione CUMULATIVA: registrata la carta, il rinnovo
-              // automatico si attiva su TUTTI i servizi del cliente (un solo
-              // consenso/una sola carta coprono tutti i servizi).
-              await setClientAutoChargeEnabled(clientId, true);
+
+              // Attivazione SELETTIVA: attiva il rinnovo automatico SOLO sugli
+              // item della richiesta (AutoChargeRequest.itemIds), non su tutti i
+              // servizi del cliente. Marca la richiesta come utilizzata.
+              if (requestId) {
+                const request = await prisma.autoChargeRequest.findUnique({
+                  where: { id: requestId },
+                  select: { itemIds: true, usedAt: true, clientId: true },
+                });
+                if (request && request.clientId === clientId) {
+                  await prisma.subscriptionItem.updateMany({
+                    where: {
+                      id: { in: request.itemIds },
+                      subscription: { clientId },
+                      status: { notIn: ["CESSATO", "SOSPESO"] },
+                    },
+                    data: { autoChargeEnabled: true, autoChargeFailCount: 0 },
+                  });
+                  if (!request.usedAt) {
+                    await prisma.autoChargeRequest.update({
+                      where: { id: requestId },
+                      data: { usedAt: new Date() },
+                    });
+                  }
+                }
+              }
             }
           }
           break;

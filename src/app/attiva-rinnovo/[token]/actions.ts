@@ -8,21 +8,24 @@ import { createSetupCheckoutUrl } from "@/lib/setup-checkout";
 
 /**
  * Registra (se necessario) il consenso e avvia la registrazione carta Stripe
- * (mode:'setup'). Il consenso è raccolto PRIMA della registrazione carta.
+ * (mode:'setup') per una specifica richiesta di attivazione (AutoChargeRequest).
+ * Il consenso è raccolto PRIMA della registrazione carta.
  */
 export async function activateAutoCharge(formData: FormData): Promise<void> {
   const token = String(formData.get("token") ?? "");
   const consentGiven = formData.get("consent") === "on";
 
-  const item = await prisma.subscriptionItem.findUnique({
-    where: { autoChargeSetupToken: token },
-    include: { subscription: { include: { client: true } } },
+  const request = await prisma.autoChargeRequest.findUnique({
+    where: { token },
+    include: { client: true },
   });
-  if (!item) {
+
+  // Richiesta inesistente o già usata → torna alla pagina (mostra lo stato).
+  if (!request || request.usedAt) {
     redirect(`/attiva-rinnovo/${token}`);
   }
 
-  const client = item.subscription.client;
+  const client = request.client;
   const existingConsent = await prisma.consentLog.findFirst({
     where: { clientId: client.id, version: CURRENT_CONSENT_VERSION },
     select: { id: true },
@@ -46,21 +49,27 @@ export async function activateAutoCharge(formData: FormData): Promise<void> {
     redirect(`/attiva-rinnovo/${token}?error=config`);
   }
 
+  // Valuta dagli item della richiesta (fallback "eur" se non disponibile).
+  const firstItem = await prisma.subscriptionItem.findFirst({
+    where: { id: { in: request.itemIds } },
+    select: { currency: true },
+  });
+
   let url: string | null = null;
   try {
     url = await createSetupCheckoutUrl(
       {
-        id: item.subscriptionId,
-        currency: item.currency,
         client: {
           id: client.id,
           email: client.email,
           name: client.name,
           stripeCustomerId: client.stripeCustomerId,
         },
+        currency: firstItem?.currency ?? "eur",
+        token,
+        requestId: request.id,
       },
       appUrl,
-      token,
     );
   } catch {
     // gestito sotto (url resta null)

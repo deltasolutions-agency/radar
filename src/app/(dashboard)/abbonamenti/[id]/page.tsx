@@ -12,7 +12,8 @@ import { ReactivateButton } from "../reactivate-button";
 import { RegenerateLinkButton } from "../regenerate-link-button";
 import { RefundButton } from "../refund-button";
 import { PaymentDeleteButton } from "../payment-delete-button";
-import { AutoChargePanel } from "../auto-charge-panel";
+import { AutoChargeRequestPanel } from "../auto-charge-request-panel";
+import { AutoChargeItemBadge } from "../auto-charge-item-badge";
 import { ForceDeleteSection } from "../force-delete-section";
 import { paymentDeleteConfirmText } from "@/lib/payment-delete";
 import {
@@ -67,9 +68,26 @@ export default async function AbbonamentoDettaglioPage({
     ? sub.client.ragioneSociale
     : sub.client.name;
   const hasPayments = sub.payments.length > 0;
-  const hasCard = !!sub.client.stripeDefaultPaymentMethodId;
-  // Rinnovo automatico cumulativo: attivo per il cliente se almeno una riga lo è.
-  const autoChargeActive = sub.items.some((it) => it.autoChargeEnabled);
+
+  // Servizi idonei alla richiesta di attivazione (non cessati/sospesi e non già
+  // in rinnovo automatico): l'admin ne sceglie un sottoinsieme esplicito.
+  const selectableAutoChargeItems = sub.items
+    .filter(
+      (it) =>
+        it.status !== "CESSATO" &&
+        it.status !== "SOSPESO" &&
+        !it.autoChargeEnabled,
+    )
+    .map((it) => ({
+      id: it.id,
+      serviceName:
+        it.quantity > 1 ? `${it.service.name} ×${it.quantity}` : it.service.name,
+      priceLabel: formatEur(it.priceCents * it.quantity, it.currency),
+      periodicityLabel: formatBillingPeriod(
+        it.billingPeriod as BillingPeriodValue,
+        it.customPeriodDays,
+      ),
+    }));
 
   // Righe pagabili (non cessate) per il pannello pagamento.
   const payableItems = sub.items
@@ -173,10 +191,13 @@ export default async function AbbonamentoDettaglioPage({
           </Link>
         </div>
 
-        {autoChargeActive ? (
-          <div className="flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-4 py-2.5 text-sm text-blue-800">
-            <span className="inline-flex h-2 w-2 shrink-0 rounded-full bg-blue-500" />
-            Rinnovo automatico attivo per tutti i servizi del cliente.
+        {sub.items.length > 0 ? (
+          <div className="card space-y-3 p-6">
+            <h3 className="mono-label">Rinnovo automatico</h3>
+            <AutoChargeRequestPanel
+              subscriptionId={sub.id}
+              items={selectableAutoChargeItems}
+            />
           </div>
         ) : null}
 
@@ -270,29 +291,22 @@ export default async function AbbonamentoDettaglioPage({
                   ) : null}
                 </dl>
 
-                <div className="border-t border-line-soft pt-4">
-                  <h3 className="mono-label mb-2">Rinnovo automatico</h3>
-                  <AutoChargePanel
-                    itemId={it.id}
-                    clientId={sub.client.id}
-                    hasCard={hasCard}
-                    autoChargeEnabled={it.autoChargeEnabled}
-                    autoChargeEndDateInput={
-                      it.autoChargeEndDate
-                        ? it.autoChargeEndDate.toISOString().slice(0, 10)
-                        : ""
-                    }
-                    autoChargeEndDateLabel={
-                      it.autoChargeEndDate
-                        ? formatDate(it.autoChargeEndDate)
-                        : null
-                    }
-                    periodicityLabel={formatBillingPeriod(
-                      it.billingPeriod as BillingPeriodValue,
-                      it.customPeriodDays,
-                    )}
-                  />
-                </div>
+                {it.autoChargeEnabled ? (
+                  <div className="border-t border-line-soft pt-4">
+                    <AutoChargeItemBadge
+                      itemId={it.id}
+                      periodicityLabel={formatBillingPeriod(
+                        it.billingPeriod as BillingPeriodValue,
+                        it.customPeriodDays,
+                      )}
+                      autoChargeEndDateLabel={
+                        it.autoChargeEndDate
+                          ? formatDate(it.autoChargeEndDate)
+                          : null
+                      }
+                    />
+                  </div>
+                ) : null}
               </div>
             ))}
           </div>
