@@ -4,6 +4,10 @@ import { computeItemStatus } from "@/lib/subscription-status";
 import { getReminderMilestone } from "@/lib/reminder-schedule";
 import { buildReminderEmail } from "@/lib/email-templates";
 import { sendEmail } from "@/lib/send-email";
+import {
+  loadReminderThresholds,
+  loadReminderTemplates,
+} from "@/lib/reminder-settings";
 
 // Chiamato da crontab via curl con Bearer CRON_SECRET: nessuna sessione utente.
 export const runtime = "nodejs";
@@ -59,6 +63,12 @@ export async function GET(request: NextRequest) {
   const now = new Date();
   const dedupeKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
 
+  // Soglie + override testuali configurabili (con fallback ai default).
+  const [settings, templates] = await Promise.all([
+    loadReminderThresholds(),
+    loadReminderTemplates(),
+  ]);
+
   const items = await prisma.subscriptionItem.findMany({
     where: { status: { notIn: [...BLOCKING] } },
     include: {
@@ -69,11 +79,14 @@ export async function GET(request: NextRequest) {
 
   for (const item of items) {
     try {
-      const milestone = getReminderMilestone({
-        endDate: item.endDate,
-        billingPeriod: item.billingPeriod,
-        customPeriodDays: item.customPeriodDays,
-      });
+      const milestone = getReminderMilestone(
+        {
+          endDate: item.endDate,
+          billingPeriod: item.billingPeriod,
+          customPeriodDays: item.customPeriodDays,
+        },
+        settings,
+      );
       if (!milestone) continue;
 
       // Dedupe: già inviato oggi per questo type/riga?
@@ -98,13 +111,17 @@ export async function GET(request: NextRequest) {
         ? client.ragioneSociale
         : client.name;
 
-      const content = buildReminderEmail(milestone.type, {
-        subscriptionId: item.subscriptionId,
-        clientName,
-        serviceName: item.service.name,
-        endDate: item.endDate,
-        diffDays,
-      });
+      const content = buildReminderEmail(
+        milestone.type,
+        {
+          subscriptionId: item.subscriptionId,
+          clientName,
+          serviceName: item.service.name,
+          endDate: item.endDate,
+          diffDays,
+        },
+        templates[milestone.type],
+      );
 
       // Invio (non lancia mai).
       const sent = await sendEmail(content);

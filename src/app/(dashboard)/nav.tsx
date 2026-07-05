@@ -8,6 +8,7 @@ const LINKS = [
   { href: "/clienti", label: "Clienti" },
   { href: "/servizi", label: "Servizi" },
   { href: "/abbonamenti", label: "Abbonamenti" },
+  { href: "/impostazioni", label: "Impostazioni" },
 ];
 
 export function Nav() {

@@ -1,6 +1,27 @@
 import { NotificationType, BillingPeriod } from "@prisma/client";
+import {
+  DEFAULT_REMINDER_THRESHOLDS,
+  type ReminderThresholds,
+} from "@/lib/reminder-settings";
 
 const MS_PER_DAY = 1000 * 60 * 60 * 24;
+
+// Type di pre-scadenza in ordine (dal più lontano al più vicino): le soglie
+// configurate vengono mappate posizionalmente su questi tre type.
+const PRE_EXPIRY_TYPES: NotificationType[] = [
+  "PROMEMORIA_30",
+  "PROMEMORIA_15",
+  "PROMEMORIA_7",
+];
+
+/** Costruisce la mappa giorni→type dalle soglie configurate (max 3, posizionali). */
+function buildPreExpiryMap(days: number[]): Record<number, NotificationType> {
+  const map: Record<number, NotificationType> = {};
+  days.slice(0, PRE_EXPIRY_TYPES.length).forEach((d, i) => {
+    map[d] = PRE_EXPIRY_TYPES[i];
+  });
+  return map;
+}
 
 /**
  * Un periodo è "corto" (MENSILE, o PERSONALIZZATA < 60gg / null) oppure "lungo"
@@ -19,30 +40,6 @@ function isShortPeriod(
   return true;
 }
 
-/**
- * Mappa: giorni-mancanti-alla-scadenza → NotificationType, per periodi lunghi.
- */
-const PRE_EXPIRY_LONG: Record<number, NotificationType> = {
-  30: "PROMEMORIA_30",
-  15: "PROMEMORIA_15",
-  7: "PROMEMORIA_7",
-};
-
-/**
- * Mappa riscalata per periodi corti: soglie più ravvicinate ma STESSI type.
- */
-const PRE_EXPIRY_SHORT: Record<number, NotificationType> = {
-  10: "PROMEMORIA_30",
-  5: "PROMEMORIA_15",
-  1: "PROMEMORIA_7",
-};
-
-/** Giorni-dopo-la-scadenza in cui inviare un SOLLECITO. */
-const REMINDER_AFTER_DAYS = [0, 1, 2, 7, 10];
-
-/** Giorno-dopo-la-scadenza in cui scatta la cessazione per morosità. */
-const CESSATION_AFTER_DAYS = 11;
-
 export type ReminderMilestone = {
   type: NotificationType;
   /** true solo per il trigger degli 11 giorni: il chiamante deve anche cessare. */
@@ -59,11 +56,14 @@ export type ReminderMilestone = {
  *
  * Ritorna null se oggi non è una milestone.
  */
-export function getReminderMilestone(item: {
-  endDate: Date;
-  billingPeriod: BillingPeriod;
-  customPeriodDays: number | null;
-}): ReminderMilestone | null {
+export function getReminderMilestone(
+  item: {
+    endDate: Date;
+    billingPeriod: BillingPeriod;
+    customPeriodDays: number | null;
+  },
+  settings: ReminderThresholds = DEFAULT_REMINDER_THRESHOLDS,
+): ReminderMilestone | null {
   const now = new Date();
   const diffDays = Math.ceil(
     (item.endDate.getTime() - now.getTime()) / MS_PER_DAY,
@@ -71,24 +71,24 @@ export function getReminderMilestone(item: {
 
   // ── PRE-SCADENZA ──────────────────────────────────────────────────────────
   if (diffDays > 0) {
-    const table = isShortPeriod(item.billingPeriod, item.customPeriodDays)
-      ? PRE_EXPIRY_SHORT
-      : PRE_EXPIRY_LONG;
-    const type = table[diffDays];
+    const days = isShortPeriod(item.billingPeriod, item.customPeriodDays)
+      ? settings.thresholdsShortDays
+      : settings.thresholdsLongDays;
+    const type = buildPreExpiryMap(days)[diffDays];
     return type ? { type, isCessationTrigger: false } : null;
   }
 
   // ── POST-SCADENZA (o giorno stesso) ──────────────────────────────────────
   const diffDaysAfter = -diffDays; // 0 = scade oggi, 1 = scaduto da 1 giorno, ...
 
-  if (diffDaysAfter === CESSATION_AFTER_DAYS) {
+  if (diffDaysAfter === settings.cessationDay) {
     return { type: "CESSAZIONE_MOROSITA", isCessationTrigger: true };
   }
 
-  if (REMINDER_AFTER_DAYS.includes(diffDaysAfter)) {
+  if (settings.overdueDays.includes(diffDaysAfter)) {
     return { type: "SOLLECITO", isCessationTrigger: false };
   }
 
-  // Oltre 11 giorni (o giorni intermedi non elencati) → nessuna azione.
+  // Nessuna milestone oggi.
   return null;
 }
