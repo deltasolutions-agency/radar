@@ -13,8 +13,8 @@ export default async function DashboardLayout({
   return (
     <div className="min-h-screen">
       <header className="sticky top-0 z-10 border-b border-line bg-white/80 backdrop-blur">
-        <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-6 py-3">
-          <div className="flex items-center gap-6">
+        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-x-4 gap-y-2 px-4 py-3 sm:px-6">
+          <div className="flex min-w-0 items-center gap-3 sm:gap-6">
             <div className="flex items-center gap-2.5">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
@@ -24,10 +24,11 @@ export default async function DashboardLayout({
               />
               <div className="leading-tight">
                 <span className="text-base font-semibold">Radar</span>
-                <span className="mono-label ml-2">Delta Solutions</span>
+                <span className="mono-label ml-2 hidden sm:inline">
+                  Delta Solutions
+                </span>
               </div>
             </div>
-            <Nav />
           </div>
           <div className="flex items-center gap-3">
             <span className="hidden text-sm text-slate-600 sm:inline">
@@ -39,10 +40,14 @@ export default async function DashboardLayout({
               </button>
             </form>
           </div>
+          {/* Nav: a capo su mobile, scorrevole in orizzontale se necessario. */}
+          <div className="order-last -mx-4 w-full overflow-x-auto px-4 sm:order-none sm:mx-0 sm:w-auto sm:px-0">
+            <Nav />
+          </div>
         </div>
       </header>
 
-      <main className="mx-auto max-w-6xl px-6 py-8">{children}</main>
+      <main className="mx-auto max-w-6xl px-4 py-8 sm:px-6">{children}</main>
     </div>
   );
 }

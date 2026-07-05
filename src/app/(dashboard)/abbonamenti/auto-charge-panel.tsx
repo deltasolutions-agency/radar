@@ -12,6 +12,7 @@ import { useRouter } from "next/navigation";
  */
 export function AutoChargePanel({
   itemId,
+  clientId,
   hasCard,
   autoChargeEnabled,
   autoChargeEndDateInput,
@@ -19,6 +20,7 @@ export function AutoChargePanel({
   periodicityLabel,
 }: {
   itemId: string;
+  clientId: string;
   hasCard: boolean;
   autoChargeEnabled: boolean;
   autoChargeEndDateInput: string;
@@ -61,12 +63,17 @@ export function AutoChargePanel({
     }
   }
 
-  async function patch(data: Record<string, unknown>, okThen?: () => void) {
+  // Attivazione/disattivazione CUMULATIVA: agisce su TUTTI i servizi del cliente
+  // (un solo consenso/una sola carta li coprono tutti), non solo su questa riga.
+  async function setCumulative(
+    data: { enabled: boolean; autoChargeEndDate?: string | null },
+    okThen?: () => void,
+  ) {
     setPending(true);
     setError(null);
     try {
-      const res = await fetch(`/api/subscription-items/${itemId}`, {
-        method: "PATCH",
+      const res = await fetch(`/api/clients/${clientId}/auto-charge`, {
+        method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(data),
       });
@@ -99,6 +106,7 @@ export function AutoChargePanel({
             : "nessuna scadenza"}
         </p>
         <p className="text-xs text-slate-500">
+          Attivo su tutti i servizi del cliente (rinnovo automatico cumulativo).
           La periodicità dipende dall&apos;abbonamento: si modifica dal pulsante
           &quot;Modifica&quot;.
         </p>
@@ -120,8 +128,10 @@ export function AutoChargePanel({
         ) : (
           <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3">
             <p className="text-sm text-amber-800">
-              Confermi la disattivazione del rinnovo automatico? La carta resta
-              salvata e potrai riattivarlo senza registrarla di nuovo.
+              Confermi la disattivazione del rinnovo automatico? Verrà
+              disattivato su <strong>tutti i servizi del cliente</strong>. La
+              carta resta salvata e potrai riattivarlo senza registrarla di
+              nuovo.
             </p>
             {error ? (
               <p className="mt-2 text-sm font-medium text-red-700">{error}</p>
@@ -132,7 +142,7 @@ export function AutoChargePanel({
                 className="btn-danger"
                 disabled={pending}
                 onClick={() =>
-                  patch({ autoChargeEnabled: false }, () =>
+                  setCumulative({ enabled: false }, () =>
                     setConfirmingDisable(false),
                   )
                 }
@@ -163,7 +173,8 @@ export function AutoChargePanel({
       <div className="space-y-2">
         <p className="text-xs text-slate-500">
           Invia al cliente la richiesta di attivazione: registrerà la carta dopo
-          aver accettato Privacy e Termini.
+          aver accettato Privacy e Termini. Alla conferma, il rinnovo automatico
+          si attiva su <strong>tutti i suoi servizi</strong>.
         </p>
         {notice ? (
           <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
@@ -195,8 +206,9 @@ export function AutoChargePanel({
   return (
     <div className="space-y-3">
       <p className="text-xs text-slate-500">
-        Carta registrata. Puoi attivare l&apos;addebito automatico{" "}
-        {periodicityLabel.toLowerCase()} (cadenza dell&apos;abbonamento).
+        Carta registrata. Attivando l&apos;addebito automatico verrà abilitato su{" "}
+        <strong>tutti i servizi del cliente</strong> (rinnovo cumulativo),
+        ciascuno alla propria cadenza.
       </p>
       <div>
         <label htmlFor="autoChargeEndDate" className="field-label">
@@ -216,13 +228,13 @@ export function AutoChargePanel({
         className="btn-primary"
         disabled={pending}
         onClick={() =>
-          patch({
-            autoChargeEnabled: true,
+          setCumulative({
+            enabled: true,
             autoChargeEndDate: endDate || null,
           })
         }
       >
-        {pending ? "Attivazione…" : "Attiva addebito automatico"}
+        {pending ? "Attivazione…" : "Attiva per tutti i servizi"}
       </button>
     </div>
   );

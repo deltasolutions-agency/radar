@@ -59,7 +59,7 @@ export default async function AttivaRinnovoPage({
     return (
       <Message
         title="Grazie!"
-        body="La carta è stata registrata. Il rinnovo automatico sarà attivato a breve. Riceverai le conferme di pagamento via email."
+        body="La carta è stata registrata. Il rinnovo automatico è attivo su tutti i tuoi servizi. Riceverai le conferme di pagamento via email."
       />
     );
   }
@@ -69,10 +69,20 @@ export default async function AttivaRinnovoPage({
     select: { id: true },
   }));
 
-  const periodicity = formatBillingPeriod(
-    item.billingPeriod as BillingPeriodValue,
-    item.customPeriodDays,
-  );
+  // Rinnovo CUMULATIVO: la carta registrata coprirà TUTTI i servizi attivi del
+  // cliente, non solo quello del token. Elenchiamoli con importo e periodicità.
+  const services = await prisma.subscriptionItem.findMany({
+    where: {
+      subscription: { clientId: client.id },
+      status: { notIn: ["CESSATO", "SOSPESO"] },
+    },
+    include: { service: true },
+    orderBy: { endDate: "asc" },
+  });
+
+  // Fallback difensivo: se per qualche motivo la query non trova righe, mostra
+  // almeno quella del token.
+  const listed = services.length > 0 ? services : [item];
 
   return (
     <Shell>
@@ -81,22 +91,34 @@ export default async function AttivaRinnovoPage({
       </h1>
       <p className="mt-1 text-sm text-slate-500">{client.name}</p>
 
-      <dl className="mt-5 space-y-2 border-y border-line-soft py-4 text-sm">
-        <div className="flex justify-between gap-4">
-          <dt className="text-slate-500">Servizio</dt>
-          <dd className="text-right text-ink">{item.service.name}</dd>
-        </div>
-        <div className="flex justify-between gap-4">
-          <dt className="text-slate-500">Periodicità</dt>
-          <dd className="text-right text-ink">{periodicity}</dd>
-        </div>
-        <div className="flex justify-between gap-4">
-          <dt className="text-slate-500">Importo per addebito</dt>
-          <dd className="text-right font-mono text-base font-semibold text-ink">
-            {formatEur(item.priceCents, item.currency)}
-          </dd>
-        </div>
-      </dl>
+      <p className="mt-4 text-sm text-slate-600">
+        Registrando la carta autorizzi l&apos;addebito automatico ricorrente per{" "}
+        <strong>tutti i tuoi servizi attivi presso Delta Solutions</strong>,
+        ciascuno alla propria scadenza e periodicità:
+      </p>
+
+      <ul className="mt-4 space-y-2 border-y border-line-soft py-4 text-sm">
+        {listed.map((s) => (
+          <li key={s.id} className="flex items-start justify-between gap-4">
+            <div>
+              <p className="text-ink">{s.service.name}</p>
+              <p className="text-xs text-slate-500">
+                {formatBillingPeriod(
+                  s.billingPeriod as BillingPeriodValue,
+                  s.customPeriodDays,
+                )}
+              </p>
+            </div>
+            <span className="shrink-0 font-mono text-ink">
+              {formatEur(s.priceCents * s.quantity, s.currency)}
+            </span>
+          </li>
+        ))}
+      </ul>
+      <p className="mt-2 text-xs text-slate-400">
+        Puoi revocare l&apos;autorizzazione in qualsiasi momento scrivendo a
+        hello@deltasolutions.agency.
+      </p>
 
       {searchParams.annullato ? (
         <p className="mt-4 rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-800">

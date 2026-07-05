@@ -3,6 +3,7 @@ import type Stripe from "stripe";
 import { prisma } from "@/lib/prisma";
 import { getStripe } from "@/lib/stripe";
 import { confirmPaymentAndRenew } from "@/lib/confirm-payment";
+import { setClientAutoChargeEnabled } from "@/lib/auto-charge";
 
 // Il webhook deve leggere il RAW body per la verifica firma: nessun parsing
 // JSON prima di constructEvent. Forziamo il runtime Node (Stripe SDK non è
@@ -63,6 +64,10 @@ export async function POST(request: NextRequest) {
                 where: { id: clientId },
                 data: { stripeDefaultPaymentMethodId: pmId },
               });
+              // Attivazione CUMULATIVA: registrata la carta, il rinnovo
+              // automatico si attiva su TUTTI i servizi del cliente (un solo
+              // consenso/una sola carta coprono tutti i servizi).
+              await setClientAutoChargeEnabled(clientId, true);
             }
           }
           break;
