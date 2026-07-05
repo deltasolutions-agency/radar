@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { formatEur, formatDate } from "@/lib/format";
 import { isReceiptPubliclyAccessible } from "@/lib/receipt-access";
+import { GoogleReviewCta } from "@/components/google-review-cta";
 import { PrintButton } from "./print-button";
 
 export const dynamic = "force-dynamic";
@@ -233,6 +234,15 @@ export default async function RicevutaPubblicaPage({
           </p>
         </footer>
       </article>
+
+      {/* Invito recensione: fuori dal documento fiscale, nascosto in stampa. */}
+      <div className="mt-6">
+        <GoogleReviewCta
+          variant="subtle"
+          title="Ti è piaciuto il nostro servizio?"
+          description="Se ti trovi bene con Delta Solutions, lasciarci una recensione ci aiuta tantissimo. Grazie!"
+        />
+      </div>
     </main>
   );
 }

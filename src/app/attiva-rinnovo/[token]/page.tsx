@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { formatEur } from "@/lib/format";
 import { formatBillingPeriod, type BillingPeriodValue } from "@/lib/validations";
 import { CURRENT_CONSENT_VERSION } from "@/lib/legal";
+import { GoogleReviewCta } from "@/components/google-review-cta";
 import { ActivateForm } from "./activate-form";
 
 export const dynamic = "force-dynamic";
@@ -52,13 +53,70 @@ export default async function AttivaRinnovoPage({
     );
   }
 
-  // Carta registrata con successo.
+  // Carta registrata con successo → conferma dedicata con elenco servizi + CTA.
   if (searchParams.done) {
+    const doneItems = await prisma.subscriptionItem.findMany({
+      where: { id: { in: request.itemIds } },
+      include: { service: true },
+      orderBy: { endDate: "asc" },
+    });
     return (
-      <Message
-        title="Grazie!"
-        body="La carta è stata registrata. Il rinnovo automatico è attivo sui servizi indicati. Riceverai le conferme di pagamento via email."
-      />
+      <Shell>
+        <div className="text-center">
+          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-emerald-100">
+            <svg
+              width="30"
+              height="30"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="#059669"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M20 6L9 17l-5-5" />
+            </svg>
+          </div>
+          <h1 className="mt-4 text-xl font-semibold tracking-tight text-ink">
+            Rinnovo automatico attivato
+          </h1>
+          <p className="mt-2 text-sm text-slate-600">
+            La carta è stata registrata. Il rinnovo automatico è ora attivo sui
+            servizi seguenti. Riceverai le conferme di pagamento via email.
+          </p>
+        </div>
+
+        {doneItems.length > 0 ? (
+          <ul className="mt-5 space-y-2 border-y border-line-soft py-4 text-sm">
+            {doneItems.map((it) => (
+              <li key={it.id} className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-ink">
+                    {it.service.name}
+                    {it.quantity > 1 ? (
+                      <span className="text-slate-500"> ×{it.quantity}</span>
+                    ) : null}
+                  </p>
+                  <p className="text-xs text-slate-500">
+                    {formatBillingPeriod(
+                      it.billingPeriod as BillingPeriodValue,
+                      it.customPeriodDays,
+                    )}
+                  </p>
+                </div>
+                <span className="shrink-0 font-mono text-ink">
+                  {formatEur(it.priceCents * it.quantity, it.currency)}
+                </span>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+
+        <div className="mt-6">
+          <GoogleReviewCta />
+        </div>
+      </Shell>
     );
   }
 
