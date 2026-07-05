@@ -66,10 +66,12 @@ export function POST(req: NextRequest, { params }: Params) {
       {
         subscriptionId: subscription.id,
         clientEmail: subscription.client.email,
+        serviceFeeEnabled: subscription.serviceFeeEnabled,
         items: subscription.items.map((it) => ({
           id: it.id,
           currency: it.currency,
           priceCents: it.priceCents,
+          quantity: it.quantity,
           endDate: it.endDate,
           billingPeriod: it.billingPeriod,
           customPeriodDays: it.customPeriodDays,

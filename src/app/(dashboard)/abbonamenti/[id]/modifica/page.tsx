@@ -40,6 +40,7 @@ export default async function ModificaAbbonamentoPage({
       <SubscriptionNotesForm
         subscriptionId={sub.id}
         initialNotes={sub.notes ?? ""}
+        initialServiceFeeEnabled={sub.serviceFeeEnabled}
       />
     </div>
   );

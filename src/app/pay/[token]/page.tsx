@@ -105,6 +105,19 @@ export default async function PayPage({
             </div>
           );
         })}
+        {payment.serviceFeeCents > 0 ? (
+          <div className="flex justify-between gap-4">
+            <dt className="text-slate-500">
+              Costi di servizio
+              <span className="block font-mono text-xs text-slate-400">
+                Commissione di gestione (1,5%)
+              </span>
+            </dt>
+            <dd className="text-right font-mono text-xs text-ink">
+              {formatEur(payment.serviceFeeCents, payment.currency)}
+            </dd>
+          </div>
+        ) : null}
         <div className="flex justify-between gap-4 border-t border-line-soft pt-3">
           <dt className="text-slate-500">Importo totale</dt>
           <dd className="text-right font-mono text-base font-semibold text-ink">

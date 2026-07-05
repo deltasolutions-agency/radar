@@ -11,8 +11,10 @@ import { PaymentActions } from "../payment-actions";
 import { ReactivateButton } from "../reactivate-button";
 import { RegenerateLinkButton } from "../regenerate-link-button";
 import { RefundButton } from "../refund-button";
+import { PaymentDeleteButton } from "../payment-delete-button";
 import { AutoChargePanel } from "../auto-charge-panel";
 import { ForceDeleteSection } from "../force-delete-section";
+import { paymentDeleteConfirmText } from "@/lib/payment-delete";
 import {
   isReceiptPubliclyAccessible,
   getReceiptExpiryDate,
@@ -21,6 +23,7 @@ import { formatEur, formatDate } from "@/lib/format";
 import {
   formatBillingPeriod,
   PAYMENT_METHOD_LABELS,
+  PAYMENT_STATUS_LABELS,
   type SubscriptionStatusValue,
   type BillingPeriodValue,
   type PaymentMethodValue,
@@ -65,6 +68,8 @@ export default async function AbbonamentoDettaglioPage({
     : sub.client.name;
   const hasPayments = sub.payments.length > 0;
   const hasCard = !!sub.client.stripeDefaultPaymentMethodId;
+  // Rinnovo automatico cumulativo: attivo per il cliente se almeno una riga lo è.
+  const autoChargeActive = sub.items.some((it) => it.autoChargeEnabled);
 
   // Righe pagabili (non cessate) per il pannello pagamento.
   const payableItems = sub.items
@@ -73,6 +78,7 @@ export default async function AbbonamentoDettaglioPage({
       id: it.id,
       serviceName: it.service.name,
       priceCents: it.priceCents,
+      quantity: it.quantity,
       currency: it.currency,
       status: it.status,
       endDate: it.endDate.toISOString().slice(0, 10),
@@ -167,6 +173,13 @@ export default async function AbbonamentoDettaglioPage({
           </Link>
         </div>
 
+        {autoChargeActive ? (
+          <div className="flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-4 py-2.5 text-sm text-blue-800">
+            <span className="inline-flex h-2 w-2 shrink-0 rounded-full bg-blue-500" />
+            Rinnovo automatico attivo per tutti i servizi del cliente.
+          </div>
+        ) : null}
+
         {sub.items.length === 0 ? (
           <div className="card px-6 py-8 text-center text-sm text-slate-500">
             Nessun servizio in questo abbonamento.{" "}
@@ -227,7 +240,17 @@ export default async function AbbonamentoDettaglioPage({
                   <div className="flex gap-2 text-sm">
                     <dt className="mono-label w-28 shrink-0">Prezzo</dt>
                     <dd className="text-ink">
-                      {formatEur(it.priceCents, it.currency)}
+                      {it.quantity > 1 ? (
+                        <>
+                          {formatEur(it.priceCents, it.currency)}{" "}
+                          <span className="text-slate-500">× {it.quantity} =</span>{" "}
+                          <span className="font-medium">
+                            {formatEur(it.priceCents * it.quantity, it.currency)}
+                          </span>
+                        </>
+                      ) : (
+                        formatEur(it.priceCents, it.currency)
+                      )}
                     </dd>
                   </div>
                   <div className="flex gap-2 text-sm">
@@ -251,6 +274,7 @@ export default async function AbbonamentoDettaglioPage({
                   <h3 className="mono-label mb-2">Rinnovo automatico</h3>
                   <AutoChargePanel
                     itemId={it.id}
+                    clientId={sub.client.id}
                     hasCard={hasCard}
                     autoChargeEnabled={it.autoChargeEnabled}
                     autoChargeEndDateInput={
@@ -278,7 +302,11 @@ export default async function AbbonamentoDettaglioPage({
       {/* Registrazione pagamento (righe raggruppate) */}
       <section className="card space-y-4 p-6">
         <h2 className="mono-label">Registra pagamento</h2>
-        <PaymentActions subscriptionId={sub.id} items={payableItems} />
+        <PaymentActions
+          subscriptionId={sub.id}
+          items={payableItems}
+          serviceFeeEnabled={sub.serviceFeeEnabled}
+        />
       </section>
 
       {/* Storico pagamenti */}
@@ -289,7 +317,8 @@ export default async function AbbonamentoDettaglioPage({
             Nessun pagamento registrato.
           </div>
         ) : (
-          <table className="mt-3 w-full text-sm">
+          <div className="overflow-x-auto">
+          <table className="mt-3 w-full min-w-[46rem] text-sm">
             <thead>
               <tr className="border-b border-line text-left mono-label">
                 <th className="px-5 py-3 font-medium">Data</th>
@@ -315,16 +344,32 @@ export default async function AbbonamentoDettaglioPage({
                     </td>
                     <td className="px-5 py-3 text-slate-600">
                       <ul className="space-y-0.5">
-                        {p.items.map((pi) => (
-                          <li key={pi.id} className="flex items-center gap-1.5">
-                            <span>{pi.subscriptionItem.service.name}</span>
-                            {pi.status === "RIMBORSATO" ? (
-                              <span className="text-xs text-violet-600">
-                                (stornato)
+                        {p.items.map((pi) => {
+                          const refunded = pi.status === "RIMBORSATO";
+                          return (
+                            <li
+                              key={pi.id}
+                              className="flex items-center gap-1.5"
+                            >
+                              <span className={refunded ? "text-slate-400" : ""}>
+                                {pi.subscriptionItem.service.name}
                               </span>
-                            ) : null}
-                          </li>
-                        ))}
+                              <span
+                                className={
+                                  refunded
+                                    ? "text-xs font-medium text-violet-600"
+                                    : "text-xs text-slate-400"
+                                }
+                              >
+                                {refunded
+                                  ? "· rimborsato"
+                                  : `· ${PAYMENT_STATUS_LABELS[
+                                      pi.status as PaymentStatusValue
+                                    ].toLowerCase()}`}
+                              </span>
+                            </li>
+                          );
+                        })}
                       </ul>
                     </td>
                     <td className="px-5 py-3 font-mono text-xs text-slate-600">
@@ -376,6 +421,10 @@ export default async function AbbonamentoDettaglioPage({
                             }))}
                           />
                         ) : null}
+                        <PaymentDeleteButton
+                          paymentId={p.id}
+                          expectedText={paymentDeleteConfirmText(p)}
+                        />
                       </div>
                     </td>
                     <td className="px-5 py-3">
@@ -431,6 +480,7 @@ export default async function AbbonamentoDettaglioPage({
               })}
             </tbody>
           </table>
+          </div>
         )}
       </section>
 

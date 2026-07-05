@@ -3,11 +3,13 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { formatEur, formatDate } from "@/lib/format";
+import { computeServiceFeeCents } from "@/lib/service-fee";
 
 export type PayableItem = {
   id: string;
   serviceName: string;
-  priceCents: number;
+  priceCents: number; // prezzo unitario
+  quantity: number; // ≥ 1
   currency: string;
   status: string;
   /** Scadenza corrente della riga (YYYY-MM-DD), per segnalare scadenze diverse. */
@@ -24,9 +26,11 @@ export type PayableItem = {
 export function PaymentActions({
   subscriptionId,
   items,
+  serviceFeeEnabled,
 }: {
   subscriptionId: string;
   items: PayableItem[];
+  serviceFeeEnabled: boolean;
 }) {
   const router = useRouter();
 
@@ -50,8 +54,15 @@ export function PaymentActions({
     [items, selected],
   );
   const selectedIds = selectedItems.map((it) => it.id);
-  const totalCents = selectedItems.reduce((s, it) => s + it.priceCents, 0);
+  const totalCents = selectedItems.reduce(
+    (s, it) => s + it.priceCents * it.quantity,
+    0,
+  );
   const currency = selectedItems[0]?.currency ?? "eur";
+
+  // Costo di servizio 1,5%: si applica SOLO ai pagamenti con carta (Stripe).
+  const serviceFeeCents = computeServiceFeeCents(totalCents, serviceFeeEnabled);
+  const stripeTotalCents = totalCents + serviceFeeCents;
 
   // Valute diverse → un unico addebito non è possibile (blocco).
   const mixedCurrency =
@@ -179,21 +190,40 @@ export function PaymentActions({
                 onChange={() => toggle(it.id)}
               />
               {it.serviceName}
+              {it.quantity > 1 ? (
+                <span className="text-xs text-slate-500">×{it.quantity}</span>
+              ) : null}
             </span>
             <span className="flex items-center gap-3">
               <span className="text-xs text-slate-500">
                 scad. {formatDate(it.endDate)}
               </span>
               <span className="font-mono text-xs text-slate-600">
-                {formatEur(it.priceCents, it.currency)}
+                {formatEur(it.priceCents * it.quantity, it.currency)}
               </span>
             </span>
           </label>
         ))}
         <div className="mt-2 flex items-center justify-between border-t border-line-soft pt-2 text-sm font-medium">
-          <span>Totale</span>
+          <span>Totale servizi</span>
           <span className="font-mono">{formatEur(totalCents, currency)}</span>
         </div>
+        {serviceFeeCents > 0 ? (
+          <>
+            <div className="flex items-center justify-between text-xs text-slate-500">
+              <span>+ Costi di servizio (1,5%, solo carta)</span>
+              <span className="font-mono">
+                {formatEur(serviceFeeCents, currency)}
+              </span>
+            </div>
+            <div className="flex items-center justify-between text-sm font-medium text-slate-700">
+              <span>Totale con carta (Stripe)</span>
+              <span className="font-mono">
+                {formatEur(stripeTotalCents, currency)}
+              </span>
+            </div>
+          </>
+        ) : null}
       </div>
 
       {mixedCurrency ? (

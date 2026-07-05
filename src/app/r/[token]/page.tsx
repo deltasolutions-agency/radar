@@ -142,7 +142,12 @@ export default async function RicevutaPubblicaPage({
                   className="flex items-start justify-between gap-4 border-b border-line-soft pb-2 last:border-0 last:pb-0"
                 >
                   <div>
-                    <p className="text-sm text-ink">{line.serviceName}</p>
+                    <p className="text-sm text-ink">
+                      {line.serviceName}
+                      {line.quantity > 1 ? (
+                        <span className="text-slate-500"> ×{line.quantity}</span>
+                      ) : null}
+                    </p>
                     {line.description?.trim() ? (
                       <p className="text-xs text-slate-500">
                         {line.description}
@@ -160,6 +165,20 @@ export default async function RicevutaPubblicaPage({
                 </div>
               );
             })}
+
+            {receipt.serviceFeeCents > 0 ? (
+              <div className="flex items-start justify-between gap-4 border-b border-line-soft pb-2 last:border-0 last:pb-0">
+                <div>
+                  <p className="text-sm text-ink">Costi di servizio</p>
+                  <p className="text-xs text-slate-500">
+                    Commissione di gestione pagamento (1,5%)
+                  </p>
+                </div>
+                <p className="shrink-0 font-mono text-sm text-ink">
+                  {formatEur(receipt.serviceFeeCents, receipt.currency)}
+                </p>
+              </div>
+            ) : null}
           </div>
         </section>
 
@@ -177,7 +196,23 @@ export default async function RicevutaPubblicaPage({
               }
             />
             <Field
-              label="Importo"
+              label="Imponibile"
+              value={
+                <span className="font-mono">
+                  {formatEur(receipt.taxableAmountCents, receipt.currency)}
+                </span>
+              }
+            />
+            <Field
+              label="IVA 22%"
+              value={
+                <span className="font-mono">
+                  {formatEur(receipt.vatAmountCents, receipt.currency)}
+                </span>
+              }
+            />
+            <Field
+              label="Totale pagato"
               value={
                 <span className="font-mono text-lg font-semibold text-ink">
                   {formatEur(receipt.amountCents, receipt.currency)}

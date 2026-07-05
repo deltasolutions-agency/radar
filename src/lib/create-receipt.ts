@@ -1,6 +1,7 @@
 import "server-only";
 import type { Prisma, Receipt } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { splitVatFromGross } from "@/lib/vat";
 
 /**
  * Client Prisma utilizzabile sia come istanza globale sia come client di
@@ -106,9 +107,17 @@ export async function createReceiptForPayment(
     description: pi.subscriptionItem.service.description,
     periodStart: pi.periodStart,
     periodEnd: pi.periodEnd,
+    quantity: pi.subscriptionItem.quantity,
     amountCents: pi.amountCents,
   }));
-  const amountCents = lines.reduce((sum, l) => sum + l.amountCents, 0);
+  // Totale servizi (somma righe). L'eventuale costo di servizio (Stripe) va
+  // sommato al totale e concorre alla base IVA (vedi sotto).
+  const servicesTotal = lines.reduce((sum, l) => sum + l.amountCents, 0);
+  const serviceFeeCents = payment.serviceFeeCents ?? 0;
+  const amountCents = servicesTotal + serviceFeeCents;
+
+  // Scorporo IVA 22% dal totale LORDO (comprensivo del costo di servizio).
+  const { taxableCents, vatCents } = splitVatFromGross(amountCents);
 
   const number = await nextReceiptNumber(db);
 
@@ -127,6 +136,9 @@ export async function createReceiptForPayment(
 
       // Snapshot economico.
       amountCents,
+      taxableAmountCents: taxableCents,
+      vatAmountCents: vatCents,
+      serviceFeeCents,
       currency: payment.currency,
       method: payment.method,
       paidAt,

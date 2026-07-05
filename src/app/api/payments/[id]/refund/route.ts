@@ -3,6 +3,8 @@ import { prisma } from "@/lib/prisma";
 import { json, error, withApi, requireSession } from "@/lib/api";
 import { getStripe } from "@/lib/stripe";
 import { computeItemStatus } from "@/lib/subscription-status";
+import { sendEmail } from "@/lib/send-email";
+import { buildRefundConfirmationEmail } from "@/lib/email-templates";
 
 type Params = { params: { id: string } };
 
@@ -22,7 +24,12 @@ export function POST(req: NextRequest, { params }: Params) {
 
     const payment = await prisma.payment.findUnique({
       where: { id: params.id },
-      include: { items: { include: { subscriptionItem: true } } },
+      include: {
+        items: {
+          include: { subscriptionItem: { include: { service: true } } },
+        },
+        subscription: { include: { client: true } },
+      },
     });
     if (!payment) return error("Pagamento non trovato", 404);
 
@@ -109,11 +116,23 @@ export function POST(req: NextRequest, { params }: Params) {
     // Aggiornamento coerente in un'unica transazione.
     const result = await prisma.$transaction(async (tx) => {
       let itemsReverted = 0;
+      const refundedDetails: {
+        serviceName: string;
+        amountCents: number;
+        renewalReverted: boolean;
+      }[] = [];
 
       for (const pi of selected) {
         await tx.paymentItem.update({
           where: { id: pi.id },
           data: { status: "RIMBORSATO" },
+        });
+
+        const renewalReverted = pi.previousEndDate != null;
+        refundedDetails.push({
+          serviceName: pi.subscriptionItem.service.name,
+          amountCents: pi.amountCents,
+          renewalReverted,
         });
 
         // Disfa il rinnovo della riga solo se questo pagamento l'aveva rinnovata.
@@ -123,13 +142,18 @@ export function POST(req: NextRequest, { params }: Params) {
           const restoredPriceCents = pi.previousPriceCents ?? item.priceCents;
           const restoredLastRenewalAt = pi.previousLastRenewalAt;
 
-          const newStatus = computeItemStatus({
+          const recomputed = computeItemStatus({
             status: item.status,
             endDate: restoredEndDate,
             billingPeriod: item.billingPeriod,
             customPeriodDays: item.customPeriodDays,
             lastRenewalAt: restoredLastRenewalAt,
           });
+
+          // Il rinnovo di QUESTA riga è stato annullato: non deve più risultare
+          // RINNOVATO. Torna ai valori precedenti come ATTIVO (mantenendo però
+          // SCADUTO/IN_SCADENZA se la data ripristinata lo giustifica realmente).
+          const newStatus = recomputed === "RINNOVATO" ? "ATTIVO" : recomputed;
 
           await tx.subscriptionItem.update({
             where: { id: item.id },
@@ -153,11 +177,35 @@ export function POST(req: NextRequest, { params }: Params) {
       return {
         payment: updatedPayment,
         refundedItemIds: selected.map((pi) => pi.id),
+        refundedDetails,
         itemsReverted,
         partial: !isTotal,
         refundAmountCents: refundAmount,
       };
     });
+
+    // ── Email di conferma storno al cliente (FUORI transazione, non bloccante) ──
+    const client = payment.subscription.client;
+    if (client.email) {
+      try {
+        const clientName = client.ragioneSociale?.trim()
+          ? client.ragioneSociale
+          : client.name;
+        const content = buildRefundConfirmationEmail({
+          clientName,
+          items: result.refundedDetails,
+          totalCents: result.refundAmountCents,
+          currency: payment.currency,
+          isTotal,
+        });
+        await sendEmail(content, client.email);
+      } catch (e) {
+        console.error(
+          `[refund] invio conferma storno fallito (payment ${payment.id}):`,
+          e,
+        );
+      }
+    }
 
     return json(result);
   });

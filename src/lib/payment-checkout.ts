@@ -5,6 +5,7 @@ import { getStripe } from "@/lib/stripe";
 import { sendEmail } from "@/lib/send-email";
 import { buildPaymentLinkEmail } from "@/lib/email-templates";
 import { MS_PER_DAY, periodDurationDays } from "@/lib/billing-period";
+import { computeServiceFeeCents } from "@/lib/service-fee";
 
 // Durata di validità della Checkout Session. Stripe impone un MASSIMO di 24h
 // da expires_at: usiamo 23h per lasciare margine contro arrotondamenti/latenza
@@ -15,7 +16,8 @@ const CHECKOUT_TTL_SECONDS = 23 * 60 * 60;
 export type SubscriptionItemForCheckout = {
   id: string;
   currency: string;
-  priceCents: number;
+  priceCents: number; // prezzo UNITARIO
+  quantity: number; // ≥ 1: il totale riga è priceCents × quantity
   endDate: Date;
   billingPeriod: BillingPeriod;
   customPeriodDays: number | null;
@@ -30,6 +32,8 @@ export type CheckoutRequest = {
   subscriptionId: string;
   clientEmail: string | null;
   items: SubscriptionItemForCheckout[];
+  /** Se true, aggiunge il costo di servizio Radar (1,5%) — solo Stripe. */
+  serviceFeeEnabled: boolean;
 };
 
 export type CheckoutResult = {
@@ -60,7 +64,7 @@ export async function createCheckoutPayment(
   appUrl: string,
   opts: { sendToClient: boolean },
 ): Promise<CheckoutResult> {
-  const { subscriptionId, clientEmail, items } = request;
+  const { subscriptionId, clientEmail, items, serviceFeeEnabled } = request;
 
   if (items.length === 0) {
     throw new Error("createCheckoutPayment: nessuna riga di servizio fornita");
@@ -68,29 +72,63 @@ export async function createCheckoutPayment(
 
   const stripe = getStripe();
 
-  const amountCents = items.reduce((sum, it) => sum + it.priceCents, 0);
+  const servicesCents = items.reduce(
+    (sum, it) => sum + it.priceCents * it.quantity,
+    0,
+  );
+  // Costo di servizio 1,5% (solo Stripe): questo flusso è sempre Stripe.
+  const serviceFeeCents = computeServiceFeeCents(servicesCents, serviceFeeEnabled);
+  const amountCents = servicesCents + serviceFeeCents;
   const currency = items[0].currency;
 
   const expiresAtUnix = Math.floor(Date.now() / 1000) + CHECKOUT_TTL_SECONDS;
 
+  // Riga servizi + eventuale riga extra "Costi di servizio Radar" (non è un
+  // PaymentItem: è solo una voce visibile nel checkout).
+  const lineItems = items.map((it) => ({
+    quantity: it.quantity,
+    price_data: {
+      currency: it.currency,
+      unit_amount: it.priceCents,
+      product_data: {
+        name: it.service.name,
+        ...(it.service.description
+          ? { description: it.service.description }
+          : {}),
+      },
+    },
+  }));
+  if (serviceFeeCents > 0) {
+    lineItems.push({
+      quantity: 1,
+      price_data: {
+        currency,
+        unit_amount: serviceFeeCents,
+        product_data: {
+          name: "Costi di servizio Radar",
+          description: "Commissione di gestione pagamento (1,5%)",
+        },
+      },
+    });
+  }
+
+  // Flusso self-service (link al cliente): success/cancel puntano alla pagina
+  // pubblica di ringraziamento (il cliente NON è autenticato, non deve finire
+  // nella dashboard admin). Flusso diretto admin ("Apri checkout ora"): resta il
+  // dettaglio dell'abbonamento in dashboard.
+  const successUrl = opts.sendToClient
+    ? `${appUrl}/pay/grazie`
+    : `${appUrl}/abbonamenti/${subscriptionId}?payment=success`;
+  const cancelUrl = opts.sendToClient
+    ? `${appUrl}/pay/grazie?annullato=1`
+    : `${appUrl}/abbonamenti/${subscriptionId}?payment=cancelled`;
+
   const session = await stripe.checkout.sessions.create({
     mode: "payment",
     expires_at: expiresAtUnix,
-    line_items: items.map((it) => ({
-      quantity: 1,
-      price_data: {
-        currency: it.currency,
-        unit_amount: it.priceCents,
-        product_data: {
-          name: it.service.name,
-          ...(it.service.description
-            ? { description: it.service.description }
-            : {}),
-        },
-      },
-    })),
-    success_url: `${appUrl}/abbonamenti/${subscriptionId}?payment=success`,
-    cancel_url: `${appUrl}/abbonamenti/${subscriptionId}?payment=cancelled`,
+    line_items: lineItems,
+    success_url: successUrl,
+    cancel_url: cancelUrl,
     ...(clientEmail ? { customer_email: clientEmail } : {}),
     metadata: { subscriptionId },
   });
@@ -104,7 +142,7 @@ export async function createCheckoutPayment(
     const duration = periodDurationDays(it);
     return {
       subscriptionItemId: it.id,
-      amountCents: it.priceCents,
+      amountCents: it.priceCents * it.quantity,
       status: "IN_ATTESA" as const,
       periodStart: it.endDate,
       periodEnd:
@@ -118,6 +156,7 @@ export async function createCheckoutPayment(
     data: {
       subscriptionId,
       amountCents,
+      serviceFeeCents,
       currency,
       method: "STRIPE",
       status: "IN_ATTESA",
@@ -137,12 +176,21 @@ export async function createCheckoutPayment(
     // NON direttamente l'URL Stripe (quello resta per il flusso admin diretto).
     const payUrl = `${appUrl}/pay/${payment.payToken}`;
     // Il link può coprire più servizi: l'email li elenca con importo e periodo.
+    const emailItems = items.map((it, idx) => ({
+      serviceName:
+        it.quantity > 1 ? `${it.service.name} ×${it.quantity}` : it.service.name,
+      amountCents: it.priceCents * it.quantity,
+      periodEnd: paymentItemsData[idx].periodEnd,
+    }));
+    if (serviceFeeCents > 0) {
+      emailItems.push({
+        serviceName: "Costi di servizio (1,5%)",
+        amountCents: serviceFeeCents,
+        periodEnd: null,
+      });
+    }
     const content = buildPaymentLinkEmail({
-      items: items.map((it, idx) => ({
-        serviceName: it.service.name,
-        amountCents: it.priceCents,
-        periodEnd: paymentItemsData[idx].periodEnd,
-      })),
+      items: emailItems,
       totalCents: amountCents,
       currency,
       checkoutUrl: payUrl,

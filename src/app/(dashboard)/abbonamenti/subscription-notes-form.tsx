@@ -11,12 +11,17 @@ import Link from "next/link";
 export function SubscriptionNotesForm({
   subscriptionId,
   initialNotes,
+  initialServiceFeeEnabled,
 }: {
   subscriptionId: string;
   initialNotes: string;
+  initialServiceFeeEnabled: boolean;
 }) {
   const router = useRouter();
   const [notes, setNotes] = useState(initialNotes);
+  const [serviceFeeEnabled, setServiceFeeEnabled] = useState(
+    initialServiceFeeEnabled,
+  );
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -28,7 +33,7 @@ export function SubscriptionNotesForm({
       const res = await fetch(`/api/subscriptions/${subscriptionId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ notes: notes || undefined }),
+        body: JSON.stringify({ notes: notes || undefined, serviceFeeEnabled }),
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -59,6 +64,26 @@ export function SubscriptionNotesForm({
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
         />
+      </section>
+
+      <section className="card space-y-3 p-6">
+        <h2 className="mono-label">Costi di servizio</h2>
+        <label className="flex items-start gap-2.5 text-sm">
+          <input
+            type="checkbox"
+            className="mt-0.5"
+            checked={serviceFeeEnabled}
+            onChange={(e) => setServiceFeeEnabled(e.target.checked)}
+          />
+          <span>
+            Applica costi di servizio (1,5%)
+            <span className="mt-0.5 block text-xs text-slate-500">
+              Aggiunge una commissione dell&apos;1,5% sul totale ai soli
+              pagamenti con carta (Stripe): checkout self-service e addebito
+              automatico. I pagamenti manuali non sono interessati.
+            </span>
+          </span>
+        </label>
       </section>
       <div className="flex gap-2">
         <button type="submit" className="btn-primary" disabled={pending}>

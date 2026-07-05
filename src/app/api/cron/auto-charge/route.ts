@@ -7,6 +7,7 @@ import { createCheckoutPayment } from "@/lib/payment-checkout";
 import { sendEmail } from "@/lib/send-email";
 import { buildAutoChargeFailedAdminEmail } from "@/lib/email-templates";
 import { MS_PER_DAY, periodDurationDays } from "@/lib/billing-period";
+import { computeServiceFeeCents } from "@/lib/service-fee";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -125,7 +126,16 @@ export async function GET(request: NextRequest) {
     const first = group[0];
     const client = first.subscription.client;
     const currency = first.currency;
-    const totalCents = group.reduce((sum, it) => sum + it.priceCents, 0);
+    const servicesCents = group.reduce(
+      (sum, it) => sum + it.priceCents * it.quantity,
+      0,
+    );
+    // Costo di servizio 1,5% (solo Stripe) se il contenitore lo prevede.
+    const serviceFeeCents = computeServiceFeeCents(
+      servicesCents,
+      first.subscription.serviceFeeEnabled,
+    );
+    const totalCents = servicesCents + serviceFeeCents;
     attempted += group.length;
     charges++;
 
@@ -135,6 +145,7 @@ export async function GET(request: NextRequest) {
         data: {
           subscriptionId: first.subscriptionId,
           amountCents: totalCents,
+          serviceFeeCents,
           currency,
           method: "STRIPE",
           status: "IN_ATTESA",
@@ -143,7 +154,7 @@ export async function GET(request: NextRequest) {
               const duration = periodDurationDays(it);
               return {
                 subscriptionItemId: it.id,
-                amountCents: it.priceCents,
+                amountCents: it.priceCents * it.quantity,
                 status: "IN_ATTESA" as const,
                 periodStart: it.endDate,
                 periodEnd:
@@ -239,10 +250,12 @@ export async function GET(request: NextRequest) {
               {
                 subscriptionId: first.subscriptionId,
                 clientEmail: client.email,
+                serviceFeeEnabled: first.subscription.serviceFeeEnabled,
                 items: disabledItems.map((it) => ({
                   id: it.id,
                   currency: it.currency,
                   priceCents: it.priceCents,
+                  quantity: it.quantity,
                   endDate: it.endDate,
                   billingPeriod: it.billingPeriod,
                   customPeriodDays: it.customPeriodDays,
