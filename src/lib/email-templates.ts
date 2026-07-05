@@ -146,32 +146,132 @@ function fillReminderPlaceholders(tpl: string, d: ReminderEmailData): string {
     .replaceAll("{diffDaysAfter}", String(diffDaysAfter));
 }
 
+/**
+ * Testi di DEFAULT rivolti al CLIENTE (destinatario = client.email). Tono diretto
+ * verso il cliente, nessun riferimento a "contattare il cliente"/dashboard.
+ * Non personalizzabili da Impostazioni (gli override lì valgono per l'admin).
+ */
+const REMINDER_CLIENT_DEFAULTS: Record<
+  ReminderConfigurableType,
+  { subject: string; body: string; title: string }
+> = {
+  PROMEMORIA_30: {
+    subject: "Il tuo servizio {serviceName} è in scadenza",
+    body: "ti ricordiamo che il tuo servizio {serviceName} scadrà il {endDate} (tra {diffDays} giorni). Per non interromperlo, ti invitiamo a provvedere al rinnovo per tempo.",
+    title: "Il tuo servizio è in scadenza",
+  },
+  PROMEMORIA_15: {
+    subject: "Il tuo servizio {serviceName} è in scadenza",
+    body: "ti ricordiamo che il tuo servizio {serviceName} scadrà il {endDate} (tra {diffDays} giorni). Per non interromperlo, ti invitiamo a provvedere al rinnovo per tempo.",
+    title: "Il tuo servizio è in scadenza",
+  },
+  PROMEMORIA_7: {
+    subject: "Il tuo servizio {serviceName} è in scadenza",
+    body: "ti ricordiamo che il tuo servizio {serviceName} scadrà il {endDate} (tra {diffDays} giorni). Per non interromperlo, ti invitiamo a provvedere al rinnovo per tempo.",
+    title: "Il tuo servizio è in scadenza",
+  },
+  SOLLECITO: {
+    subject: "Il tuo servizio {serviceName} è scaduto",
+    body: "il tuo servizio {serviceName} è scaduto il {endDate} e non risulta ancora rinnovato. Ti invitiamo a regolarizzare il pagamento al più presto per evitare l'interruzione del servizio.",
+    title: "Il tuo servizio è scaduto",
+  },
+  CESSAZIONE_MOROSITA: {
+    subject: "Il tuo servizio {serviceName} è stato cessato",
+    body: "ti informiamo che il servizio {serviceName} è stato cessato per mancato rinnovo, trascorsi i giorni previsti dalla scadenza. Se desideri riattivarlo, contattaci il prima possibile.",
+    title: "Il tuo servizio è stato cessato",
+  },
+};
+
+const CONTACT_LINE_TEXT =
+  "Per qualsiasi domanda scrivici a hello@deltasolutions.agency.";
+
+/** Blocco dettagli per il CLIENTE (solo servizio + scadenza, nessun link admin). */
+function clientDetailsText(d: ReminderEmailData): string {
+  return [`Servizio:  ${d.serviceName}`, `Scadenza:  ${formatDate(d.endDate)}`].join(
+    "\n",
+  );
+}
+
+function clientDetailsHtml(d: ReminderEmailData): string {
+  return `
+    <table style="border-collapse:collapse;font-family:sans-serif;font-size:14px;color:#1e293b">
+      <tr><td style="padding:2px 12px 2px 0;color:#64748b">Servizio</td><td>${d.serviceName}</td></tr>
+      <tr><td style="padding:2px 12px 2px 0;color:#64748b">Scadenza</td><td>${formatDate(d.endDate)}</td></tr>
+    </table>`;
+}
+
 /** Override testuale (oggetto/corpo) per un reminder; null/undefined = default. */
 export type ReminderOverride = {
   subject?: string | null;
   body?: string | null;
 };
 
+export type ReminderAudience = "admin" | "client";
+
 /**
  * Genera oggetto + corpo (testo e HTML) per il tipo di notifica indicato.
- * Il destinatario (ADMIN_EMAIL) è gestito dal chiamante (cron).
  *
- * `override` (opzionale, da ReminderTemplate) sostituisce oggetto e/o corpo:
- * i campi vuoti/null ricadono sul default. Entrambi supportano i segnaposto.
+ * - audience "admin" (default): comportamento invariato — link al dettaglio
+ *   dashboard; `override` (da ReminderTemplate) sostituisce oggetto/corpo.
+ * - audience "client": tono diretto verso il cliente, NESSUN link interno,
+ *   contatto hello@deltasolutions.agency; usa i testi client di default
+ *   (gli override di Impostazioni valgono solo per la versione admin).
  */
 export function buildReminderEmail(
   type: NotificationType,
   d: ReminderEmailData,
-  override?: ReminderOverride,
+  opts?: { override?: ReminderOverride; audience?: ReminderAudience },
 ): EmailContent {
+  const audience = opts?.audience ?? "admin";
   const def = REMINDER_DEFAULTS[type as ReminderConfigurableType];
 
   // Type non gestito (es. CONFERMA_ACQUISTO ha il suo generatore).
   if (!def) {
     const subject = `[Radar] Notifica abbonamento: ${d.clientName} — ${d.serviceName}`;
-    return { subject, text: detailsText(d), html: wrapHtml("Notifica abbonamento", "", d) };
+    return {
+      subject,
+      text: detailsText(d),
+      html: wrapHtml("Notifica abbonamento", "", d),
+    };
   }
 
+  // ── Versione CLIENTE ─────────────────────────────────────────────────────
+  if (audience === "client") {
+    const cdef = REMINDER_CLIENT_DEFAULTS[type as ReminderConfigurableType];
+    const subject = fillReminderPlaceholders(cdef.subject, d);
+    const intro = fillReminderPlaceholders(cdef.body, d);
+
+    const text = [
+      `Ciao ${d.clientName},`,
+      "",
+      intro,
+      "",
+      clientDetailsText(d),
+      "",
+      CONTACT_LINE_TEXT,
+    ].join("\n");
+
+    const html = `
+      <div style="max-width:560px;margin:0 auto;font-family:sans-serif;color:#1e293b">
+        ${emailHeaderHtml()}
+        <h2 style="font-size:18px;margin:0 0 8px">${cdef.title}</h2>
+        <p style="font-size:14px;line-height:1.5">Ciao ${d.clientName}, ${intro}</p>
+        ${clientDetailsHtml(d)}
+        <p style="font-size:13px;color:#64748b;line-height:1.5;margin-top:12px">
+          ${CONTACT_LINE_TEXT.replace(
+            "hello@deltasolutions.agency",
+            `<a href="mailto:hello@deltasolutions.agency" style="color:#4f46e5">hello@deltasolutions.agency</a>`,
+          )}
+        </p>
+        <hr style="border:none;border-top:1px solid #e2e8f0;margin:24px 0" />
+        <p style="font-size:12px;color:#94a3b8">Radar — Delta Solutions</p>
+      </div>`;
+
+    return { subject, text, html };
+  }
+
+  // ── Versione ADMIN (invariata) ───────────────────────────────────────────
+  const override = opts?.override;
   const subjectTpl = override?.subject?.trim() ? override.subject : def.subject;
   const bodyTpl = override?.body?.trim() ? override.body : def.body;
 

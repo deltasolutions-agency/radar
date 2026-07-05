@@ -77,6 +77,8 @@ export async function GET(request: NextRequest) {
     },
   });
 
+  const adminRecipient = process.env.ADMIN_EMAIL ?? "(non configurato)";
+
   for (const item of items) {
     try {
       const milestone = getReminderMilestone(
@@ -89,20 +91,6 @@ export async function GET(request: NextRequest) {
       );
       if (!milestone) continue;
 
-      // Dedupe: già inviato oggi per questo type/riga?
-      const existing = await prisma.notificationLog.findFirst({
-        where: {
-          subscriptionItemId: item.id,
-          type: milestone.type,
-          dedupeKey,
-        },
-        select: { id: true },
-      });
-      if (existing) {
-        remindersSkipped++;
-        continue;
-      }
-
       const diffDays = Math.ceil(
         (item.endDate.getTime() - now.getTime()) / MS_PER_DAY,
       );
@@ -110,50 +98,106 @@ export async function GET(request: NextRequest) {
       const clientName = client.ragioneSociale?.trim()
         ? client.ragioneSociale
         : client.name;
-
-      const content = buildReminderEmail(
-        milestone.type,
-        {
-          subscriptionId: item.subscriptionId,
-          clientName,
-          serviceName: item.service.name,
-          endDate: item.endDate,
-          diffDays,
-        },
-        templates[milestone.type],
-      );
-
-      // Invio (non lancia mai).
-      const sent = await sendEmail(content);
-      const recipient = process.env.ADMIN_EMAIL ?? "(non configurato)";
-
-      const logData = {
-        subscriptionItemId: item.id,
-        type: milestone.type,
-        status: sent.status,
-        recipient,
-        resendId: sent.resendId,
-        error: sent.error,
-        dedupeKey,
+      const emailData = {
+        subscriptionId: item.subscriptionId,
+        clientName,
+        serviceName: item.service.name,
+        endDate: item.endDate,
+        diffDays,
       };
 
-      if (milestone.isCessationTrigger) {
-        // Cessazione + log nella STESSA transazione: mai l'una senza l'altro.
-        // Un fallimento email NON impedisce la cessazione (caso critico).
-        await prisma.$transaction([
-          prisma.notificationLog.create({ data: logData }),
-          prisma.subscriptionItem.updateMany({
-            where: { id: item.id, status: { notIn: [...BLOCKING] } },
-            data: { status: "CESSATO" },
-          }),
-        ]);
-        cessations++;
+      // Due invii INDIPENDENTI (admin + cliente), ciascuno con dedupeKey distinto
+      // per non collidere sul vincolo unique [subscriptionItemId, type, dedupeKey].
+      const adminKey = `${dedupeKey}-admin`;
+      const clientKey = `${dedupeKey}-client`;
+
+      // ── Invio ADMIN (invariato nel contenuto) ────────────────────────────
+      const adminExisting = await prisma.notificationLog.findFirst({
+        where: {
+          subscriptionItemId: item.id,
+          type: milestone.type,
+          dedupeKey: adminKey,
+        },
+        select: { id: true },
+      });
+      if (adminExisting) {
+        remindersSkipped++;
       } else {
-        await prisma.notificationLog.create({ data: logData });
+        const adminContent = buildReminderEmail(milestone.type, emailData, {
+          override: templates[milestone.type],
+          audience: "admin",
+        });
+        const sent = await sendEmail(adminContent); // → ADMIN_EMAIL
+        await prisma.notificationLog.create({
+          data: {
+            subscriptionItemId: item.id,
+            type: milestone.type,
+            status: sent.status,
+            recipient: adminRecipient,
+            resendId: sent.resendId,
+            error: sent.error,
+            dedupeKey: adminKey,
+          },
+        });
+        if (sent.status === "INVIATA") remindersSent++;
+        else remindersFailed++;
       }
 
-      if (sent.status === "INVIATA") remindersSent++;
-      else remindersFailed++;
+      // ── Invio CLIENTE (tono diretto, nessun link admin) ──────────────────
+      const clientExisting = await prisma.notificationLog.findFirst({
+        where: {
+          subscriptionItemId: item.id,
+          type: milestone.type,
+          dedupeKey: clientKey,
+        },
+        select: { id: true },
+      });
+      if (clientExisting) {
+        remindersSkipped++;
+      } else if (!client.email) {
+        // Email cliente assente: salta SOLO l'invio cliente, loggandolo come
+        // FALLITA (non blocca l'invio admin, già gestito sopra).
+        await prisma.notificationLog.create({
+          data: {
+            subscriptionItemId: item.id,
+            type: milestone.type,
+            status: "FALLITA",
+            recipient: "(cliente senza email)",
+            error: "Cliente senza indirizzo email",
+            dedupeKey: clientKey,
+          },
+        });
+        remindersFailed++;
+      } else {
+        const clientContent = buildReminderEmail(milestone.type, emailData, {
+          audience: "client",
+        });
+        const sent = await sendEmail(clientContent, client.email);
+        await prisma.notificationLog.create({
+          data: {
+            subscriptionItemId: item.id,
+            type: milestone.type,
+            status: sent.status,
+            recipient: client.email,
+            resendId: sent.resendId,
+            error: sent.error,
+            dedupeKey: clientKey,
+          },
+        });
+        if (sent.status === "INVIATA") remindersSent++;
+        else remindersFailed++;
+      }
+
+      // ── Cessazione per morosità (una volta, indipendente dagli invii) ─────
+      // Un eventuale fallimento email NON impedisce la cessazione. Guardata dallo
+      // stato, è idempotente su run ripetuti.
+      if (milestone.isCessationTrigger) {
+        const res = await prisma.subscriptionItem.updateMany({
+          where: { id: item.id, status: { notIn: [...BLOCKING] } },
+          data: { status: "CESSATO" },
+        });
+        if (res.count > 0) cessations++;
+      }
     } catch (e) {
       // Un errore su una riga non blocca le altre.
       console.error(`[cron] errore su subscription item ${item.id}:`, e);
