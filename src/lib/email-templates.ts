@@ -416,8 +416,14 @@ export type ConfirmationEmailData = {
   clientName: string;
   /** Una voce per ciascun servizio pagato in questo pagamento. */
   items: ConfirmationEmailItem[];
-  /** Totale del pagamento (somma delle righe). */
+  /** Totale del pagamento (lordo servizi + eventuale costo di servizio). */
   totalCents: number;
+  /** Imponibile servizi (netto). Se assente, viene scorporato dal totale. */
+  taxableCents?: number;
+  /** IVA 22% sui servizi. Se assente, viene scorporata dal totale. */
+  vatCents?: number;
+  /** Costo di servizio (Stripe), senza IVA propria; mostrato a parte se > 0. */
+  serviceFeeCents?: number;
   currency?: string;
   method: PaymentMethod;
   /** Token della ricevuta pubblica; se assente il link viene omesso. */
@@ -453,9 +459,16 @@ export function buildConfirmationEmail(
   const currency = d.currency ?? "eur";
 
   const total = formatEur(d.totalCents, currency);
-  // Scorporo IVA dal totale lordo (coerente con la ricevuta).
-  const vat = splitVatFromGross(d.totalCents);
-  const vatLine = `di cui imponibile ${formatEur(vat.taxableCents, currency)} + IVA 22% ${formatEur(vat.vatCents, currency)}`;
+  // Imponibile/IVA presi dalla ricevuta (base IVA = solo servizi, il costo di
+  // servizio NON concorre); fallback allo scorporo dal totale solo se non
+  // forniti (retro-compatibilità).
+  const fallback = splitVatFromGross(d.totalCents);
+  const taxableCents = d.taxableCents ?? fallback.taxableCents;
+  const vatCents = d.vatCents ?? fallback.vatCents;
+  const feeCents = d.serviceFeeCents ?? 0;
+  const vatLine =
+    `di cui imponibile ${formatEur(taxableCents, currency)} + IVA 22% ${formatEur(vatCents, currency)}` +
+    (feeCents > 0 ? ` + costi di servizio ${formatEur(feeCents, currency)}` : "");
   const base = process.env.APP_URL ?? "";
   const receiptUrl = d.receiptToken ? `${base}/r/${d.receiptToken}` : null;
   // Link dashboard SOLO per l'admin — mai nella versione cliente.
@@ -688,7 +701,7 @@ export function buildWelcomeEmail(d: WelcomeEmailData): EmailContent {
 
   const itemLinesText = d.items.map((it) => {
     const { name, period, price, expiry } = itemLabel(it);
-    return `- ${name} — ${period} — scade il ${expiry} — ${price}`;
+    return `- ${name} — ${period} — scade il ${expiry} — ${price}*`;
   });
 
   // Sezione rinnovo automatico (solo se richiesto in creazione).
@@ -718,6 +731,7 @@ export function buildWelcomeEmail(d: WelcomeEmailData): EmailContent {
     "",
     "Servizi attivati:",
     ...itemLinesText,
+    "* Prezzi IVA esclusa.",
     "",
     explanation,
     ...autoChargeText,
@@ -739,7 +753,7 @@ export function buildWelcomeEmail(d: WelcomeEmailData): EmailContent {
           <td style="padding:6px 12px 6px 0;border-bottom:1px solid #f1f5f9">${name}</td>
           <td style="padding:6px 12px 6px 0;border-bottom:1px solid #f1f5f9;color:#64748b">${period}</td>
           <td style="padding:6px 12px 6px 0;border-bottom:1px solid #f1f5f9;color:#64748b;white-space:nowrap">scade il ${expiry}</td>
-          <td style="padding:6px 0;border-bottom:1px solid #f1f5f9;text-align:right;white-space:nowrap">${price}</td>
+          <td style="padding:6px 0;border-bottom:1px solid #f1f5f9;text-align:right;white-space:nowrap">${price}*</td>
         </tr>`;
     })
     .join("");
@@ -761,6 +775,7 @@ export function buildWelcomeEmail(d: WelcomeEmailData): EmailContent {
         </thead>
         <tbody>${itemRowsHtml}</tbody>
       </table>
+      <p style="font-size:11px;color:#94a3b8;margin:0 0 12px">* Prezzi IVA esclusa.</p>
       <p style="font-size:14px;line-height:1.5">${explanation}</p>
       ${
         d.autoChargeUrl

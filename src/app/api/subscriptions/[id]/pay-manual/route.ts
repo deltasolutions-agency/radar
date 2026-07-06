@@ -4,6 +4,7 @@ import { json, error, withApi, requireSession } from "@/lib/api";
 import { manualPaymentSchema } from "@/lib/validations";
 import { confirmPaymentAndRenew } from "@/lib/confirm-payment";
 import { MS_PER_DAY, periodDurationDays } from "@/lib/billing-period";
+import { addVatToNet } from "@/lib/vat";
 
 type Params = { params: { id: string } };
 
@@ -46,10 +47,12 @@ export function POST(req: NextRequest, { params }: Params) {
     }
 
     const items = subscription.items;
-    const totalCents = items.reduce(
-      (sum, it) => sum + it.priceCents * it.quantity,
-      0,
+    // Il prezzo inserito è NETTO: l'importo del pagamento è il LORDO (netto +22%)
+    // per riga. Nessun costo di servizio sui pagamenti manuali (solo Stripe).
+    const itemGrossCents = items.map(
+      (it) => addVatToNet(it.priceCents * it.quantity).grossCents,
     );
+    const totalCents = itemGrossCents.reduce((sum, c) => sum + c, 0);
     const currency = items[0].currency;
 
     // Crea il Payment CONFERMATO con una PaymentItem per riga (periodo preview),
@@ -65,11 +68,11 @@ export function POST(req: NextRequest, { params }: Params) {
         note: data.note,
         recordedById: session.sub,
         items: {
-          create: items.map((it) => {
+          create: items.map((it, idx) => {
             const duration = periodDurationDays(it);
             return {
               subscriptionItemId: it.id,
-              amountCents: it.priceCents * it.quantity,
+              amountCents: itemGrossCents[idx],
               status: "IN_ATTESA" as const,
               periodStart: it.endDate,
               periodEnd:

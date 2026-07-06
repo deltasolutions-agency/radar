@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { formatEur } from "@/lib/format";
 import { formatBillingPeriod, type BillingPeriodValue } from "@/lib/validations";
 import { CURRENT_CONSENT_VERSION } from "@/lib/legal";
+import { addVatToNet } from "@/lib/vat";
 import { clientDataFieldsFor, ensureDataEditToken } from "@/lib/client-data";
 import { GoogleReviewCta } from "@/components/google-review-cta";
 import { DataEditForm } from "@/app/i-tuoi-dati/[token]/data-edit-form";
@@ -108,7 +109,7 @@ export default async function AttivaRinnovoPage({
                   </p>
                 </div>
                 <span className="shrink-0 font-mono text-ink">
-                  {formatEur(it.priceCents * it.quantity, it.currency)}
+                  {formatEur(addVatToNet(it.priceCents * it.quantity).grossCents, it.currency)}
                 </span>
               </li>
             ))}
@@ -190,7 +191,8 @@ export default async function AttivaRinnovoPage({
 
       <p className="mt-6 text-sm text-slate-600">
         Registrando la carta autorizzi l&apos;addebito automatico ricorrente per
-        i seguenti servizi, ciascuno alla propria scadenza e periodicità:
+        i seguenti servizi, ciascuno alla propria scadenza e periodicità (importi
+        IVA 22% inclusa):
       </p>
 
       <ul className="mt-4 space-y-2 border-y border-line-soft py-4 text-sm">
@@ -211,7 +213,7 @@ export default async function AttivaRinnovoPage({
               </p>
             </div>
             <span className="shrink-0 font-mono text-ink">
-              {formatEur(it.priceCents * it.quantity, it.currency)}
+              {formatEur(addVatToNet(it.priceCents * it.quantity).grossCents, it.currency)}
             </span>
           </li>
         ))}

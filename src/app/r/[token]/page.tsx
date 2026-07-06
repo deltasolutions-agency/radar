@@ -166,21 +166,42 @@ export default async function RicevutaPubblicaPage({
                 </div>
               );
             })}
+          </div>
 
+          {/* Riepilogo importi: le righe sono al NETTO (imponibile). */}
+          <dl className="mt-4 space-y-1 border-t border-line-soft pt-3">
+            <div className="flex items-center justify-between text-sm">
+              <dt className="text-slate-500">Imponibile</dt>
+              <dd className="font-mono text-ink">
+                {formatEur(receipt.taxableAmountCents, receipt.currency)}
+              </dd>
+            </div>
+            <div className="flex items-center justify-between text-sm">
+              <dt className="text-slate-500">IVA (22%)</dt>
+              <dd className="font-mono text-ink">
+                {formatEur(receipt.vatAmountCents, receipt.currency)}
+              </dd>
+            </div>
             {receipt.serviceFeeCents > 0 ? (
-              <div className="flex items-start justify-between gap-4 border-b border-line-soft pb-2 last:border-0 last:pb-0">
-                <div>
-                  <p className="text-sm text-ink">Costi di servizio</p>
-                  <p className="text-xs text-slate-500">
-                    Commissione di gestione pagamento (1,5%)
-                  </p>
-                </div>
-                <p className="shrink-0 font-mono text-sm text-ink">
+              <div className="flex items-center justify-between text-sm">
+                <dt className="text-slate-500">
+                  Costi di servizio
+                  <span className="ml-1 text-xs text-slate-400">
+                    (gestione pagamento 1,5%)
+                  </span>
+                </dt>
+                <dd className="font-mono text-ink">
                   {formatEur(receipt.serviceFeeCents, receipt.currency)}
-                </p>
+                </dd>
               </div>
             ) : null}
-          </div>
+            <div className="mt-1 flex items-center justify-between border-t border-line-soft pt-2">
+              <dt className="font-medium text-ink">Totale dovuto</dt>
+              <dd className="font-mono text-lg font-semibold text-ink">
+                {formatEur(receipt.amountCents, receipt.currency)}
+              </dd>
+            </div>
+          </dl>
         </section>
 
         {/* Pagamento */}
@@ -194,30 +215,6 @@ export default async function RicevutaPubblicaPage({
               label="Data pagamento"
               value={
                 <span className="font-mono">{formatDate(receipt.paidAt)}</span>
-              }
-            />
-            <Field
-              label="Imponibile"
-              value={
-                <span className="font-mono">
-                  {formatEur(receipt.taxableAmountCents, receipt.currency)}
-                </span>
-              }
-            />
-            <Field
-              label="IVA 22%"
-              value={
-                <span className="font-mono">
-                  {formatEur(receipt.vatAmountCents, receipt.currency)}
-                </span>
-              }
-            />
-            <Field
-              label="Totale pagato"
-              value={
-                <span className="font-mono text-lg font-semibold text-ink">
-                  {formatEur(receipt.amountCents, receipt.currency)}
-                </span>
               }
             />
           </dl>

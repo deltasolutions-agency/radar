@@ -101,23 +101,29 @@ export async function createReceiptForPayment(
   const paidAt = payment.paidAt ?? new Date();
   const { client } = payment.subscription;
 
-  // Una riga per ciascun PaymentItem; il totale è la somma delle righe.
-  const lines = payment.items.map((pi) => ({
-    serviceName: pi.subscriptionItem.service.name,
-    description: pi.subscriptionItem.service.description,
-    periodStart: pi.periodStart,
-    periodEnd: pi.periodEnd,
-    quantity: pi.subscriptionItem.quantity,
-    amountCents: pi.amountCents,
-  }));
-  // Totale servizi (somma righe). L'eventuale costo di servizio (Stripe) va
-  // sommato al totale e concorre alla base IVA (vedi sotto).
-  const servicesTotal = lines.reduce((sum, l) => sum + l.amountCents, 0);
+  // Ogni PaymentItem.amountCents è il LORDO del servizio (IVA inclusa). Sulla
+  // ricevuta la riga mostra il NETTO (imponibile): scorporo per riga e salvo il
+  // netto in ReceiptLine.amountCents, così Σ righe === taxableAmountCents ESATTO.
+  // L'inversione lordo→netto è esatta per ogni importo realistico (verificato).
+  let taxableCents = 0;
+  let vatCents = 0;
+  const lines = payment.items.map((pi) => {
+    const split = splitVatFromGross(pi.amountCents);
+    taxableCents += split.taxableCents;
+    vatCents += split.vatCents;
+    return {
+      serviceName: pi.subscriptionItem.service.name,
+      description: pi.subscriptionItem.service.description,
+      periodStart: pi.periodStart,
+      periodEnd: pi.periodEnd,
+      quantity: pi.subscriptionItem.quantity,
+      amountCents: split.taxableCents, // NETTO (imponibile) della riga
+    };
+  });
+  // Il costo di servizio (solo Stripe) si somma DOPO l'IVA sui servizi e NON
+  // genera IVA propria (decisione definitiva: commissione senza IVA aggiuntiva).
   const serviceFeeCents = payment.serviceFeeCents ?? 0;
-  const amountCents = servicesTotal + serviceFeeCents;
-
-  // Scorporo IVA 22% dal totale LORDO (comprensivo del costo di servizio).
-  const { taxableCents, vatCents } = splitVatFromGross(amountCents);
+  const amountCents = taxableCents + vatCents + serviceFeeCents;
 
   const number = await nextReceiptNumber(db);
 

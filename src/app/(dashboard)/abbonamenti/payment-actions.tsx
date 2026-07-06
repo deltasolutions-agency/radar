@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { formatEur, formatDate } from "@/lib/format";
 import { computeServiceFeeCents } from "@/lib/service-fee";
+import { addVatToNet } from "@/lib/vat";
 
 export type PayableItem = {
   id: string;
@@ -54,15 +55,25 @@ export function PaymentActions({
     [items, selected],
   );
   const selectedIds = selectedItems.map((it) => it.id);
-  const totalCents = selectedItems.reduce(
+  // I prezzi sono NETTI: l'importo addebitato è il LORDO (netto + IVA 22%) per
+  // riga, coerente con quanto calcola il server (checkout / manuale / auto).
+  const netServicesCents = selectedItems.reduce(
     (s, it) => s + it.priceCents * it.quantity,
     0,
   );
+  const vatCents = selectedItems.reduce(
+    (s, it) => s + addVatToNet(it.priceCents * it.quantity).vatCents,
+    0,
+  );
+  const grossServicesCents = netServicesCents + vatCents;
   const currency = selectedItems[0]?.currency ?? "eur";
 
-  // Costo di servizio 1,5%: si applica SOLO ai pagamenti con carta (Stripe).
-  const serviceFeeCents = computeServiceFeeCents(totalCents, serviceFeeEnabled);
-  const stripeTotalCents = totalCents + serviceFeeCents;
+  // Costo di servizio 1,5% (solo Stripe) sul TOTALE LORDO dei servizi.
+  const serviceFeeCents = computeServiceFeeCents(
+    grossServicesCents,
+    serviceFeeEnabled,
+  );
+  const stripeTotalCents = grossServicesCents + serviceFeeCents;
 
   // Valute diverse → un unico addebito non è possibile (blocco).
   const mixedCurrency =
@@ -93,9 +104,9 @@ export function PaymentActions({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             subscriptionItemIds: selectedIds,
-            // L'importo è ricalcolato lato server dai prezzi delle righe; lo
-            // inviamo comunque (lo schema lo richiede) coerente con il totale.
-            amountCents: totalCents,
+            // L'importo è ricalcolato lato server dai prezzi delle righe (lordo);
+            // lo inviamo comunque (lo schema lo richiede) coerente col totale.
+            amountCents: grossServicesCents,
             note: note || undefined,
             paidAt: paidAt || undefined,
           }),
@@ -204,9 +215,21 @@ export function PaymentActions({
             </span>
           </label>
         ))}
-        <div className="mt-2 flex items-center justify-between border-t border-line-soft pt-2 text-sm font-medium">
-          <span>Totale servizi</span>
-          <span className="font-mono">{formatEur(totalCents, currency)}</span>
+        <div className="mt-2 flex items-center justify-between border-t border-line-soft pt-2 text-xs text-slate-500">
+          <span>Imponibile servizi</span>
+          <span className="font-mono">
+            {formatEur(netServicesCents, currency)}
+          </span>
+        </div>
+        <div className="flex items-center justify-between text-xs text-slate-500">
+          <span>IVA 22%</span>
+          <span className="font-mono">{formatEur(vatCents, currency)}</span>
+        </div>
+        <div className="flex items-center justify-between text-sm font-medium">
+          <span>Totale servizi (IVA inclusa)</span>
+          <span className="font-mono">
+            {formatEur(grossServicesCents, currency)}
+          </span>
         </div>
         {serviceFeeCents > 0 ? (
           <>
@@ -290,10 +313,10 @@ export function PaymentActions({
           <p className="text-sm text-ink">
             Importo totale:{" "}
             <span className="font-mono font-medium">
-              {formatEur(totalCents, currency)}
+              {formatEur(grossServicesCents, currency)}
             </span>{" "}
             <span className="text-xs text-slate-500">
-              (somma dei servizi selezionati)
+              (servizi selezionati, IVA 22% inclusa)
             </span>
           </p>
           <div className="grid gap-4 sm:grid-cols-2">

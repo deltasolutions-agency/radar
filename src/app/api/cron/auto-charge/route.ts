@@ -8,6 +8,7 @@ import { sendEmail } from "@/lib/send-email";
 import { buildAutoChargeFailedAdminEmail } from "@/lib/email-templates";
 import { MS_PER_DAY, periodDurationDays } from "@/lib/billing-period";
 import { computeServiceFeeCents } from "@/lib/service-fee";
+import { addVatToNet } from "@/lib/vat";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -126,11 +127,13 @@ export async function GET(request: NextRequest) {
     const first = group[0];
     const client = first.subscription.client;
     const currency = first.currency;
-    const servicesCents = group.reduce(
-      (sum, it) => sum + it.priceCents * it.quantity,
-      0,
+    // Il prezzo inserito è NETTO: l'importo da addebitare è il LORDO (netto +22%)
+    // per ogni riga del gruppo.
+    const itemGrossCents = group.map(
+      (it) => addVatToNet(it.priceCents * it.quantity).grossCents,
     );
-    // Costo di servizio 1,5% (solo Stripe) se il contenitore lo prevede.
+    const servicesCents = itemGrossCents.reduce((sum, c) => sum + c, 0);
+    // Costo di servizio 1,5% (solo Stripe) sul LORDO dei servizi.
     const serviceFeeCents = computeServiceFeeCents(
       servicesCents,
       first.subscription.serviceFeeEnabled,
@@ -150,11 +153,11 @@ export async function GET(request: NextRequest) {
           method: "STRIPE",
           status: "IN_ATTESA",
           items: {
-            create: group.map((it) => {
+            create: group.map((it, idx) => {
               const duration = periodDurationDays(it);
               return {
                 subscriptionItemId: it.id,
-                amountCents: it.priceCents * it.quantity,
+                amountCents: itemGrossCents[idx],
                 status: "IN_ATTESA" as const,
                 periodStart: it.endDate,
                 periodEnd:

@@ -6,6 +6,7 @@ import { sendEmail } from "@/lib/send-email";
 import { buildPaymentLinkEmail } from "@/lib/email-templates";
 import { MS_PER_DAY, periodDurationDays } from "@/lib/billing-period";
 import { computeServiceFeeCents } from "@/lib/service-fee";
+import { addVatToNet } from "@/lib/vat";
 
 // Durata di validità della Checkout Session. Stripe impone un MASSIMO di 24h
 // da expires_at: usiamo 23h per lasciare margine contro arrotondamenti/latenza
@@ -72,11 +73,13 @@ export async function createCheckoutPayment(
 
   const stripe = getStripe();
 
-  const servicesCents = items.reduce(
-    (sum, it) => sum + it.priceCents * it.quantity,
-    0,
+  // Il prezzo inserito è NETTO: l'importo da incassare per ogni riga è il LORDO
+  // (netto + 22%), calcolato sul totale riga (priceCents × quantity).
+  const itemGrossCents = items.map(
+    (it) => addVatToNet(it.priceCents * it.quantity).grossCents,
   );
-  // Costo di servizio 1,5% (solo Stripe): questo flusso è sempre Stripe.
+  const servicesCents = itemGrossCents.reduce((sum, c) => sum + c, 0);
+  // Costo di servizio 1,5% (solo Stripe) sul LORDO dei servizi.
   const serviceFeeCents = computeServiceFeeCents(servicesCents, serviceFeeEnabled);
   const amountCents = servicesCents + serviceFeeCents;
   const currency = items[0].currency;
@@ -85,13 +88,16 @@ export async function createCheckoutPayment(
 
   // Riga servizi + eventuale riga extra "Costi di servizio Radar" (non è un
   // PaymentItem: è solo una voce visibile nel checkout).
-  const lineItems = items.map((it) => ({
-    quantity: it.quantity,
+  // Una line_item per servizio: quantità 1 e unit_amount = LORDO del totale riga
+  // (IVA inclusa), così l'importo Stripe coincide ESATTAMENTE con il PaymentItem
+  // memorizzato. La quantità del servizio è indicata nel nome (×N).
+  const lineItems = items.map((it, idx) => ({
+    quantity: 1,
     price_data: {
       currency: it.currency,
-      unit_amount: it.priceCents,
+      unit_amount: itemGrossCents[idx],
       product_data: {
-        name: it.service.name,
+        name: it.quantity > 1 ? `${it.service.name} ×${it.quantity}` : it.service.name,
         ...(it.service.description
           ? { description: it.service.description }
           : {}),
@@ -138,11 +144,11 @@ export async function createCheckoutPayment(
 
   // Periodo coperto da ciascuna riga: da endDate corrente alla scadenza dopo il
   // rinnovo (preview — la conferma definitiva è in confirm-payment).
-  const paymentItemsData = items.map((it) => {
+  const paymentItemsData = items.map((it, idx) => {
     const duration = periodDurationDays(it);
     return {
       subscriptionItemId: it.id,
-      amountCents: it.priceCents * it.quantity,
+      amountCents: itemGrossCents[idx],
       status: "IN_ATTESA" as const,
       periodStart: it.endDate,
       periodEnd:
@@ -179,7 +185,7 @@ export async function createCheckoutPayment(
     const emailItems = items.map((it, idx) => ({
       serviceName:
         it.quantity > 1 ? `${it.service.name} ×${it.quantity}` : it.service.name,
-      amountCents: it.priceCents * it.quantity,
+      amountCents: itemGrossCents[idx],
       periodEnd: paymentItemsData[idx].periodEnd,
     }));
     if (serviceFeeCents > 0) {

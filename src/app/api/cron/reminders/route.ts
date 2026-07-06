@@ -4,6 +4,7 @@ import { computeItemStatus } from "@/lib/subscription-status";
 import { getReminderMilestone } from "@/lib/reminder-schedule";
 import { buildReminderEmail } from "@/lib/email-templates";
 import { sendEmail } from "@/lib/send-email";
+import { addVatToNet } from "@/lib/vat";
 import {
   loadReminderThresholds,
   loadReminderTemplates,
@@ -199,7 +200,10 @@ export async function GET(request: NextRequest) {
           | { amountCents: number; currency: string; autoChargeUrl?: string | null }
           | undefined;
         if (!item.autoChargeEnabled) {
-          const amountCents = item.priceCents * item.quantity;
+          // Il prezzo è NETTO: il totale del bonifico è il LORDO (netto + 22%).
+          const amountCents = addVatToNet(
+            item.priceCents * item.quantity,
+          ).grossCents;
           if (milestone.type === "CESSAZIONE_MOROSITA") {
             clientRenewal = { amountCents, currency: item.currency };
           } else {
