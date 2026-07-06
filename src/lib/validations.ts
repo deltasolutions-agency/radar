@@ -93,6 +93,11 @@ export const clientCreateSchema = z.object({
     emptyToUndef,
     z.string().trim().max(2).default("IT"),
   ),
+  sdi: optionalString,
+  pec: z.preprocess(
+    emptyToUndef,
+    z.string().trim().email("PEC non valida").max(200).optional(),
+  ),
   status: z.enum(CLIENT_STATUSES).default("ATTIVO"),
   note: z.preprocess(emptyToUndef, z.string().trim().max(5000).optional()),
 });
@@ -100,6 +105,25 @@ export const clientCreateSchema = z.object({
 export const clientUpdateSchema = clientCreateSchema.partial();
 
 export type ClientCreateInput = z.infer<typeof clientCreateSchema>;
+
+// Modifica self-service dal cliente (pagina pubblica): sottoinsieme dei campi
+// di fatturazione. L'email è ESCLUSA di proposito (non modificabile dal cliente).
+export const clientSelfUpdateSchema = z.object({
+  ragioneSociale: optionalString,
+  partitaIva: optionalString,
+  codiceFiscale: optionalString,
+  indirizzo: optionalString,
+  citta: optionalString,
+  cap: optionalString,
+  provincia: optionalString,
+  sdi: optionalString,
+  pec: z.preprocess(
+    emptyToUndef,
+    z.string().trim().email("PEC non valida").max(200).optional(),
+  ),
+});
+
+export type ClientSelfUpdateInput = z.infer<typeof clientSelfUpdateSchema>;
 
 // ──────────────────────────────────────────────────────────────────────────
 // SERVICE
