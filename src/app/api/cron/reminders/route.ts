@@ -18,6 +18,28 @@ const MS_PER_DAY = 1000 * 60 * 60 * 24;
 // Stati manuali bloccanti: mai toccati dal cron.
 const BLOCKING = ["CESSATO", "SOSPESO"] as const;
 
+/**
+ * Restituisce il token di una AutoChargeRequest pendente (non usata) che copre
+ * l'item indicato, creandone una nuova (solo quell'item) se non esiste. Usato
+ * per la CTA "attiva rinnovo automatico" nei reminder cliente (Caso A).
+ */
+async function ensureAutoChargeRequestToken(
+  clientId: string,
+  itemId: string,
+): Promise<string> {
+  const existing = await prisma.autoChargeRequest.findFirst({
+    where: { clientId, usedAt: null, itemIds: { has: itemId } },
+    orderBy: { createdAt: "desc" },
+    select: { token: true },
+  });
+  if (existing) return existing.token;
+  const created = await prisma.autoChargeRequest.create({
+    data: { clientId, itemIds: [itemId] },
+    select: { token: true },
+  });
+  return created.token;
+}
+
 export async function GET(request: NextRequest) {
   // ── Auth: Bearer CRON_SECRET ───────────────────────────────────────────────
   const secret = process.env.CRON_SECRET;
@@ -169,8 +191,33 @@ export async function GET(request: NextRequest) {
         });
         remindersFailed++;
       } else {
+        // Sezione rinnovo (coordinate bancarie + disclaimer + eventuale CTA):
+        // solo per item SENZA rinnovo automatico. Caso A (promemoria/sollecito):
+        // genera/riusa una AutoChargeRequest per la CTA. Caso B (cessazione):
+        // solo coordinate + disclaimer, nessuna CTA.
+        let clientRenewal:
+          | { amountCents: number; currency: string; autoChargeUrl?: string | null }
+          | undefined;
+        if (!item.autoChargeEnabled) {
+          const amountCents = item.priceCents * item.quantity;
+          if (milestone.type === "CESSAZIONE_MOROSITA") {
+            clientRenewal = { amountCents, currency: item.currency };
+          } else {
+            let autoChargeUrl: string | null = null;
+            const appUrl = process.env.APP_URL;
+            if (appUrl) {
+              const token = await ensureAutoChargeRequestToken(
+                client.id,
+                item.id,
+              );
+              autoChargeUrl = `${appUrl}/attiva-rinnovo/${token}`;
+            }
+            clientRenewal = { amountCents, currency: item.currency, autoChargeUrl };
+          }
+        }
         const clientContent = buildReminderEmail(milestone.type, emailData, {
           audience: "client",
+          clientRenewal,
         });
         const sent = await sendEmail(clientContent, client.email);
         await prisma.notificationLog.create({

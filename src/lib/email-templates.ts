@@ -200,6 +200,105 @@ function clientDetailsHtml(d: ReminderEmailData): string {
     </table>`;
 }
 
+// ──────────────────────────────────────────────────────────────────────────
+// Sezione COORDINATE BANCARIE per il rinnovo (solo reminder CLIENTE su item
+// senza rinnovo automatico). Stile coerente con la card della lettera di
+// benvenuto: bordo sinistro blu, sfondo tenue.
+// ──────────────────────────────────────────────────────────────────────────
+
+const RENEWAL_BANK = {
+  beneficiary: "Andrea Trinca",
+  iban: "IT40L0366901600715069802019",
+  swift: "REVOITM2",
+} as const;
+
+const RENEWAL_DISCLAIMER_A =
+  "Questo importo si riferisce al rinnovo per la prossima annualità. Il prezzo dei rinnovi successivi potrebbe variare, in aumento o in diminuzione, rispetto a quello indicato.";
+
+const RENEWAL_DISCLAIMER_CESSATION =
+  "Il tuo servizio è stato sospeso per mancato rinnovo. Effettuando il pagamento del rinnovo, faremo il possibile per riattivarlo; se la riattivazione non fosse possibile, valuteremo un rimborso. In alcuni casi potrebbero essere necessari ulteriori accordi economici per il ripristino del servizio. Ti invitiamo a contattarci a hello@deltasolutions.agency prima di procedere al bonifico, per verificare la situazione specifica del tuo servizio.";
+
+/**
+ * Dati per la sezione rinnovo del reminder CLIENTE. La presenza di questo
+ * oggetto indica che l'item NON ha il rinnovo automatico attivo (autoChargeEnabled
+ * false): va mostrata la sezione coordinate + disclaimer. `autoChargeUrl` è
+ * valorizzato solo nel Caso A (promemoria/sollecito) per la CTA di attivazione;
+ * assente per la cessazione (Caso B).
+ */
+export type ClientRenewalInfo = {
+  /** priceCents × quantity dell'item (nessuna IVA scorporata, nessun costo servizio). */
+  amountCents: number;
+  currency: string;
+  autoChargeUrl?: string | null;
+};
+
+/** Coordinate bancarie, versione testo. */
+function bankSectionText(amountLabel: string): string {
+  return [
+    "Istruzioni per il rinnovo:",
+    `1. Effettuare bonifico a: ${RENEWAL_BANK.beneficiary}`,
+    `2. IBAN: ${RENEWAL_BANK.iban}`,
+    `3. SWIFT (o BIC): ${RENEWAL_BANK.swift}`,
+    `4. Totale: ${amountLabel}`,
+  ].join("\n");
+}
+
+/** Coordinate bancarie, versione HTML (card con bordo sinistro blu). */
+function bankSectionHtml(amountLabel: string): string {
+  return `
+    <div style="margin:16px 0;border:1px solid #E2DED6;border-left:4px solid #2B7FFF;border-radius:8px;background:#FAFAFA;padding:14px 16px">
+      <p style="font-size:14px;font-weight:600;margin:0 0 8px;color:#12161F">Istruzioni per il rinnovo</p>
+      <table style="border-collapse:collapse;font-family:sans-serif;font-size:14px;color:#4A463F">
+        <tr><td style="padding:2px 8px 2px 0;color:#94a3b8">1.</td><td>Effettuare bonifico a: ${RENEWAL_BANK.beneficiary}</td></tr>
+        <tr><td style="padding:2px 8px 2px 0;color:#94a3b8">2.</td><td>IBAN: <span style="font-family:'Space Mono','Courier New',monospace">${RENEWAL_BANK.iban}</span></td></tr>
+        <tr><td style="padding:2px 8px 2px 0;color:#94a3b8">3.</td><td>SWIFT (o BIC): <span style="font-family:'Space Mono','Courier New',monospace">${RENEWAL_BANK.swift}</span></td></tr>
+        <tr><td style="padding:6px 8px 2px 0;color:#94a3b8">4.</td><td style="padding-top:4px"><strong>Totale: ${amountLabel}</strong></td></tr>
+      </table>
+    </div>`;
+}
+
+/** Blocchi testo (coordinate + disclaimer + eventuale CTA) per il reminder cliente. */
+function clientRenewalText(
+  info: ClientRenewalInfo,
+  isCessation: boolean,
+): string[] {
+  const amountLabel = formatEur(info.amountCents, info.currency);
+  const blocks = ["", bankSectionText(amountLabel), ""];
+  blocks.push(
+    isCessation ? RENEWAL_DISCLAIMER_CESSATION : RENEWAL_DISCLAIMER_A,
+  );
+  if (!isCessation && info.autoChargeUrl) {
+    blocks.push(
+      "",
+      `Vuoi evitare di doverci pensare ogni volta? Attiva il rinnovo automatico: ${info.autoChargeUrl}`,
+    );
+  }
+  return blocks;
+}
+
+/** Blocco HTML (coordinate + disclaimer + eventuale CTA) per il reminder cliente. */
+function clientRenewalHtml(
+  info: ClientRenewalInfo,
+  isCessation: boolean,
+): string {
+  const amountLabel = formatEur(info.amountCents, info.currency);
+  const disclaimer = isCessation
+    ? RENEWAL_DISCLAIMER_CESSATION
+    : RENEWAL_DISCLAIMER_A;
+  const cta =
+    !isCessation && info.autoChargeUrl
+      ? `
+      <p style="font-size:14px;line-height:1.5;margin:14px 0 6px">Vuoi evitare di doverci pensare ogni volta? Attiva il rinnovo automatico.</p>
+      <p style="margin:0 0 4px">
+        <a href="${info.autoChargeUrl}" style="display:inline-block;background:#4f46e5;color:#ffffff;text-decoration:none;font-family:sans-serif;font-size:14px;font-weight:600;padding:12px 20px;border-radius:8px">Attiva il rinnovo automatico →</a>
+      </p>`
+      : "";
+  return `
+    ${bankSectionHtml(amountLabel)}
+    <p style="font-size:12px;color:#94a3b8;font-style:italic;line-height:1.6;margin:0">${disclaimer}</p>
+    ${cta}`;
+}
+
 /** Override testuale (oggetto/corpo) per un reminder; null/undefined = default. */
 export type ReminderOverride = {
   subject?: string | null;
@@ -220,7 +319,11 @@ export type ReminderAudience = "admin" | "client";
 export function buildReminderEmail(
   type: NotificationType,
   d: ReminderEmailData,
-  opts?: { override?: ReminderOverride; audience?: ReminderAudience },
+  opts?: {
+    override?: ReminderOverride;
+    audience?: ReminderAudience;
+    clientRenewal?: ClientRenewalInfo;
+  },
 ): EmailContent {
   const audience = opts?.audience ?? "admin";
   const def = REMINDER_DEFAULTS[type as ReminderConfigurableType];
@@ -241,12 +344,25 @@ export function buildReminderEmail(
     const subject = fillReminderPlaceholders(cdef.subject, d);
     const intro = fillReminderPlaceholders(cdef.body, d);
 
+    // Sezione rinnovo (coordinate + disclaimer + eventuale CTA): compare SOLO se
+    // l'item non ha il rinnovo automatico attivo (clientRenewal valorizzato).
+    // Il disclaimer/CTA dipendono dal tipo: cessazione = Caso B (no CTA).
+    const renewal = opts?.clientRenewal;
+    const isCessation = type === "CESSAZIONE_MOROSITA";
+    const renewalTextBlocks = renewal
+      ? clientRenewalText(renewal, isCessation)
+      : [];
+    const renewalHtmlBlock = renewal
+      ? clientRenewalHtml(renewal, isCessation)
+      : "";
+
     const text = [
       `Ciao ${d.clientName},`,
       "",
       intro,
       "",
       clientDetailsText(d),
+      ...renewalTextBlocks,
       "",
       CONTACT_LINE_TEXT,
     ].join("\n");
@@ -257,6 +373,7 @@ export function buildReminderEmail(
         <h2 style="font-size:18px;margin:0 0 8px">${cdef.title}</h2>
         <p style="font-size:14px;line-height:1.5">Ciao ${d.clientName}, ${intro}</p>
         ${clientDetailsHtml(d)}
+        ${renewalHtmlBlock}
         <p style="font-size:13px;color:#64748b;line-height:1.5;margin-top:12px">
           ${CONTACT_LINE_TEXT.replace(
             "hello@deltasolutions.agency",
