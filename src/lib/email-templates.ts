@@ -578,6 +578,7 @@ export type WelcomeEmailItem = {
   currency?: string;
   billingPeriod: BillingPeriodValue;
   customPeriodDays: number | null;
+  endDate: Date; // scadenza del servizio
 };
 
 export type WelcomeEmailData = {
@@ -680,12 +681,13 @@ export function buildWelcomeEmail(d: WelcomeEmailData): EmailContent {
     const name = it.quantity > 1 ? `${it.serviceName} ×${it.quantity}` : it.serviceName;
     const period = formatBillingPeriod(it.billingPeriod, it.customPeriodDays);
     const price = formatEur(it.priceCents * it.quantity, it.currency ?? "eur");
-    return { name, period, price };
+    const expiry = formatDate(it.endDate);
+    return { name, period, price, expiry };
   };
 
   const itemLinesText = d.items.map((it) => {
-    const { name, period, price } = itemLabel(it);
-    return `- ${name}: ${price} · ${period}`;
+    const { name, period, price, expiry } = itemLabel(it);
+    return `- ${name} — ${period} — scade il ${expiry} — ${price}`;
   });
 
   // Sezione rinnovo automatico (solo se richiesto in creazione).
@@ -730,11 +732,12 @@ export function buildWelcomeEmail(d: WelcomeEmailData): EmailContent {
 
   const itemRowsHtml = d.items
     .map((it) => {
-      const { name, period, price } = itemLabel(it);
+      const { name, period, price, expiry } = itemLabel(it);
       return `
         <tr>
           <td style="padding:6px 12px 6px 0;border-bottom:1px solid #f1f5f9">${name}</td>
           <td style="padding:6px 12px 6px 0;border-bottom:1px solid #f1f5f9;color:#64748b">${period}</td>
+          <td style="padding:6px 12px 6px 0;border-bottom:1px solid #f1f5f9;color:#64748b;white-space:nowrap">scade il ${expiry}</td>
           <td style="padding:6px 0;border-bottom:1px solid #f1f5f9;text-align:right;white-space:nowrap">${price}</td>
         </tr>`;
     })
@@ -751,6 +754,7 @@ export function buildWelcomeEmail(d: WelcomeEmailData): EmailContent {
           <tr style="text-align:left;color:#64748b;font-size:12px;text-transform:uppercase;letter-spacing:0.04em">
             <th style="padding:0 12px 6px 0;font-weight:500">Servizio</th>
             <th style="padding:0 12px 6px 0;font-weight:500">Periodicità</th>
+            <th style="padding:0 12px 6px 0;font-weight:500">Scadenza</th>
             <th style="padding:0 0 6px;font-weight:500;text-align:right">Prezzo</th>
           </tr>
         </thead>

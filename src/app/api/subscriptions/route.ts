@@ -185,6 +185,7 @@ export function POST(req: NextRequest) {
             currency: it.currency,
             billingPeriod: it.billingPeriod,
             customPeriodDays: it.customPeriodDays,
+            endDate: it.endDate,
           })),
           autoChargeUrl,
           dataEditUrl,
