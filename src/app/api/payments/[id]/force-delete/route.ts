@@ -1,14 +1,14 @@
 import type { NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { json, error, withApi, requireSession } from "@/lib/api";
-import { paymentDeleteConfirmText } from "@/lib/payment-delete";
+import { DELETE_CONFIRM_WORD } from "@/lib/delete-confirm";
 
 type Params = { params: { id: string } };
 
 // DELETE /api/payments/[id]/force-delete
 // Elimina PERMANENTEMENTE il solo LOG di un pagamento (NotificationLog collegati,
 // ReceiptLine, Receipt, PaymentItem, Payment) — indipendentemente dallo stato
-// (anche CONFERMATO/RIMBORSATO). Protetto da conferma testuale esatta.
+// (anche CONFERMATO/RIMBORSATO). Protetto dalla conferma testuale fissa "ELIMINA".
 //
 // ATTENZIONE: NON è uno storno. NON tocca lo stato/scadenza dei SubscriptionItem
 // collegati: l'item resta esattamente come si trova. È la cancellazione secca del
@@ -19,17 +19,15 @@ export function DELETE(req: NextRequest, { params }: Params) {
 
     const payment = await prisma.payment.findUnique({
       where: { id: params.id },
-      include: { receipt: { select: { number: true } } },
+      select: { id: true },
     });
     if (!payment) return error("Pagamento non trovato", 404);
-
-    const expected = paymentDeleteConfirmText(payment);
 
     const body = await req.json().catch(() => ({}));
     const confirmText =
       typeof body?.confirmText === "string" ? body.confirmText : "";
 
-    if (confirmText !== expected) {
+    if (confirmText.trim() !== DELETE_CONFIRM_WORD) {
       return error("Testo di conferma non corrispondente", 400);
     }
 

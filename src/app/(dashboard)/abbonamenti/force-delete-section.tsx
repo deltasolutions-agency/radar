@@ -2,25 +2,24 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { DELETE_CONFIRM_WORD } from "@/lib/delete-confirm";
 
 /**
  * Zona pericolosa: eliminazione permanente dell'abbonamento e di TUTTI i dati
  * collegati (righe, pagamenti, ricevute, notifiche). Il pulsante si abilita solo
- * dopo aver digitato ESATTAMENTE la stringa attesa (il nome del cliente).
+ * dopo aver digitato ESATTAMENTE la parola di conferma fissa "ELIMINA".
  */
 export function ForceDeleteSection({
   subscriptionId,
-  expectedText,
 }: {
   subscriptionId: string;
-  expectedText: string;
 }) {
   const router = useRouter();
   const [text, setText] = useState("");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const matches = text === expectedText;
+  const matches = text.trim() === DELETE_CONFIRM_WORD;
 
   async function handleDelete() {
     if (!matches) return;
@@ -32,7 +31,7 @@ export function ForceDeleteSection({
         {
           method: "DELETE",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ confirmText: text }),
+          body: JSON.stringify({ confirmText: text.trim() }),
         },
       );
       if (!res.ok) {
@@ -65,8 +64,8 @@ export function ForceDeleteSection({
         htmlFor="forceDeleteConfirm"
         className="mt-4 block text-sm text-red-800"
       >
-        Per confermare, scrivi esattamente:{" "}
-        <span className="font-mono font-medium">{expectedText}</span>
+        Per confermare, scrivi:{" "}
+        <span className="font-mono font-medium">{DELETE_CONFIRM_WORD}</span>
       </label>
       <input
         id="forceDeleteConfirm"

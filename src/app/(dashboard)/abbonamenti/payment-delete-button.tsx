@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { DELETE_CONFIRM_WORD } from "@/lib/delete-confirm";
 
 /**
  * Elimina il LOG di un pagamento (cancellazione secca del record) tramite un
@@ -11,10 +12,8 @@ import { useRouter } from "next/navigation";
  */
 export function PaymentDeleteButton({
   paymentId,
-  expectedText,
 }: {
   paymentId: string;
-  expectedText: string;
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -22,7 +21,7 @@ export function PaymentDeleteButton({
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const matches = value.trim() === expectedText;
+  const matches = value.trim() === DELETE_CONFIRM_WORD;
 
   function close() {
     if (pending) return;
@@ -98,10 +97,10 @@ export function PaymentDeleteButton({
                 Non è uno storno e non è reversibile.
               </p>
               <p>
-                Per confermare digita esattamente questo testo:
+                Per confermare, scrivi:
                 <br />
                 <span className="mt-1 inline-block break-all rounded bg-canvas px-2 py-1 font-mono text-xs text-ink">
-                  {expectedText}
+                  {DELETE_CONFIRM_WORD}
                 </span>
               </p>
             </div>

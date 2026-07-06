@@ -1,33 +1,29 @@
 import type { NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { json, error, withApi, requireSession } from "@/lib/api";
+import { DELETE_CONFIRM_WORD } from "@/lib/delete-confirm";
 
 type Params = { params: { id: string } };
 
 // DELETE /api/subscriptions/[id]/force-delete
 // Elimina PERMANENTEMENTE l'abbonamento e TUTTI i dati collegati (righe,
-// pagamenti, ricevute, notifiche). Protetto da conferma testuale esatta =
-// nome cliente visualizzato.
+// pagamenti, ricevute, notifiche). Protetto dalla conferma testuale fissa
+// "ELIMINA".
 export function DELETE(req: NextRequest, { params }: Params) {
   return withApi(async () => {
     await requireSession();
 
     const subscription = await prisma.subscription.findUnique({
       where: { id: params.id },
-      include: { client: true },
+      select: { id: true },
     });
     if (!subscription) return error("Abbonamento non trovato", 404);
-
-    // Stringa attesa: il nome cliente mostrato in UI (ragione sociale se presente).
-    const expected = subscription.client.ragioneSociale?.trim()
-      ? subscription.client.ragioneSociale
-      : subscription.client.name;
 
     const body = await req.json().catch(() => ({}));
     const confirmText =
       typeof body?.confirmText === "string" ? body.confirmText : "";
 
-    if (confirmText !== expected) {
+    if (confirmText.trim() !== DELETE_CONFIRM_WORD) {
       return error("Testo di conferma non corrispondente", 400);
     }
 

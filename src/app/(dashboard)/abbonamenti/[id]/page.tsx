@@ -16,7 +16,6 @@ import { AutoChargeRequestPanel } from "../auto-charge-request-panel";
 import { AutoChargeItemBadge } from "../auto-charge-item-badge";
 import { ServiceFeeToggle } from "../service-fee-toggle";
 import { ForceDeleteSection } from "../force-delete-section";
-import { paymentDeleteConfirmText } from "@/lib/payment-delete";
 import {
   isReceiptPubliclyAccessible,
   getReceiptExpiryDate,
@@ -450,10 +449,7 @@ export default async function AbbonamentoDettaglioPage({
                             }))}
                           />
                         ) : null}
-                        <PaymentDeleteButton
-                          paymentId={p.id}
-                          expectedText={paymentDeleteConfirmText(p)}
-                        />
+                        <PaymentDeleteButton paymentId={p.id} />
                       </div>
                     </td>
                     <td className="px-5 py-3">
@@ -518,10 +514,7 @@ export default async function AbbonamentoDettaglioPage({
       </p>
 
       {hasPayments ? (
-        <ForceDeleteSection
-          subscriptionId={sub.id}
-          expectedText={clientName}
-        />
+        <ForceDeleteSection subscriptionId={sub.id} />
       ) : null}
     </div>
   );
