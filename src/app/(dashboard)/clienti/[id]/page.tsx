@@ -5,6 +5,7 @@ import { ClientStatusBadge } from "@/components/badges";
 import { DeleteButton } from "@/components/delete-button";
 import { formatDate } from "@/lib/format";
 import type { ClientStatusValue } from "@/lib/validations";
+import { RequestDataUpdateButton } from "./request-data-update-button";
 
 export const dynamic = "force-dynamic";
 
@@ -50,6 +51,7 @@ export default async function ClienteDettaglioPage({
             <ClientStatusBadge status={client.status as ClientStatusValue} />
           </div>
           <div className="flex items-center gap-2">
+            <RequestDataUpdateButton clientId={client.id} />
             <Link href={`/clienti/${client.id}/modifica`} className="btn-ghost">
               Modifica
             </Link>
@@ -79,6 +81,8 @@ export default async function ClienteDettaglioPage({
             <Row label="Partita IVA" value={client.partitaIva} />
             <Row label="Codice fiscale" value={client.codiceFiscale} />
             <Row label="Indirizzo" value={address} />
+            <Row label="Codice SDI" value={client.sdi} />
+            <Row label="PEC" value={client.pec} />
           </dl>
         </section>
       </div>
