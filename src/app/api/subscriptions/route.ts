@@ -14,6 +14,7 @@ import {
   buildAutoChargeRequestEmail,
 } from "@/lib/email-templates";
 import { formatEur } from "@/lib/format";
+import { ensureDataEditToken, billingDataFor } from "@/lib/client-data";
 import type { SubscriptionStatus } from "@prisma/client";
 
 // GET /api/subscriptions?status=...
@@ -62,8 +63,18 @@ export function POST(req: NextRequest) {
         id: true,
         name: true,
         email: true,
-        ragioneSociale: true,
         welcomeEmailSentAt: true,
+        dataEditToken: true,
+        // Dati di fatturazione per la sezione della mail di benvenuto.
+        ragioneSociale: true,
+        partitaIva: true,
+        codiceFiscale: true,
+        indirizzo: true,
+        citta: true,
+        cap: true,
+        provincia: true,
+        sdi: true,
+        pec: true,
       },
     });
     if (!client)
@@ -157,6 +168,13 @@ export function POST(req: NextRequest) {
     // Se richiesto, integra la sezione rinnovo automatico (nessuna mail separata).
     if (!client.welcomeEmailSentAt && client.email) {
       try {
+        // Genera il token dati (se non esiste) e prepara la sezione fatturazione.
+        let dataEditUrl: string | null = null;
+        const appUrl = process.env.APP_URL;
+        if (appUrl) {
+          const token = await ensureDataEditToken(client);
+          dataEditUrl = `${appUrl}/i-tuoi-dati/${token}`;
+        }
         const content = buildWelcomeEmail({
           clientName,
           items: subscription.items.map((it) => ({
@@ -168,6 +186,8 @@ export function POST(req: NextRequest) {
             customPeriodDays: it.customPeriodDays,
           })),
           autoChargeUrl,
+          dataEditUrl,
+          billingData: billingDataFor(client),
         });
         const sent = await sendEmail(content, client.email);
         if (sent.status === "INVIATA") {

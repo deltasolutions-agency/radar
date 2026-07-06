@@ -2,7 +2,9 @@ import { prisma } from "@/lib/prisma";
 import { formatEur } from "@/lib/format";
 import { formatBillingPeriod, type BillingPeriodValue } from "@/lib/validations";
 import { CURRENT_CONSENT_VERSION } from "@/lib/legal";
+import { clientDataFieldsFor, ensureDataEditToken } from "@/lib/client-data";
 import { GoogleReviewCta } from "@/components/google-review-cta";
+import { DataEditForm } from "@/app/i-tuoi-dati/[token]/data-edit-form";
 import { ActivateForm } from "./activate-form";
 
 export const dynamic = "force-dynamic";
@@ -153,6 +155,10 @@ export default async function AttivaRinnovoPage({
     select: { id: true },
   }));
 
+  // Sezione dati di fatturazione (sola lettura + eventuale modifica).
+  const dataEditToken = await ensureDataEditToken(client);
+  const dataFields = clientDataFieldsFor(client);
+
   return (
     <Shell>
       <h1 className="text-lg font-semibold tracking-tight">
@@ -160,7 +166,29 @@ export default async function AttivaRinnovoPage({
       </h1>
       <p className="mt-1 text-sm text-slate-500">{client.name}</p>
 
-      <p className="mt-4 text-sm text-slate-600">
+      <div className="mt-5 rounded-xl border border-line-soft bg-canvas/50 p-4">
+        <h2 className="text-sm font-semibold tracking-tight text-ink">
+          I tuoi dati di fatturazione
+        </h2>
+        <p className="mt-1 text-xs text-slate-500">
+          Dai un&apos;occhiata: se è tutto corretto non devi fare nulla.
+        </p>
+        <div className="mt-3">
+          <DataEditForm
+            clientId={client.id}
+            token={dataEditToken}
+            unlocked={client.dataEditUnlocked}
+            fields={dataFields}
+          />
+        </div>
+        <p className="mt-3 border-t border-line-soft pt-3 text-[11px] leading-relaxed text-slate-400">
+          Confermando questi dati, dichiari che sono corretti. Delta Solutions
+          Agency non si assume responsabilità per l&apos;accuratezza delle
+          informazioni fornite dal cliente.
+        </p>
+      </div>
+
+      <p className="mt-6 text-sm text-slate-600">
         Registrando la carta autorizzi l&apos;addebito automatico ricorrente per
         i seguenti servizi, ciascuno alla propria scadenza e periodicità:
       </p>

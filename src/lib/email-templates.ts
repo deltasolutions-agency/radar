@@ -473,9 +473,72 @@ export type WelcomeEmailData = {
    * CTA al link pubblico di attivazione (/attiva-rinnovo/{token}).
    */
   autoChargeUrl?: string | null;
+  /**
+   * Se valorizzati, la mail include la sezione "I tuoi dati di fatturazione"
+   * (sola lettura) con la CTA verso /i-tuoi-dati/{token} e il disclaimer.
+   */
+  dataEditUrl?: string | null;
+  billingData?: BillingDatum[];
 };
 
 const CONTACT_EMAIL = "hello@deltasolutions.agency";
+
+// ──────────────────────────────────────────────────────────────────────────
+// Sezione DATI DI FATTURAZIONE (sola lettura + CTA) — condivisa da benvenuto
+// e richiesta di verifica dati. Il disclaimer è identico in entrambe.
+// ──────────────────────────────────────────────────────────────────────────
+
+export type BillingDatum = { label: string; value: string };
+
+export const BILLING_DATA_DISCLAIMER =
+  "Puoi rivedere questi dati quando vuoi da questo link. Se qualcosa non è corretto, potrai modificarlo una sola volta: dopo il salvataggio, per un'ulteriore modifica dovrai richiedercelo scrivendo a hello@deltasolutions.agency.";
+
+const dashValue = (v: string) => (v.trim() ? v : "—");
+
+/** Blocco dati di fatturazione + CTA + disclaimer, versione testo. */
+function billingDataSectionText(
+  data: BillingDatum[],
+  url: string,
+  ctaLabel: string,
+): string[] {
+  return [
+    "",
+    "I tuoi dati di fatturazione:",
+    ...data.map((d) => `- ${d.label}: ${dashValue(d.value)}`),
+    "",
+    `${ctaLabel}: ${url}`,
+    "",
+    BILLING_DATA_DISCLAIMER,
+  ];
+}
+
+/** Blocco dati di fatturazione + CTA + disclaimer, versione HTML. */
+function billingDataSectionHtml(
+  data: BillingDatum[],
+  url: string,
+  ctaLabel: string,
+): string {
+  const rows = data
+    .map(
+      (d) => `
+        <tr>
+          <td style="padding:4px 12px 4px 0;color:#64748b;white-space:nowrap">${d.label}</td>
+          <td style="padding:4px 0;color:#1e293b">${dashValue(d.value)}</td>
+        </tr>`,
+    )
+    .join("");
+  return `
+    <div style="margin:16px 0;border:1px solid #e2e8f0;border-radius:12px;padding:16px;background:#f8fafc">
+      <h3 style="font-size:15px;margin:0 0 10px">I tuoi dati di fatturazione</h3>
+      <table style="border-collapse:collapse;font-family:sans-serif;font-size:14px">
+        <tbody>${rows}</tbody>
+      </table>
+      <p style="margin:14px 0 10px">
+        <a href="${url}" style="display:inline-block;background:#4f46e5;color:#ffffff;text-decoration:none;font-family:sans-serif;font-size:14px;font-weight:600;padding:12px 20px;border-radius:8px">${ctaLabel} →</a>
+      </p>
+      <p style="font-size:12px;color:#94a3b8;line-height:1.6;margin:0">${BILLING_DATA_DISCLAIMER}</p>
+    </div>`;
+}
 
 /**
  * Email di BENVENUTO inviata UNA sola volta per cliente, alla creazione del suo
@@ -518,6 +581,16 @@ export function buildWelcomeEmail(d: WelcomeEmailData): EmailContent {
       ]
     : [];
 
+  // Sezione dati di fatturazione (sola lettura) + CTA + disclaimer.
+  const dataSectionText =
+    d.dataEditUrl && d.billingData
+      ? billingDataSectionText(
+          d.billingData,
+          d.dataEditUrl,
+          "Visualizza o correggi i tuoi dati",
+        )
+      : [];
+
   const text = [
     `Ciao ${d.clientName},`,
     "",
@@ -528,6 +601,7 @@ export function buildWelcomeEmail(d: WelcomeEmailData): EmailContent {
     "",
     explanation,
     ...autoChargeText,
+    ...dataSectionText,
     "",
     `Privacy Policy: ${privacyUrl}`,
     `Termini e Condizioni: ${termsUrl}`,
@@ -573,6 +647,15 @@ export function buildWelcomeEmail(d: WelcomeEmailData): EmailContent {
         <p style="font-size:14px;line-height:1.5;margin:0 0 12px">Per non pensare più alle scadenze, registra una carta una sola volta: i servizi indicati verranno rinnovati e addebitati in automatico. Puoi revocarlo quando vuoi.</p>
         <a href="${d.autoChargeUrl}" style="display:inline-block;background:#4f46e5;color:#ffffff;text-decoration:none;font-family:sans-serif;font-size:14px;font-weight:600;padding:12px 20px;border-radius:8px">Attiva rinnovo automatico →</a>
       </div>`
+          : ""
+      }
+      ${
+        d.dataEditUrl && d.billingData
+          ? billingDataSectionHtml(
+              d.billingData,
+              d.dataEditUrl,
+              "Visualizza o correggi i tuoi dati",
+            )
           : ""
       }
       <p style="font-size:13px;color:#64748b;line-height:1.6">
@@ -1009,6 +1092,134 @@ export function buildPaymentLinkEmail(d: PaymentLinkEmailData): EmailContent {
       <p style="font-size:12px;color:#64748b">Il link scade il ${formatDate(d.expiresAt)} (24 ore dall'invio).</p>
       <hr style="border:none;border-top:1px solid #e2e8f0;margin:24px 0" />
       <p style="font-size:12px;color:#94a3b8">Radar — Delta Solutions</p>
+    </div>`;
+
+  return { subject, text, html };
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// NOTIFICA ADMIN — dati di fatturazione modificati dal cliente
+// ──────────────────────────────────────────────────────────────────────────
+
+export type ClientDataChangeAdminData = {
+  clientName: string;
+  clientId: string;
+  /** Diff leggibile: per ogni campo modificato, etichetta + valore prima/dopo. */
+  changes: { label: string; from: string; to: string }[];
+  ipAddress?: string | null;
+};
+
+/**
+ * Email all'admin che notifica una modifica ai dati di fatturazione effettuata
+ * dal cliente tramite la pagina pubblica self-service. Elenca il diff campo per
+ * campo (prima → dopo) e l'IP di provenienza.
+ */
+export function buildClientDataChangeEmail(
+  d: ClientDataChangeAdminData,
+): EmailContent {
+  const base = process.env.APP_URL ?? "";
+  const clientUrl = `${base}/clienti/${d.clientId}`;
+  const dash = (v: string) => (v.trim() ? v : "—");
+
+  const subject = `[Radar] Dati di fatturazione aggiornati: ${d.clientName}`;
+
+  const changeLinesText = d.changes.map(
+    (c) => `- ${c.label}: ${dash(c.from)} -> ${dash(c.to)}`,
+  );
+  const text = [
+    `Il cliente ${d.clientName} ha aggiornato i propri dati di fatturazione.`,
+    "",
+    "Modifiche:",
+    ...changeLinesText,
+    "",
+    `IP: ${d.ipAddress ?? "sconosciuto"}`,
+    `Scheda cliente: ${clientUrl}`,
+  ].join("\n");
+
+  const changeRowsHtml = d.changes
+    .map(
+      (c) => `
+        <tr>
+          <td style="padding:6px 12px 6px 0;border-bottom:1px solid #f1f5f9;color:#64748b;white-space:nowrap">${c.label}</td>
+          <td style="padding:6px 12px 6px 0;border-bottom:1px solid #f1f5f9;color:#94a3b8;text-decoration:line-through">${dash(c.from)}</td>
+          <td style="padding:6px 0;border-bottom:1px solid #f1f5f9;font-weight:600">${dash(c.to)}</td>
+        </tr>`,
+    )
+    .join("");
+
+  const html = `
+    <div style="max-width:560px;margin:0 auto;font-family:sans-serif;color:#1e293b">
+      ${emailHeaderHtml()}
+      <h2 style="font-size:18px;margin:0 0 8px">Dati di fatturazione aggiornati</h2>
+      <p style="font-size:14px;line-height:1.5">Il cliente <strong>${d.clientName}</strong> ha aggiornato i propri dati di fatturazione dalla pagina pubblica.</p>
+      <table style="border-collapse:collapse;width:100%;font-family:sans-serif;font-size:14px;color:#1e293b;margin:8px 0">
+        <thead>
+          <tr>
+            <td style="padding:0 12px 6px 0;color:#94a3b8;font-size:12px">Campo</td>
+            <td style="padding:0 12px 6px 0;color:#94a3b8;font-size:12px">Prima</td>
+            <td style="padding:0 0 6px;color:#94a3b8;font-size:12px">Dopo</td>
+          </tr>
+        </thead>
+        <tbody>${changeRowsHtml}</tbody>
+      </table>
+      <p style="font-size:13px;color:#64748b">IP di provenienza: ${d.ipAddress ?? "sconosciuto"}</p>
+      <p style="margin:16px 0">
+        <a href="${clientUrl}" style="color:#4f46e5">Apri la scheda cliente →</a>
+      </p>
+      <hr style="border:none;border-top:1px solid #e2e8f0;margin:24px 0" />
+      <p style="font-size:12px;color:#94a3b8">Radar — Delta Solutions · notifica automatica</p>
+    </div>`;
+
+  return { subject, text, html };
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// RICHIESTA VERIFICA DATI — email al cliente (bottone admin)
+// ──────────────────────────────────────────────────────────────────────────
+
+export type DataUpdateRequestData = {
+  clientName: string;
+  billingData: BillingDatum[];
+  dataEditUrl: string;
+};
+
+/**
+ * Email al cliente con cui l'admin chiede di verificare/aggiornare i propri dati
+ * di fatturazione. Riusa la sezione dati (sola lettura + CTA + disclaimer)
+ * condivisa con la mail di benvenuto.
+ */
+export function buildDataUpdateRequestEmail(
+  d: DataUpdateRequestData,
+): EmailContent {
+  const subject = "Delta Solutions — verifica i tuoi dati di fatturazione";
+  const intro =
+    "Delta Solutions ti chiede di verificare i tuoi dati di fatturazione: controlla che siano corretti e, se serve, aggiornali dal link qui sotto.";
+  const ctaLabel = "Verifica i tuoi dati";
+
+  const text = [
+    `Ciao ${d.clientName},`,
+    "",
+    intro,
+    ...billingDataSectionText(d.billingData, d.dataEditUrl, ctaLabel),
+    "",
+    `Per qualsiasi domanda scrivici a ${CONTACT_EMAIL}.`,
+    "",
+    "Il team di Delta Solutions Agency",
+  ].join("\n");
+
+  const html = `
+    <div style="max-width:560px;margin:0 auto;font-family:sans-serif;color:#1e293b">
+      ${emailHeaderHtml()}
+      <h2 style="font-size:18px;margin:0 0 8px">Verifica i tuoi dati di fatturazione</h2>
+      <p style="font-size:14px;line-height:1.5">Ciao ${d.clientName},</p>
+      <p style="font-size:14px;line-height:1.5">${intro}</p>
+      ${billingDataSectionHtml(d.billingData, d.dataEditUrl, ctaLabel)}
+      <p style="font-size:13px;color:#64748b;line-height:1.6">
+        Per qualsiasi domanda scrivici a
+        <a href="mailto:${CONTACT_EMAIL}" style="color:#4f46e5">${CONTACT_EMAIL}</a>.
+      </p>
+      <hr style="border:none;border-top:1px solid #e2e8f0;margin:24px 0" />
+      <p style="font-size:12px;color:#94a3b8">Radar — Delta Solutions Agency</p>
     </div>`;
 
   return { subject, text, html };
