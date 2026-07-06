@@ -129,6 +129,15 @@ model Client {
   cap            String?
   provincia      String?
   paese          String? @default("IT")
+  sdi            String? // Codice destinatario SDI (fatturazione elettronica)
+  pec            String? // Indirizzo PEC
+
+  // Token pubblico per la pagina "I tuoi dati di fatturazione" e flag che
+  // abilita la modifica self-service: parte true (prima modifica sempre
+  // consentita), diventa false dopo il primo salvataggio, torna true solo se
+  // l'admin invia una nuova richiesta di aggiornamento dati.
+  dataEditToken    String?  @unique
+  dataEditUnlocked Boolean  @default(true)
 
   status ClientStatus @default(ATTIVO)
   note   String?
@@ -144,6 +153,7 @@ model Client {
   subscriptions      Subscription[]
   consentLogs        ConsentLog[]
   autoChargeRequests AutoChargeRequest[]
+  dataChangeLogs     ClientDataChangeLog[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -151,6 +161,22 @@ model Client {
   @@index([status])
   @@index([email])
   @@map("clients")
+}
+
+/// Registro delle modifiche ai dati di fatturazione effettuate dal cliente
+/// tramite la pagina pubblica self-service (o dall'admin). `changes` contiene
+/// il diff prima/dopo per ogni campo modificato.
+model ClientDataChangeLog {
+  id        String   @id @default(cuid())
+  clientId  String
+  client    Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  changedBy String   @default("client")
+  changes   Json
+  ipAddress String?
+  createdAt DateTime @default(now())
+
+  @@index([clientId])
+  @@map("client_data_change_logs")
 }
 
 // ──────────────────────────────────────────────────────────────────────────
