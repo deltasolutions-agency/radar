@@ -1378,3 +1378,71 @@ export function buildDataUpdateRequestEmail(
 
   return { subject, text, html };
 }
+
+// ──────────────────────────────────────────────────────────────────────────
+// PREAVVISO ADDEBITO AUTOMATICO — email al cliente (7 giorni prima)
+// ──────────────────────────────────────────────────────────────────────────
+
+/**
+ * Email al cliente inviata 7 giorni ESATTI prima dell'addebito automatico di un
+ * servizio con rinnovo automatico attivo. Mostra il breakdown IVA + eventuale
+ * costo di servizio con le stesse quattro voci usate altrove; gli importi sono
+ * precalcolati dal cron con addVatToNet + computeServiceFeeCents, così da
+ * coincidere ESATTAMENTE con quanto il cron auto-charge addebiterà quel giorno.
+ */
+export function buildAutoChargeUpcomingEmail(d: {
+  serviceName: string;
+  endDate: Date;
+  netCents: number;
+  vatCents: number;
+  /** Costo di servizio 1,5% (0 = riga omessa, ovvero serviceFeeEnabled false). */
+  serviceFeeCents: number;
+  totalCents: number;
+  currency?: string;
+}): EmailContent {
+  const currency = d.currency ?? "eur";
+  const dateStr = formatDate(d.endDate);
+
+  const subject = `Radar — Prossimo addebito automatico: ${d.serviceName}`;
+  const intro = `Il ${dateStr} verrà addebitato automaticamente sulla carta registrata per il rinnovo di ${d.serviceName}.`;
+
+  const feeTextLine =
+    d.serviceFeeCents > 0
+      ? [`Costi di servizio (1,5%): ${formatEur(d.serviceFeeCents, currency)}`]
+      : [];
+  const text = [
+    intro,
+    "",
+    `Imponibile: ${formatEur(d.netCents, currency)}`,
+    `IVA (22%): ${formatEur(d.vatCents, currency)}`,
+    ...feeTextLine,
+    `Totale addebitato: ${formatEur(d.totalCents, currency)}`,
+    "",
+    "Se vuoi disattivare il rinnovo automatico, scrivici a hello@deltasolutions.agency.",
+  ].join("\n");
+
+  const feeRowHtml =
+    d.serviceFeeCents > 0
+      ? `<tr><td style="padding:2px 0;color:#64748b">Costi di servizio (1,5%)</td><td style="padding:2px 0;text-align:right;font-family:'Space Mono','Courier New',monospace">${formatEur(d.serviceFeeCents, currency)}</td></tr>`
+      : "";
+
+  const html = `
+    <div style="max-width:560px;margin:0 auto;font-family:sans-serif;color:#1e293b">
+      ${emailHeaderHtml()}
+      <h2 style="font-size:18px;margin:0 0 8px">Prossimo addebito automatico</h2>
+      <p style="font-size:14px;line-height:1.5">${intro}</p>
+      <div style="margin:16px 0;border:1px solid #E2DED6;border-left:4px solid #2B7FFF;border-radius:8px;background:#FAFAFA;padding:14px 16px">
+        <table style="border-collapse:collapse;width:100%;font-family:sans-serif;font-size:14px;color:#4A463F">
+          <tr><td style="padding:2px 0;color:#64748b">Imponibile</td><td style="padding:2px 0;text-align:right;font-family:'Space Mono','Courier New',monospace">${formatEur(d.netCents, currency)}</td></tr>
+          <tr><td style="padding:2px 0;color:#64748b">IVA (22%)</td><td style="padding:2px 0;text-align:right;font-family:'Space Mono','Courier New',monospace">${formatEur(d.vatCents, currency)}</td></tr>
+          ${feeRowHtml}
+          <tr><td style="border-top:1px solid #E2DED6;padding:8px 0 0;font-weight:700;color:#12161F">Totale addebitato</td><td style="border-top:1px solid #E2DED6;padding:8px 0 0;text-align:right;font-weight:700;color:#12161F;font-family:'Space Mono','Courier New',monospace">${formatEur(d.totalCents, currency)}</td></tr>
+        </table>
+      </div>
+      <p style="font-size:13px;color:#64748b;line-height:1.6">Se vuoi disattivare il rinnovo automatico, scrivici a <a href="mailto:hello@deltasolutions.agency" style="color:#4f46e5">hello@deltasolutions.agency</a>.</p>
+      <hr style="border:none;border-top:1px solid #e2e8f0;margin:24px 0" />
+      <p style="font-size:12px;color:#94a3b8">Radar — Delta Solutions</p>
+    </div>`;
+
+  return { subject, text, html };
+}

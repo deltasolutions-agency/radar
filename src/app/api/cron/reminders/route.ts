@@ -3,9 +3,14 @@ import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { computeItemStatus } from "@/lib/subscription-status";
 import { getReminderMilestone } from "@/lib/reminder-schedule";
-import { buildReminderEmail } from "@/lib/email-templates";
+import {
+  buildReminderEmail,
+  buildAutoChargeUpcomingEmail,
+} from "@/lib/email-templates";
 import { createCheckoutPayment } from "@/lib/payment-checkout";
 import { sendEmail } from "@/lib/send-email";
+import { addVatToNet } from "@/lib/vat";
+import { computeServiceFeeCents } from "@/lib/service-fee";
 import {
   loadReminderThresholds,
   loadReminderTemplates,
@@ -168,6 +173,81 @@ export async function GET(request: NextRequest) {
 
   for (const item of items) {
     try {
+      const diffDays = Math.ceil(
+        (item.endDate.getTime() - now.getTime()) / MS_PER_DAY,
+      );
+      const client = item.subscription.client;
+      const clientName = client.ragioneSociale?.trim()
+        ? client.ragioneSociale
+        : client.name;
+
+      // ── PREAVVISO ADDEBITO AUTOMATICO ────────────────────────────────────
+      // Item con rinnovo automatico attivo, a 7 giorni ESATTI dalla scadenza
+      // (fisso, indipendente dalle soglie dinamiche). Sostituisce del tutto il
+      // generico avviso per questi item a diffDays=7: si esce dopo l'invio
+      // (continue) così non parte anche l'avviso generico lo stesso giorno.
+      if (item.autoChargeEnabled && diffDays === 7) {
+        const existing = await prisma.notificationLog.findFirst({
+          where: {
+            subscriptionItemId: item.id,
+            type: "PREAVVISO_ADDEBITO",
+            dedupeKey,
+          },
+          select: { id: true },
+        });
+        if (existing) {
+          remindersSkipped++;
+        } else if (!client.email) {
+          await prisma.notificationLog.create({
+            data: {
+              subscriptionItemId: item.id,
+              type: "PREAVVISO_ADDEBITO",
+              status: "FALLITA",
+              recipient: "(cliente senza email)",
+              error: "Cliente senza indirizzo email",
+              dedupeKey,
+            },
+          });
+          remindersFailed++;
+        } else {
+          // Calcolo IDENTICO al cron auto-charge: netto → lordo (addVatToNet),
+          // costo di servizio 1,5% sul lordo (computeServiceFeeCents), totale.
+          const netCents = item.priceCents * item.quantity;
+          const grossCents = addVatToNet(netCents).grossCents;
+          const vatCents = grossCents - netCents;
+          const serviceFeeCents = computeServiceFeeCents(
+            grossCents,
+            item.subscription.serviceFeeEnabled,
+          );
+          const totalCents = grossCents + serviceFeeCents;
+
+          const content = buildAutoChargeUpcomingEmail({
+            serviceName: item.service.name,
+            endDate: item.endDate,
+            netCents,
+            vatCents,
+            serviceFeeCents,
+            totalCents,
+            currency: item.currency,
+          });
+          const sent = await sendEmail(content, client.email);
+          await prisma.notificationLog.create({
+            data: {
+              subscriptionItemId: item.id,
+              type: "PREAVVISO_ADDEBITO",
+              status: sent.status,
+              recipient: client.email,
+              resendId: sent.resendId,
+              error: sent.error,
+              dedupeKey,
+            },
+          });
+          if (sent.status === "INVIATA") remindersSent++;
+          else remindersFailed++;
+        }
+        continue;
+      }
+
       const milestone = getReminderMilestone(
         {
           endDate: item.endDate,
@@ -178,13 +258,6 @@ export async function GET(request: NextRequest) {
       );
       if (!milestone) continue;
 
-      const diffDays = Math.ceil(
-        (item.endDate.getTime() - now.getTime()) / MS_PER_DAY,
-      );
-      const client = item.subscription.client;
-      const clientName = client.ragioneSociale?.trim()
-        ? client.ragioneSociale
-        : client.name;
       const emailData = {
         subscriptionId: item.subscriptionId,
         clientName,
