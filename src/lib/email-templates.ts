@@ -29,18 +29,19 @@ function detailUrl(subscriptionId: string): string {
   return `${base}/abbonamenti/${subscriptionId}`;
 }
 
-const LOGO_URL =
-  "https://pub-70273716e01b45cf8c8d3e370de8c983.r2.dev/logo-orizzontale%20PMG.png";
-
 /**
  * Header brandizzato condiviso da OGNI email inviata da Radar: logo Delta
  * Solutions + payoff "Radar" (Space Mono con fallback di sistema, dato che i
  * client email non caricano font custom) + separatore leggero.
+ *
+ * Il logo è servito dal dominio Radar (public/logo-delta-solutions.png): le
+ * email richiedono un URL assoluto, quindi si usa APP_URL.
  */
 function emailHeaderHtml(): string {
+  const logoUrl = `${process.env.APP_URL ?? ""}/logo-delta-solutions.png`;
   return `
     <div style="margin-bottom:16px">
-      <img src="${LOGO_URL}" alt="Delta Solutions" style="height:40px;display:block;margin-bottom:4px;" />
+      <img src="${logoUrl}" alt="Delta Solutions" style="height:40px;display:block;margin-bottom:4px;" />
       <p style="margin:0;font-family:'Space Mono','Courier New',monospace;font-size:11px;letter-spacing:0.18em;text-transform:uppercase;color:#64748b">Radar</p>
     </div>
     <hr style="border:none;border-top:1px solid #e2e8f0;margin:0 0 20px" />`;

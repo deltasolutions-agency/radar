@@ -10,7 +10,7 @@ import { ActivateForm } from "./activate-form";
 export const dynamic = "force-dynamic";
 
 const LOGO_URL =
-  "https://pub-70273716e01b45cf8c8d3e370de8c983.r2.dev/logo-orizzontale%20PMG.png";
+  "/logo-delta-solutions.png";
 
 function Shell({ children }: { children: React.ReactNode }) {
   return (

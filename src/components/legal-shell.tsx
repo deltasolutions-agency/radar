@@ -2,7 +2,7 @@ import Link from "next/link";
 import { CURRENT_CONSENT_DATE_LABEL } from "@/lib/legal";
 
 const LOGO_URL =
-  "https://pub-70273716e01b45cf8c8d3e370de8c983.r2.dev/logo-orizzontale%20PMG.png";
+  "/logo-delta-solutions.png";
 
 /**
  * Contenitore condiviso per le pagine legali pubbliche (Privacy, Termini):

@@ -1,4 +1,6 @@
 import "server-only";
+import { readFile } from "fs/promises";
+import { join } from "path";
 import {
   PDFDocument,
   StandardFonts,
@@ -11,15 +13,15 @@ import {
 /**
  * Genera in memoria (Node, pdf-lib — nessun LibreOffice/docx a runtime) la
  * lettera di benvenuto in PDF A4 su una sola pagina, da allegare alla mail di
- * benvenuto. Il logo viene scaricato ed incorporato; se il fetch fallisce si
- * ripiega su un wordmark testuale, senza mai far fallire la generazione.
+ * benvenuto. Il logo è un file locale del progetto (public/) letto da disco; se
+ * la lettura fallisce si ripiega su un wordmark testuale, senza mai far fallire
+ * la generazione.
  *
  * NB: pdf-lib non fa wrapping automatico → il testo lungo viene spezzato in
  * righe con `wrapText` usando le metriche del font.
  */
 
-const LOGO_URL =
-  "https://pub-70273716e01b45cf8c8d3e370de8c983.r2.dev/logo-orizzontale%20PMG.png";
+const LOGO_PATH = join(process.cwd(), "public", "logo-delta-solutions.png");
 
 // ── Colori brand (hex → rgb 0..1) ──────────────────────────────────────────
 const BLUE = hex("#2B7FFF");
@@ -120,15 +122,11 @@ function wrapText(
   return lines;
 }
 
-/** Scarica i byte del logo con timeout; null se irraggiungibile. */
-async function fetchLogoBytes(): Promise<Uint8Array | null> {
+/** Legge i byte del logo dal disco (file locale del progetto); null se assente. */
+async function readLogoBytes(): Promise<Uint8Array | null> {
   try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 4000);
-    const res = await fetch(LOGO_URL, { signal: controller.signal });
-    clearTimeout(timer);
-    if (!res.ok) return null;
-    return new Uint8Array(await res.arrayBuffer());
+    const buf = await readFile(LOGO_PATH);
+    return new Uint8Array(buf);
   } catch {
     return null;
   }
@@ -148,7 +146,7 @@ export async function buildWelcomeLetterPdf(clientName: string): Promise<Buffer>
   let y = pageH - 45;
 
   // ── Header: logo (o wordmark di fallback) ────────────────────────────────
-  const logoBytes = await fetchLogoBytes();
+  const logoBytes = await readLogoBytes();
   const logoH = 40;
   if (logoBytes) {
     try {
