@@ -231,6 +231,8 @@ export type ClientRenewalInfo = {
   netCents: number;
   currency: string;
   autoChargeUrl?: string | null;
+  /** Link pagamento elettronico (/pay/{payToken}) alternativo al bonifico. */
+  payUrl?: string | null;
 };
 
 /** Coordinate bancarie, versione testo. */
@@ -271,8 +273,15 @@ function clientRenewalText(
   info: ClientRenewalInfo,
   isCessation: boolean,
 ): string[] {
-  const blocks = ["", bankSectionText(info.netCents, info.currency), ""];
+  const blocks = ["", bankSectionText(info.netCents, info.currency)];
+  if (info.payUrl) {
+    blocks.push(
+      "",
+      `In alternativa al bonifico, puoi pagare online con carta: ${info.payUrl}`,
+    );
+  }
   blocks.push(
+    "",
     isCessation ? RENEWAL_DISCLAIMER_CESSATION : RENEWAL_DISCLAIMER_A,
   );
   if (!isCessation && info.autoChargeUrl) {
@@ -300,9 +309,17 @@ function clientRenewalHtml(
         <a href="${info.autoChargeUrl}" style="display:inline-block;background:#4f46e5;color:#ffffff;text-decoration:none;font-family:sans-serif;font-size:14px;font-weight:600;padding:12px 20px;border-radius:8px">Attiva il rinnovo automatico →</a>
       </p>`
       : "";
+  const payCta = info.payUrl
+    ? `
+      <p style="font-size:14px;line-height:1.5;margin:14px 0 6px">In alternativa al bonifico, puoi pagare online con carta:</p>
+      <p style="margin:0 0 4px">
+        <a href="${info.payUrl}" style="display:inline-block;background:#2B7FFF;color:#ffffff;text-decoration:none;font-family:sans-serif;font-size:14px;font-weight:600;padding:12px 20px;border-radius:8px">Paga online con carta →</a>
+      </p>`
+    : "";
   return `
     ${bankSectionHtml(info.netCents, info.currency)}
-    <p style="font-size:12px;color:#94a3b8;font-style:italic;line-height:1.6;margin:0">${disclaimer}</p>
+    ${payCta}
+    <p style="font-size:12px;color:#94a3b8;font-style:italic;line-height:1.6;margin:14px 0 0">${disclaimer}</p>
     ${cta}`;
 }
 

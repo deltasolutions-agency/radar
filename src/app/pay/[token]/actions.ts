@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { getStripe } from "@/lib/stripe";
 import { CURRENT_CONSENT_VERSION } from "@/lib/legal";
 import { clientIp } from "@/lib/request-ip";
+import { createAutoChargeCheckoutSession } from "@/lib/payment-checkout";
 
 /**
  * Registra (se necessario) il consenso e reindirizza alla Checkout Session
@@ -14,10 +15,16 @@ import { clientIp } from "@/lib/request-ip";
 export async function proceedToPayment(formData: FormData): Promise<void> {
   const token = String(formData.get("token") ?? "");
   const consentGiven = formData.get("consent") === "on";
+  const activateAutoCharge = formData.get("activateAutoCharge") === "on";
 
   const payment = await prisma.payment.findUnique({
     where: { payToken: token },
-    include: { subscription: { include: { client: true } } },
+    include: {
+      subscription: { include: { client: true } },
+      items: {
+        select: { subscriptionItem: { select: { autoChargeEnabled: true } } },
+      },
+    },
   });
 
   // Pagamento inesistente o non più in attesa → torna alla pagina (mostra stato).
@@ -50,6 +57,32 @@ export async function proceedToPayment(formData: FormData): Promise<void> {
         ipAddress: clientIp(),
       },
     });
+  }
+
+  // Attivazione rinnovo automatico (opt-in): crea una NUOVA sessione con
+  // setup_future_usage + metadata, e reindirizza a quella. Onorata solo se
+  // NESSUNA riga ha già l'auto-charge attivo (coerente col checkbox mostrato).
+  const canActivateAutoCharge = payment.items.every(
+    (pi) => !pi.subscriptionItem.autoChargeEnabled,
+  );
+  if (activateAutoCharge && canActivateAutoCharge) {
+    const appUrl = process.env.APP_URL;
+    let url: string | null = null;
+    try {
+      if (appUrl) {
+        const res = await createAutoChargeCheckoutSession(payment.id, appUrl);
+        url = res.url;
+      }
+    } catch (e) {
+      console.error(
+        `[pay] creazione sessione con rinnovo automatico fallita (payment ${payment.id}):`,
+        e,
+      );
+    }
+    if (!url) {
+      redirect(`/pay/${token}?error=stripe`);
+    }
+    redirect(url);
   }
 
   if (!payment.stripeCheckoutSessionId) {

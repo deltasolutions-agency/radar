@@ -87,6 +87,12 @@ export default async function PayPage({
   });
   const needsConsent = !existingConsent;
 
+  // Il checkbox "attiva rinnovo automatico" ha senso solo se NESSUNA delle righe
+  // pagate ha già il rinnovo automatico attivo.
+  const canActivateAutoCharge = payment.items.every(
+    (pi) => !pi.subscriptionItem.autoChargeEnabled,
+  );
+
   return (
     <Shell>
       <h1 className="text-lg font-semibold tracking-tight">
@@ -168,7 +174,11 @@ export default async function PayPage({
       ) : null}
 
       <div className="mt-5">
-        <PayForm token={payment.payToken} needsConsent={needsConsent} />
+        <PayForm
+          token={payment.payToken}
+          needsConsent={needsConsent}
+          canActivateAutoCharge={canActivateAutoCharge}
+        />
       </div>
 
       <p className="mt-4 text-center text-xs text-slate-400">

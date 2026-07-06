@@ -10,6 +10,106 @@ import { confirmPaymentAndRenew } from "@/lib/confirm-payment";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+const BLOCKING = ["CESSATO", "SOSPESO"] as const;
+
+/**
+ * Attivazione ACCESSORIA del rinnovo automatico da un pagamento singolo (opt-in
+ * su /pay): salva il metodo di pagamento usato come default del cliente e
+ * abilita autoChargeEnabled sui SubscriptionItem elencati nei metadata.
+ *
+ * Va invocata SOLO dopo che il pagamento è stato confermato con successo. Un
+ * errore qui NON deve invalidare il pagamento (il chiamante logga e ignora).
+ */
+async function activateAutoChargeFromSession(
+  session: Stripe.Checkout.Session,
+  stripe: Stripe,
+): Promise<void> {
+  // Item da attivare (dai metadata scritti alla creazione della sessione).
+  let itemIds: string[] = [];
+  const raw = session.metadata?.autoChargeItemIds;
+  if (raw) {
+    try {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        itemIds = parsed.filter((v): v is string => typeof v === "string");
+      }
+    } catch {
+      /* metadata malformati → nessuna attivazione */
+    }
+  }
+  if (itemIds.length === 0) return;
+
+  // Metodo di pagamento effettivamente usato dal PaymentIntent.
+  const paymentIntentId =
+    typeof session.payment_intent === "string"
+      ? session.payment_intent
+      : (session.payment_intent?.id ?? null);
+  if (!paymentIntentId) return;
+  const pi = await stripe.paymentIntents.retrieve(paymentIntentId);
+  const pmId =
+    typeof pi.payment_method === "string"
+      ? pi.payment_method
+      : (pi.payment_method?.id ?? null);
+  if (!pmId) return;
+
+  // Cliente collegato al pagamento della sessione.
+  const payment = await prisma.payment.findUnique({
+    where: { stripeCheckoutSessionId: session.id },
+    select: {
+      subscription: {
+        select: {
+          client: {
+            select: {
+              id: true,
+              email: true,
+              name: true,
+              stripeCustomerId: true,
+            },
+          },
+        },
+      },
+    },
+  });
+  const client = payment?.subscription.client;
+  if (!client) return;
+
+  // Customer Stripe: dalla sessione, dal cliente, o creato se assente (serve per
+  // riusare il metodo di pagamento off_session negli addebiti futuri).
+  let customerId =
+    (typeof session.customer === "string"
+      ? session.customer
+      : (session.customer?.id ?? null)) ?? client.stripeCustomerId;
+  if (!customerId && client.email) {
+    const customer = await stripe.customers.create({
+      email: client.email,
+      name: client.name,
+    });
+    customerId = customer.id;
+    await stripe.paymentMethods
+      .attach(pmId, { customer: customerId })
+      .catch(() => {});
+  }
+
+  // Salvataggio + attivazione SELETTIVA in transazione.
+  await prisma.$transaction([
+    prisma.client.update({
+      where: { id: client.id },
+      data: {
+        stripeDefaultPaymentMethodId: pmId,
+        ...(customerId ? { stripeCustomerId: customerId } : {}),
+      },
+    }),
+    prisma.subscriptionItem.updateMany({
+      where: {
+        id: { in: itemIds },
+        subscription: { clientId: client.id },
+        status: { notIn: [...BLOCKING] },
+      },
+      data: { autoChargeEnabled: true, autoChargeFailCount: 0 },
+    }),
+  ]);
+}
+
 // POST /api/webhooks/stripe
 export async function POST(request: NextRequest) {
   // 1. RAW body PRIMA di qualsiasi altra operazione.
@@ -126,6 +226,20 @@ export async function POST(request: NextRequest) {
                 .map((i) => `${i.serviceName} — ${i.renewalReason ?? ""}`)
                 .join("; "),
           );
+        }
+
+        // Attivazione ACCESSORIA del rinnovo automatico (opt-in su /pay), SOLO
+        // dopo la conferma riuscita del pagamento. Non deve MAI invalidare il
+        // pagamento già confermato: errore loggato e ignorato.
+        if (session.metadata?.activateAutoCharge === "true") {
+          try {
+            await activateAutoChargeFromSession(session, getStripe());
+          } catch (e) {
+            console.error(
+              `[stripe-webhook] attivazione rinnovo automatico fallita (session ${session.id}):`,
+              e,
+            );
+          }
         }
         break;
       }

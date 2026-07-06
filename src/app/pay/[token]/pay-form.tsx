@@ -10,9 +10,12 @@ import { proceedToPayment } from "./actions";
 export function PayForm({
   token,
   needsConsent,
+  canActivateAutoCharge,
 }: {
   token: string;
   needsConsent: boolean;
+  /** true se tutte le righe pagate NON hanno già il rinnovo automatico. */
+  canActivateAutoCharge: boolean;
 }) {
   const [accepted, setAccepted] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -20,6 +23,25 @@ export function PayForm({
   return (
     <form action={proceedToPayment} onSubmit={() => setSubmitting(true)}>
       <input type="hidden" name="token" value={token} />
+
+      {canActivateAutoCharge ? (
+        <label className="mb-4 flex items-start gap-2 rounded-lg border border-line bg-canvas px-3 py-2.5 text-sm text-ink">
+          <input
+            type="checkbox"
+            name="activateAutoCharge"
+            className="mt-0.5"
+          />
+          <span>
+            Attiva anche il rinnovo automatico su questa carta per i prossimi
+            rinnovi
+            <span className="mt-1 block text-xs text-slate-500">
+              I servizi verranno rinnovati e addebitati automaticamente su questa
+              carta alle prossime scadenze. Puoi revocarlo in qualsiasi momento
+              scrivendo a hello@deltasolutions.agency.
+            </span>
+          </span>
+        </label>
+      ) : null}
 
       {needsConsent ? (
         <label className="mb-4 flex items-start gap-2 text-sm text-ink">

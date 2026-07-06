@@ -1,8 +1,10 @@
 import { NextResponse, type NextRequest } from "next/server";
+import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { computeItemStatus } from "@/lib/subscription-status";
 import { getReminderMilestone } from "@/lib/reminder-schedule";
 import { buildReminderEmail } from "@/lib/email-templates";
+import { createCheckoutPayment } from "@/lib/payment-checkout";
 import { sendEmail } from "@/lib/send-email";
 import {
   loadReminderThresholds,
@@ -38,6 +40,69 @@ async function ensureAutoChargeRequestToken(
     select: { token: true },
   });
   return created.token;
+}
+
+// Item con relazioni caricate nel loop dei reminder.
+type ReminderItem = Prisma.SubscriptionItemGetPayload<{
+  include: { service: true; subscription: { include: { client: true } } };
+}>;
+
+/**
+ * Restituisce il payToken di un link di pagamento Stripe per questo item:
+ * riusa un Payment IN_ATTESA (Stripe, non scaduto) che copre l'item, altrimenti
+ * ne crea uno nuovo (solo quell'item) tramite createCheckoutPayment SENZA inviare
+ * email (il link viene messo come CTA nel reminder). null se la generazione
+ * fallisce (non deve bloccare l'invio del reminder).
+ */
+async function ensurePaymentLinkToken(
+  item: ReminderItem,
+  appUrl: string,
+): Promise<string | null> {
+  const existing = await prisma.payment.findFirst({
+    where: {
+      status: "IN_ATTESA",
+      method: "STRIPE",
+      checkoutExpiresAt: { gt: new Date() },
+      items: { some: { subscriptionItemId: item.id, status: "IN_ATTESA" } },
+    },
+    orderBy: { createdAt: "desc" },
+    select: { payToken: true },
+  });
+  if (existing) return existing.payToken;
+
+  try {
+    const result = await createCheckoutPayment(
+      {
+        subscriptionId: item.subscriptionId,
+        clientEmail: item.subscription.client.email,
+        serviceFeeEnabled: item.subscription.serviceFeeEnabled,
+        items: [
+          {
+            id: item.id,
+            currency: item.currency,
+            priceCents: item.priceCents,
+            quantity: item.quantity,
+            endDate: item.endDate,
+            billingPeriod: item.billingPeriod,
+            customPeriodDays: item.customPeriodDays,
+            service: {
+              name: item.service.name,
+              description: item.service.description,
+            },
+          },
+        ],
+      },
+      appUrl,
+      { sendToClient: false },
+    );
+    return result.payment.payToken;
+  } catch (e) {
+    console.error(
+      `[cron reminders] creazione link pagamento fallita (item ${item.id}):`,
+      e,
+    );
+    return null;
+  }
 }
 
 export async function GET(request: NextRequest) {
@@ -196,16 +261,30 @@ export async function GET(request: NextRequest) {
         // genera/riusa una AutoChargeRequest per la CTA. Caso B (cessazione):
         // solo coordinate + disclaimer, nessuna CTA.
         let clientRenewal:
-          | { netCents: number; currency: string; autoChargeUrl?: string | null }
+          | {
+              netCents: number;
+              currency: string;
+              autoChargeUrl?: string | null;
+              payUrl?: string | null;
+            }
           | undefined;
         if (!item.autoChargeEnabled) {
           // Il prezzo è NETTO: l'email mostra imponibile/IVA/totale a partire da qui.
           const netCents = item.priceCents * item.quantity;
+          const appUrl = process.env.APP_URL;
+
+          // Link di pagamento elettronico (CTA "Paga online con carta"), sia per
+          // il Caso A sia per il Caso B (alternativa al bonifico).
+          let payUrl: string | null = null;
+          if (appUrl) {
+            const payToken = await ensurePaymentLinkToken(item, appUrl);
+            if (payToken) payUrl = `${appUrl}/pay/${payToken}`;
+          }
+
           if (milestone.type === "CESSAZIONE_MOROSITA") {
-            clientRenewal = { netCents, currency: item.currency };
+            clientRenewal = { netCents, currency: item.currency, payUrl };
           } else {
             let autoChargeUrl: string | null = null;
-            const appUrl = process.env.APP_URL;
             if (appUrl) {
               const token = await ensureAutoChargeRequestToken(
                 client.id,
@@ -213,7 +292,12 @@ export async function GET(request: NextRequest) {
               );
               autoChargeUrl = `${appUrl}/attiva-rinnovo/${token}`;
             }
-            clientRenewal = { netCents, currency: item.currency, autoChargeUrl };
+            clientRenewal = {
+              netCents,
+              currency: item.currency,
+              autoChargeUrl,
+              payUrl,
+            };
           }
         }
         const clientContent = buildReminderEmail(milestone.type, emailData, {

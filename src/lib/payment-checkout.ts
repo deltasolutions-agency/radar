@@ -202,3 +202,113 @@ export async function createCheckoutPayment(
 
   return { payment, url: session.url, expiresAt, emailSent, recipient };
 }
+
+/**
+ * Crea una NUOVA Checkout Session per un Payment IN_ATTESA già esistente, con
+ * l'opzione di ATTIVAZIONE del rinnovo automatico: salva il metodo di pagamento
+ * per usi futuri (setup_future_usage) e marca la sessione con i metadata letti
+ * dal webhook per attivare l'auto-charge sugli item pagati.
+ *
+ * Usata dalla pagina pubblica /pay quando il cliente spunta "Attiva anche il
+ * rinnovo automatico". Aggiorna Payment.stripeCheckoutSessionId alla nuova
+ * sessione (quella pre-creata viene abbandonata e scadrà). Richiede un Customer
+ * Stripe (creato se assente), necessario per riusare la carta off_session.
+ */
+export async function createAutoChargeCheckoutSession(
+  paymentId: string,
+  appUrl: string,
+): Promise<{ url: string | null; sessionId: string }> {
+  const payment = await prisma.payment.findUnique({
+    where: { id: paymentId },
+    include: {
+      subscription: { include: { client: true } },
+      items: { include: { subscriptionItem: { include: { service: true } } } },
+    },
+  });
+  if (!payment) throw new Error(`Payment ${paymentId} non trovato`);
+  if (payment.items.length === 0) {
+    throw new Error(`Payment ${paymentId} senza righe: nessuna sessione da creare`);
+  }
+
+  const stripe = getStripe();
+  const client = payment.subscription.client;
+
+  // Customer obbligatorio per conservare il metodo di pagamento (off_session).
+  let customerId = client.stripeCustomerId;
+  if (!customerId) {
+    if (!client.email) {
+      throw new Error("Cliente senza email: impossibile registrare la carta");
+    }
+    const customer = await stripe.customers.create({
+      email: client.email,
+      name: client.name,
+    });
+    customerId = customer.id;
+    await prisma.client.update({
+      where: { id: client.id },
+      data: { stripeCustomerId: customerId },
+    });
+  }
+
+  const currency = payment.currency;
+  // Righe = importi GIÀ memorizzati (lordi) nei PaymentItem + eventuale fee.
+  const lineItems = payment.items.map((pi) => ({
+    quantity: 1,
+    price_data: {
+      currency,
+      unit_amount: pi.amountCents,
+      product_data: {
+        name:
+          pi.subscriptionItem.quantity > 1
+            ? `${pi.subscriptionItem.service.name} ×${pi.subscriptionItem.quantity}`
+            : pi.subscriptionItem.service.name,
+        ...(pi.subscriptionItem.service.description
+          ? { description: pi.subscriptionItem.service.description }
+          : {}),
+      },
+    },
+  }));
+  if (payment.serviceFeeCents > 0) {
+    lineItems.push({
+      quantity: 1,
+      price_data: {
+        currency,
+        unit_amount: payment.serviceFeeCents,
+        product_data: {
+          name: "Costi di servizio Radar",
+          description: "Commissione di gestione pagamento (1,5%)",
+        },
+      },
+    });
+  }
+
+  const itemIds = payment.items.map((pi) => pi.subscriptionItemId);
+  const expiresAtUnix = Math.floor(Date.now() / 1000) + CHECKOUT_TTL_SECONDS;
+
+  const session = await stripe.checkout.sessions.create({
+    mode: "payment",
+    expires_at: expiresAtUnix,
+    customer: customerId,
+    line_items: lineItems,
+    // Conserva la carta per gli addebiti automatici futuri (off_session).
+    payment_intent_data: { setup_future_usage: "off_session" },
+    success_url: `${appUrl}/pay/grazie`,
+    cancel_url: `${appUrl}/pay/grazie?annullato=1`,
+    metadata: {
+      subscriptionId: payment.subscriptionId,
+      activateAutoCharge: "true",
+      autoChargeItemIds: JSON.stringify(itemIds),
+    },
+  });
+
+  const expiresAt = new Date((session.expires_at ?? expiresAtUnix) * 1000);
+  await prisma.payment.update({
+    where: { id: payment.id },
+    data: {
+      stripeCheckoutSessionId: session.id,
+      checkoutExpiresAt: expiresAt,
+    },
+  });
+
+  return { url: session.url, sessionId: session.id };
+}
