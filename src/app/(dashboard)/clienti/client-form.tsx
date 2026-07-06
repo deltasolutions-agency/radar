@@ -22,6 +22,8 @@ type ClientValues = {
   cap: string;
   provincia: string;
   paese: string;
+  sdi: string;
+  pec: string;
   status: string;
   note: string;
 };
@@ -38,6 +40,8 @@ const EMPTY: ClientValues = {
   cap: "",
   provincia: "",
   paese: "IT",
+  sdi: "",
+  pec: "",
   status: "ATTIVO",
   note: "",
 };
@@ -261,6 +265,21 @@ export function ClientForm({
             value={values.paese}
             onChange={set("paese")}
             error={errors.paese}
+          />
+          <Field
+            label="Codice SDI"
+            name="sdi"
+            value={values.sdi}
+            onChange={set("sdi")}
+            error={errors.sdi}
+          />
+          <Field
+            label="PEC"
+            name="pec"
+            type="email"
+            value={values.pec}
+            onChange={set("pec")}
+            error={errors.pec}
           />
         </div>
       </section>

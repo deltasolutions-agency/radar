@@ -41,6 +41,8 @@ export default async function ModificaClientePage({
           cap: client.cap ?? "",
           provincia: client.provincia ?? "",
           paese: client.paese ?? "IT",
+          sdi: client.sdi ?? "",
+          pec: client.pec ?? "",
           status: client.status,
           note: client.note ?? "",
         }}
