@@ -436,6 +436,9 @@ export default async function AbbonamentoDettaglioPage({
                         {p.method === "STRIPE" && refundable.length > 0 ? (
                           <RefundButton
                             paymentId={p.id}
+                            serviceFeeCents={
+                              p.serviceFeeCents - p.refundedServiceFeeCents
+                            }
                             items={refundable.map((pi) => ({
                               id: pi.id,
                               serviceName: pi.subscriptionItem.service.name,

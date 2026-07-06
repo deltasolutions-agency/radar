@@ -741,8 +741,10 @@ export type RefundConfirmationData = {
   clientName: string;
   /** Servizi rimborsati in questo storno. */
   items: RefundConfirmationItem[];
-  /** Importo totale rimborsato (somma delle righe stornate). */
+  /** Importo totale rimborsato (righe stornate + quota costo di servizio). */
   totalCents: number;
+  /** Quota proporzionale del costo di servizio resa in questo storno (0 se assente). */
+  serviceFeeCents?: number;
   currency?: string;
   /** true se lo storno è totale (tutto il pagamento), false se parziale. */
   isTotal: boolean;
@@ -770,12 +772,22 @@ export function buildRefundConfirmationEmail(
     ? "Il rinnovo dei servizi rimborsati contrassegnati è stato annullato: la scadenza è tornata a quella precedente."
     : null;
 
+  const serviceFeeCents = d.serviceFeeCents ?? 0;
+
   const itemLinesText = d.items.map(
     (it) =>
       `- ${it.serviceName}: ${formatEur(it.amountCents, currency)}${
         it.renewalReverted ? " (rinnovo annullato)" : ""
       }`,
   );
+  if (serviceFeeCents > 0) {
+    itemLinesText.push(
+      `- Costi di servizio (quota proporzionale): ${formatEur(
+        serviceFeeCents,
+        currency,
+      )}`,
+    );
+  }
 
   const text = [
     `Ciao ${d.clientName},`,
@@ -807,6 +819,15 @@ export function buildRefundConfirmationEmail(
     )
     .join("");
 
+  const serviceFeeRowHtml =
+    serviceFeeCents > 0
+      ? `
+        <tr>
+          <td style="padding:6px 12px 6px 0;border-bottom:1px solid #f1f5f9">Costi di servizio <span style="color:#94a3b8;font-size:12px">— quota proporzionale</span></td>
+          <td style="padding:6px 0;border-bottom:1px solid #f1f5f9;text-align:right;white-space:nowrap">${formatEur(serviceFeeCents, currency)}</td>
+        </tr>`
+      : "";
+
   const html = `
     <div style="max-width:560px;margin:0 auto;font-family:sans-serif;color:#1e293b">
       ${emailHeaderHtml()}
@@ -814,7 +835,7 @@ export function buildRefundConfirmationEmail(
       <p style="font-size:14px;line-height:1.5">Ciao ${d.clientName},</p>
       <p style="font-size:14px;line-height:1.5">${intro}</p>
       <table style="border-collapse:collapse;width:100%;font-family:sans-serif;font-size:14px;color:#1e293b;margin:8px 0">
-        <tbody>${itemRowsHtml}</tbody>
+        <tbody>${itemRowsHtml}${serviceFeeRowHtml}</tbody>
         <tfoot>
           <tr>
             <td style="padding:8px 12px 0 0;font-weight:600">Totale rimborsato</td>

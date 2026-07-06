@@ -340,6 +340,10 @@ model Payment {
   // Subscription.serviceFeeEnabled è true. NON è un PaymentItem: è un importo
   // aggiuntivo incluso in amountCents ma non stornabile singolarmente.
   serviceFeeCents Int       @default(0)
+  // Quota di serviceFeeCents già resa al cliente tramite storni (parziali o
+  // totali). Consente di calcolare il residuo di costo di servizio ancora
+  // rimborsabile su storni parziali sequenziali dello stesso pagamento.
+  refundedServiceFeeCents Int @default(0)
   currency    String        @default("eur")
   method      PaymentMethod
   // Stato aggregato indicativo: la fonte di verità granulare è PaymentItem.status.

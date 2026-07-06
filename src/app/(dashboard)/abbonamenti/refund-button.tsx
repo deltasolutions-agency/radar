@@ -22,9 +22,17 @@ export type RefundableItem = {
 export function RefundButton({
   paymentId,
   items,
+  serviceFeeCents = 0,
 }: {
   paymentId: string;
   items: RefundableItem[];
+  /**
+   * Costo di servizio ancora rimborsabile su questo pagamento (residuo: totale
+   * meno quanto già reso da storni precedenti). La quota proporzionale mostrata
+   * nel riepilogo è calcolata sul rapporto tra righe selezionate e righe ancora
+   * stornabili, coerente col backend.
+   */
+  serviceFeeCents?: number;
 }) {
   const router = useRouter();
   const [confirming, setConfirming] = useState(false);
@@ -39,6 +47,19 @@ export function RefundButton({
   const total = selectedItems.reduce((s, it) => s + it.amountCents, 0);
   const currency = items[0]?.currency ?? "eur";
   const isTotal = selectedItems.length === items.length;
+
+  // Quota proporzionale del costo di servizio che verrà rimborsata insieme alle
+  // righe selezionate (stessa formula del backend: proporzione sul residuo).
+  const refundableTotal = items.reduce((s, it) => s + it.amountCents, 0);
+  const refundServiceFee =
+    serviceFeeCents <= 0 || selectedItems.length === 0
+      ? 0
+      : isTotal
+        ? serviceFeeCents
+        : refundableTotal > 0
+          ? Math.round(serviceFeeCents * (total / refundableTotal))
+          : 0;
+  const grandTotal = total + refundServiceFee;
 
   function toggle(id: string) {
     setSelected((s) => ({ ...s, [id]: !s[id] }));
@@ -132,10 +153,28 @@ export function RefundButton({
           </label>
         ))}
       </div>
+      {refundServiceFee > 0 ? (
+        <div className="mt-2 space-y-0.5 border-t border-amber-200 pt-1.5 text-xs text-amber-900">
+          <div className="flex items-center justify-between">
+            <span>Servizi selezionati</span>
+            <span className="font-mono">{formatEur(total, currency)}</span>
+          </div>
+          <div className="flex items-center justify-between text-amber-700">
+            <span>+ Costi di servizio (quota proporzionale)</span>
+            <span className="font-mono">
+              {formatEur(refundServiceFee, currency)}
+            </span>
+          </div>
+          <div className="flex items-center justify-between font-medium text-amber-900">
+            <span>Totale rimborsato</span>
+            <span className="font-mono">{formatEur(grandTotal, currency)}</span>
+          </div>
+        </div>
+      ) : null}
       <p className="mt-2 text-xs leading-relaxed text-amber-800">
         Storno {isTotal ? "totale" : "parziale"} di{" "}
         <span className="font-mono font-medium">
-          {formatEur(total, currency)}
+          {formatEur(grandTotal, currency)}
         </span>
         . Le righe con una scadenza indicata torneranno a quella data. Azione non
         reversibile.

@@ -93,10 +93,39 @@ export function POST(req: NextRequest, { params }: Params) {
       }
     }
 
-    const refundAmount = selected.reduce((sum, pi) => sum + pi.amountCents, 0);
+    const selectedItemsTotal = selected.reduce(
+      (sum, pi) => sum + pi.amountCents,
+      0,
+    );
     const isTotal = selected.length === refundable.length;
 
-    // Storno su Stripe: importo pari alla somma delle righe selezionate.
+    // Quota proporzionale del costo di servizio da rendere in questo storno.
+    // La proporzione è sul RESIDUO ancora rimborsabile (righe CONFERMATE e
+    // serviceFee non ancora reso), non sul totale originale: così storni
+    // parziali sequenziali sullo stesso pagamento restano coerenti e la somma
+    // dei rimborsi non supera mai serviceFeeCents.
+    const residualServiceFee =
+      payment.serviceFeeCents - payment.refundedServiceFeeCents;
+    const refundableItemsTotal = refundable.reduce(
+      (sum, pi) => sum + pi.amountCents,
+      0,
+    );
+    // Storno totale del residuo → si rende tutto il residuo (nessun
+    // arrotondamento parziale). Altrimenti quota proporzionale arrotondata.
+    const refundServiceFeeCents =
+      residualServiceFee <= 0
+        ? 0
+        : isTotal
+          ? residualServiceFee
+          : refundableItemsTotal > 0
+            ? Math.round(
+                residualServiceFee * (selectedItemsTotal / refundableItemsTotal),
+              )
+            : 0;
+
+    const refundAmount = selectedItemsTotal + refundServiceFeeCents;
+
+    // Storno su Stripe: righe selezionate + quota proporzionale costo servizio.
     const stripe = getStripe();
     try {
       const refund = await stripe.refunds.create({
@@ -169,9 +198,13 @@ export function POST(req: NextRequest, { params }: Params) {
       }
 
       // Payment.status passa a RIMBORSATO solo se tutte le righe sono stornate.
+      // Incrementa sempre la quota di serviceFee resa in questo storno.
       const updatedPayment = await tx.payment.update({
         where: { id: payment.id },
-        data: isTotal ? { status: "RIMBORSATO" } : {},
+        data: {
+          refundedServiceFeeCents: { increment: refundServiceFeeCents },
+          ...(isTotal ? { status: "RIMBORSATO" } : {}),
+        },
       });
 
       return {
@@ -195,6 +228,7 @@ export function POST(req: NextRequest, { params }: Params) {
           clientName,
           items: result.refundedDetails,
           totalCents: result.refundAmountCents,
+          serviceFeeCents: refundServiceFeeCents,
           currency: payment.currency,
           isTotal,
         });
