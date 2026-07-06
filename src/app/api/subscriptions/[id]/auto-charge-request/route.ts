@@ -5,7 +5,6 @@ import { sendEmail } from "@/lib/send-email";
 import { buildAutoChargeRequestEmail } from "@/lib/email-templates";
 import { formatEur } from "@/lib/format";
 import { formatBillingPeriod, type BillingPeriodValue } from "@/lib/validations";
-import { addVatToNet } from "@/lib/vat";
 
 type Params = { params: { id: string } };
 
@@ -85,10 +84,7 @@ export function POST(req: NextRequest, { params }: Params) {
       items: subscription.items.map((it) => ({
         serviceName:
           it.quantity > 1 ? `${it.service.name} ×${it.quantity}` : it.service.name,
-        amountLabel: formatEur(
-          addVatToNet(it.priceCents * it.quantity).grossCents,
-          it.currency,
-        ),
+        amountLabel: formatEur(it.priceCents * it.quantity, it.currency),
         periodicityLabel: formatBillingPeriod(
           it.billingPeriod as BillingPeriodValue,
           it.customPeriodDays,

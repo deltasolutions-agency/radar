@@ -2,7 +2,7 @@ import "server-only";
 import { NotificationType, type PaymentMethod } from "@prisma/client";
 import { formatDate, formatEur } from "@/lib/format";
 import { formatBillingPeriod, type BillingPeriodValue } from "@/lib/validations";
-import { splitVatFromGross } from "@/lib/vat";
+import { splitVatFromGross, addVatToNet } from "@/lib/vat";
 
 /**
  * Dati necessari a comporre le email di reminder/sollecito/cessazione.
@@ -227,33 +227,41 @@ const RENEWAL_DISCLAIMER_CESSATION =
  * assente per la cessazione (Caso B).
  */
 export type ClientRenewalInfo = {
-  /** priceCents × quantity dell'item (nessuna IVA scorporata, nessun costo servizio). */
-  amountCents: number;
+  /** Netto (priceCents × quantity) dell'item; l'IVA e il lordo si calcolano qui. */
+  netCents: number;
   currency: string;
   autoChargeUrl?: string | null;
 };
 
 /** Coordinate bancarie, versione testo. */
-function bankSectionText(amountLabel: string): string {
+function bankSectionText(netCents: number, currency: string): string {
+  const { netCents: net, vatCents, grossCents } = addVatToNet(netCents);
   return [
     "Istruzioni per il rinnovo:",
     `1. Effettuare bonifico a: ${RENEWAL_BANK.beneficiary}`,
     `2. IBAN: ${RENEWAL_BANK.iban}`,
     `3. SWIFT (o BIC): ${RENEWAL_BANK.swift}`,
-    `4. Totale: ${amountLabel}`,
+    "",
+    `Imponibile: ${formatEur(net, currency)}`,
+    `IVA (22%): ${formatEur(vatCents, currency)}`,
+    `Totale da bonificare: ${formatEur(grossCents, currency)}`,
   ].join("\n");
 }
 
 /** Coordinate bancarie, versione HTML (card con bordo sinistro blu). */
-function bankSectionHtml(amountLabel: string): string {
+function bankSectionHtml(netCents: number, currency: string): string {
+  const { netCents: net, vatCents, grossCents } = addVatToNet(netCents);
+  const mono = "font-family:'Space Mono','Courier New',monospace";
   return `
     <div style="margin:16px 0;border:1px solid #E2DED6;border-left:4px solid #2B7FFF;border-radius:8px;background:#FAFAFA;padding:14px 16px">
       <p style="font-size:14px;font-weight:600;margin:0 0 8px;color:#12161F">Istruzioni per il rinnovo</p>
       <table style="border-collapse:collapse;font-family:sans-serif;font-size:14px;color:#4A463F">
         <tr><td style="padding:2px 8px 2px 0;color:#94a3b8">1.</td><td>Effettuare bonifico a: ${RENEWAL_BANK.beneficiary}</td></tr>
-        <tr><td style="padding:2px 8px 2px 0;color:#94a3b8">2.</td><td>IBAN: <span style="font-family:'Space Mono','Courier New',monospace">${RENEWAL_BANK.iban}</span></td></tr>
-        <tr><td style="padding:2px 8px 2px 0;color:#94a3b8">3.</td><td>SWIFT (o BIC): <span style="font-family:'Space Mono','Courier New',monospace">${RENEWAL_BANK.swift}</span></td></tr>
-        <tr><td style="padding:6px 8px 2px 0;color:#94a3b8">4.</td><td style="padding-top:4px"><strong>Totale: ${amountLabel}</strong></td></tr>
+        <tr><td style="padding:2px 8px 2px 0;color:#94a3b8">2.</td><td>IBAN: <span style="${mono}">${RENEWAL_BANK.iban}</span></td></tr>
+        <tr><td style="padding:2px 8px 8px 0;color:#94a3b8">3.</td><td style="padding-bottom:8px">SWIFT (o BIC): <span style="${mono}">${RENEWAL_BANK.swift}</span></td></tr>
+        <tr><td></td><td style="border-top:1px solid #E2DED6;padding-top:8px;color:#64748b">Imponibile: <span style="${mono}">${formatEur(net, currency)}</span></td></tr>
+        <tr><td></td><td style="color:#64748b">IVA (22%): <span style="${mono}">${formatEur(vatCents, currency)}</span></td></tr>
+        <tr><td></td><td style="padding-top:2px"><strong>Totale da bonificare: <span style="${mono}">${formatEur(grossCents, currency)}</span></strong></td></tr>
       </table>
     </div>`;
 }
@@ -263,8 +271,7 @@ function clientRenewalText(
   info: ClientRenewalInfo,
   isCessation: boolean,
 ): string[] {
-  const amountLabel = formatEur(info.amountCents, info.currency);
-  const blocks = ["", bankSectionText(amountLabel), ""];
+  const blocks = ["", bankSectionText(info.netCents, info.currency), ""];
   blocks.push(
     isCessation ? RENEWAL_DISCLAIMER_CESSATION : RENEWAL_DISCLAIMER_A,
   );
@@ -282,7 +289,6 @@ function clientRenewalHtml(
   info: ClientRenewalInfo,
   isCessation: boolean,
 ): string {
-  const amountLabel = formatEur(info.amountCents, info.currency);
   const disclaimer = isCessation
     ? RENEWAL_DISCLAIMER_CESSATION
     : RENEWAL_DISCLAIMER_A;
@@ -295,7 +301,7 @@ function clientRenewalHtml(
       </p>`
       : "";
   return `
-    ${bankSectionHtml(amountLabel)}
+    ${bankSectionHtml(info.netCents, info.currency)}
     <p style="font-size:12px;color:#94a3b8;font-style:italic;line-height:1.6;margin:0">${disclaimer}</p>
     ${cta}`;
 }
@@ -834,7 +840,7 @@ export function buildAutoChargeRequestEmail(d: {
     "Puoi attivare il rinnovo automatico registrando una carta: autorizzerai l'addebito ricorrente per i servizi elencati qui sotto, ciascuno alla propria cadenza. Puoi revocare l'autorizzazione in qualsiasi momento scrivendo a hello@deltasolutions.agency.";
 
   const itemLinesText = d.items.map(
-    (it) => `- ${it.serviceName}: ${it.amountLabel} · ${it.periodicityLabel}`,
+    (it) => `- ${it.serviceName}: ${it.amountLabel}* · ${it.periodicityLabel}`,
   );
 
   const text = [
@@ -842,6 +848,7 @@ export function buildAutoChargeRequestEmail(d: {
     "",
     "Servizi inclusi:",
     ...itemLinesText,
+    "* Prezzi IVA esclusa.",
     "",
     `Attiva ora: ${d.activationUrl}`,
   ].join("\n");
@@ -852,7 +859,7 @@ export function buildAutoChargeRequestEmail(d: {
         <tr>
           <td style="padding:6px 12px 6px 0;border-bottom:1px solid #f1f5f9">${it.serviceName}</td>
           <td style="padding:6px 12px 6px 0;border-bottom:1px solid #f1f5f9;color:#64748b">${it.periodicityLabel}</td>
-          <td style="padding:6px 0;border-bottom:1px solid #f1f5f9;text-align:right;white-space:nowrap">${it.amountLabel}</td>
+          <td style="padding:6px 0;border-bottom:1px solid #f1f5f9;text-align:right;white-space:nowrap">${it.amountLabel}*</td>
         </tr>`,
     )
     .join("");
@@ -872,6 +879,7 @@ export function buildAutoChargeRequestEmail(d: {
         </thead>
         <tbody>${itemRowsHtml}</tbody>
       </table>
+      <p style="font-size:11px;color:#94a3b8;margin:0">* Prezzi IVA esclusa.</p>
       <p style="margin:20px 0">
         <a href="${d.activationUrl}" style="display:inline-block;background:#4f46e5;color:#ffffff;text-decoration:none;font-family:sans-serif;font-size:14px;font-weight:600;padding:12px 20px;border-radius:8px">Attiva rinnovo automatico →</a>
       </p>

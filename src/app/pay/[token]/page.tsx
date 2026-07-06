@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { formatEur, formatDate } from "@/lib/format";
 import { CURRENT_CONSENT_VERSION } from "@/lib/legal";
+import { splitVatFromGross } from "@/lib/vat";
 import { PayForm } from "./pay-form";
 
 export const dynamic = "force-dynamic";
@@ -70,6 +71,16 @@ export default async function PayPage({
 
   const client = payment.subscription.client;
 
+  // PaymentItem.amountCents è il LORDO: scorporo per riga per mostrare le righe
+  // al netto e il riepilogo Imponibile/IVA (Σ righe === imponibile).
+  let taxableCents = 0;
+  let vatCents = 0;
+  for (const pi of payment.items) {
+    const s = splitVatFromGross(pi.amountCents);
+    taxableCents += s.taxableCents;
+    vatCents += s.vatCents;
+  }
+
   const existingConsent = await prisma.consentLog.findFirst({
     where: { clientId: client.id, version: CURRENT_CONSENT_VERSION },
     select: { id: true },
@@ -100,11 +111,28 @@ export default async function PayPage({
                 ) : null}
               </dt>
               <dd className="text-right font-mono text-xs text-ink">
-                {formatEur(pi.amountCents, payment.currency)}
+                {formatEur(
+                  splitVatFromGross(pi.amountCents).taxableCents,
+                  payment.currency,
+                )}
               </dd>
             </div>
           );
         })}
+
+        {/* Riepilogo: le righe sopra sono al NETTO (imponibile). */}
+        <div className="flex justify-between gap-4 border-t border-line-soft pt-3">
+          <dt className="text-slate-500">Imponibile</dt>
+          <dd className="text-right font-mono text-xs text-ink">
+            {formatEur(taxableCents, payment.currency)}
+          </dd>
+        </div>
+        <div className="flex justify-between gap-4">
+          <dt className="text-slate-500">IVA (22%)</dt>
+          <dd className="text-right font-mono text-xs text-ink">
+            {formatEur(vatCents, payment.currency)}
+          </dd>
+        </div>
         {payment.serviceFeeCents > 0 ? (
           <div className="flex justify-between gap-4">
             <dt className="text-slate-500">
@@ -119,7 +147,7 @@ export default async function PayPage({
           </div>
         ) : null}
         <div className="flex justify-between gap-4 border-t border-line-soft pt-3">
-          <dt className="text-slate-500">Importo totale</dt>
+          <dt className="font-medium text-ink">Totale</dt>
           <dd className="text-right font-mono text-base font-semibold text-ink">
             {formatEur(payment.amountCents, payment.currency)}
           </dd>

@@ -4,7 +4,6 @@ import { computeItemStatus } from "@/lib/subscription-status";
 import { getReminderMilestone } from "@/lib/reminder-schedule";
 import { buildReminderEmail } from "@/lib/email-templates";
 import { sendEmail } from "@/lib/send-email";
-import { addVatToNet } from "@/lib/vat";
 import {
   loadReminderThresholds,
   loadReminderTemplates,
@@ -197,15 +196,13 @@ export async function GET(request: NextRequest) {
         // genera/riusa una AutoChargeRequest per la CTA. Caso B (cessazione):
         // solo coordinate + disclaimer, nessuna CTA.
         let clientRenewal:
-          | { amountCents: number; currency: string; autoChargeUrl?: string | null }
+          | { netCents: number; currency: string; autoChargeUrl?: string | null }
           | undefined;
         if (!item.autoChargeEnabled) {
-          // Il prezzo è NETTO: il totale del bonifico è il LORDO (netto + 22%).
-          const amountCents = addVatToNet(
-            item.priceCents * item.quantity,
-          ).grossCents;
+          // Il prezzo è NETTO: l'email mostra imponibile/IVA/totale a partire da qui.
+          const netCents = item.priceCents * item.quantity;
           if (milestone.type === "CESSAZIONE_MOROSITA") {
-            clientRenewal = { amountCents, currency: item.currency };
+            clientRenewal = { netCents, currency: item.currency };
           } else {
             let autoChargeUrl: string | null = null;
             const appUrl = process.env.APP_URL;
@@ -216,7 +213,7 @@ export async function GET(request: NextRequest) {
               );
               autoChargeUrl = `${appUrl}/attiva-rinnovo/${token}`;
             }
-            clientRenewal = { amountCents, currency: item.currency, autoChargeUrl };
+            clientRenewal = { netCents, currency: item.currency, autoChargeUrl };
           }
         }
         const clientContent = buildReminderEmail(milestone.type, emailData, {

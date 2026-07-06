@@ -109,7 +109,7 @@ export default async function AttivaRinnovoPage({
                   </p>
                 </div>
                 <span className="shrink-0 font-mono text-ink">
-                  {formatEur(addVatToNet(it.priceCents * it.quantity).grossCents, it.currency)}
+                  {formatEur(it.priceCents * it.quantity, it.currency)}
                 </span>
               </li>
             ))}
@@ -160,6 +160,18 @@ export default async function AttivaRinnovoPage({
   const dataEditToken = await ensureDataEditToken(client);
   const dataFields = clientDataFieldsFor(client);
 
+  // Riepilogo IVA aggregato: somma per riga (coerente con l'addebito reale).
+  let totalNet = 0;
+  let totalVat = 0;
+  let totalGross = 0;
+  for (const it of items) {
+    const v = addVatToNet(it.priceCents * it.quantity);
+    totalNet += v.netCents;
+    totalVat += v.vatCents;
+    totalGross += v.grossCents;
+  }
+  const listCurrency = items[0]?.currency ?? "eur";
+
   return (
     <Shell>
       <h1 className="text-lg font-semibold tracking-tight">
@@ -191,11 +203,10 @@ export default async function AttivaRinnovoPage({
 
       <p className="mt-6 text-sm text-slate-600">
         Registrando la carta autorizzi l&apos;addebito automatico ricorrente per
-        i seguenti servizi, ciascuno alla propria scadenza e periodicità (importi
-        IVA 22% inclusa):
+        i seguenti servizi, ciascuno alla propria scadenza e periodicità:
       </p>
 
-      <ul className="mt-4 space-y-2 border-y border-line-soft py-4 text-sm">
+      <ul className="mt-4 space-y-2 border-t border-line-soft pt-4 text-sm">
         {items.map((it) => (
           <li key={it.id} className="flex items-start justify-between gap-4">
             <div>
@@ -213,11 +224,33 @@ export default async function AttivaRinnovoPage({
               </p>
             </div>
             <span className="shrink-0 font-mono text-ink">
-              {formatEur(addVatToNet(it.priceCents * it.quantity).grossCents, it.currency)}
+              {formatEur(it.priceCents * it.quantity, it.currency)}
             </span>
           </li>
         ))}
       </ul>
+
+      {/* Riepilogo IVA (imponibile / IVA / totale) coerente con l'addebito. */}
+      <dl className="space-y-1 border-y border-line-soft py-4 text-sm">
+        <div className="flex items-center justify-between">
+          <dt className="text-slate-500">Imponibile</dt>
+          <dd className="font-mono text-ink">
+            {formatEur(totalNet, listCurrency)}
+          </dd>
+        </div>
+        <div className="flex items-center justify-between">
+          <dt className="text-slate-500">IVA (22%)</dt>
+          <dd className="font-mono text-ink">
+            {formatEur(totalVat, listCurrency)}
+          </dd>
+        </div>
+        <div className="mt-1 flex items-center justify-between border-t border-line-soft pt-2">
+          <dt className="font-medium text-ink">Totale</dt>
+          <dd className="font-mono text-base font-semibold text-ink">
+            {formatEur(totalGross, listCurrency)}
+          </dd>
+        </div>
+      </dl>
       <p className="mt-2 text-xs text-slate-400">
         Puoi revocare l&apos;autorizzazione in qualsiasi momento scrivendo a
         hello@deltasolutions.agency.
