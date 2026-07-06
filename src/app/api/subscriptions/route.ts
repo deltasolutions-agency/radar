@@ -15,6 +15,7 @@ import {
 } from "@/lib/email-templates";
 import { formatEur } from "@/lib/format";
 import { ensureDataEditToken, billingDataFor } from "@/lib/client-data";
+import { buildWelcomeLetterPdf } from "@/lib/welcome-letter-pdf";
 import type { SubscriptionStatus } from "@prisma/client";
 
 // GET /api/subscriptions?status=...
@@ -189,7 +190,25 @@ export function POST(req: NextRequest) {
           dataEditUrl,
           billingData: billingDataFor(client),
         });
-        const sent = await sendEmail(content, client.email);
+
+        // Lettera di benvenuto PDF come allegato. La generazione non deve MAI
+        // bloccare l'invio: in caso di errore la mail parte senza allegato.
+        // Il saluto della lettera usa SEMPRE il nome del referente (client.name),
+        // non la ragione sociale, a prescindere dal saluto usato dalla mail.
+        let attachments: { filename: string; content: Buffer }[] | undefined;
+        try {
+          const pdf = await buildWelcomeLetterPdf(client.name);
+          attachments = [
+            { filename: "Lettera_DeltaSolutions_Radar.pdf", content: pdf },
+          ];
+        } catch (e) {
+          console.error(
+            `[subscriptions] generazione lettera PDF fallita (client ${client.id}):`,
+            e,
+          );
+        }
+
+        const sent = await sendEmail(content, client.email, attachments);
         if (sent.status === "INVIATA") {
           await prisma.client.update({
             where: { id: client.id },

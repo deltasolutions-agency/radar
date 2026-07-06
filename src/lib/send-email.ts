@@ -14,6 +14,12 @@ export type SendResult = {
  * restituito come { status: "FALLITA", error }. Il chiamante decide come
  * registrarlo (NotificationLog) senza rischiare di far fallire il flusso.
  */
+/** Allegato email (es. lettera di benvenuto PDF). */
+export type EmailAttachment = {
+  filename: string;
+  content: Buffer;
+};
+
 export async function sendEmail(
   content: {
     subject: string;
@@ -21,6 +27,7 @@ export async function sendEmail(
     html: string;
   },
   to?: string,
+  attachments?: EmailAttachment[],
 ): Promise<SendResult> {
   const recipient = to ?? process.env.ADMIN_EMAIL;
   const from = process.env.EMAIL_FROM;
@@ -38,6 +45,9 @@ export async function sendEmail(
       subject: content.subject,
       text: content.text,
       html: content.html,
+      ...(attachments && attachments.length > 0
+        ? { attachments }
+        : {}),
     });
     if (error) {
       return { status: "FALLITA", error: error.message ?? String(error) };
