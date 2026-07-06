@@ -36,6 +36,7 @@ export default async function AbbonamentiPage({
       },
     },
   });
+  // NB: Subscription.notes è incluso di default (scalare) nel record.
 
   const rows: SubscriptionRow[] = subscriptions.map((sub) => {
     const clientName = sub.client.ragioneSociale?.trim()
@@ -68,6 +69,7 @@ export default async function AbbonamentiPage({
       services,
       status,
       nextDueISO,
+      notes: sub.notes ?? null,
     };
   });
 

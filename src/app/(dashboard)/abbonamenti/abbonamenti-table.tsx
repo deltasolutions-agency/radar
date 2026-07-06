@@ -14,6 +14,8 @@ export type SubscriptionRow = {
   status: string;
   /** Scadenza più imminente (ISO) tra i servizi attivi; null se non applicabile. */
   nextDueISO: string | null;
+  /** Note del contenitore (Subscription.notes); null/"" se assenti. */
+  notes: string | null;
 };
 
 /**
@@ -71,6 +73,7 @@ export function AbbonamentiTable({ rows }: { rows: SubscriptionRow[] }) {
                   <th className="px-5 py-3 font-medium">Servizi</th>
                   <th className="px-5 py-3 font-medium">Prossima scadenza</th>
                   <th className="px-5 py-3 font-medium">Stato</th>
+                  <th className="px-5 py-3 font-medium">Note</th>
                   <th className="px-5 py-3 font-medium">Azioni</th>
                 </tr>
               </thead>
@@ -107,6 +110,19 @@ export function AbbonamentiTable({ rows }: { rows: SubscriptionRow[] }) {
                         />
                       )}
                     </td>
+                    <td className="px-5 py-3 text-slate-600">
+                      {r.notes?.trim() ? (
+                        <span
+                          title={r.notes}
+                          className="inline-flex items-center gap-1.5"
+                        >
+                          <NoteIcon />
+                          {truncateNote(r.notes)}
+                        </span>
+                      ) : (
+                        <span className="text-slate-400">—</span>
+                      )}
+                    </td>
                     <td className="px-5 py-3">
                       <Link
                         href={`/abbonamenti/${r.subscriptionId}`}
@@ -133,4 +149,31 @@ function compactServices(services: string[]): string {
     return `${services.join(", ")} (${services.length})`;
   }
   return `${services.slice(0, 3).join(", ")}… (${services.length})`;
+}
+
+/** Tronca la nota a ~35 caratteri (il testo completo resta nel title). */
+function truncateNote(note: string): string {
+  const t = note.trim();
+  return t.length > 35 ? `${t.slice(0, 35).trimEnd()}…` : t;
+}
+
+/** Icona nota, coerente con quella usata nello storico pagamenti. */
+function NoteIcon() {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="shrink-0 text-slate-400"
+      aria-hidden="true"
+    >
+      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+    </svg>
+  );
 }
