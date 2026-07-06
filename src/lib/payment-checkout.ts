@@ -181,23 +181,17 @@ export async function createCheckoutPayment(
     // Il cliente riceve il link alla pagina intermedia con gate di consenso,
     // NON direttamente l'URL Stripe (quello resta per il flusso admin diretto).
     const payUrl = `${appUrl}/pay/${payment.payToken}`;
-    // Il link può coprire più servizi: l'email li elenca con importo e periodo.
+    // Il link può coprire più servizi: l'email li elenca al NETTO (IVA esclusa).
+    // IVA, costo di servizio e totale sono mostrati sulla pagina /pay dopo il
+    // click, quindi qui NON si includono né la riga costo servizio né il totale.
     const emailItems = items.map((it, idx) => ({
       serviceName:
         it.quantity > 1 ? `${it.service.name} ×${it.quantity}` : it.service.name,
-      amountCents: itemGrossCents[idx],
+      amountCents: it.priceCents * it.quantity,
       periodEnd: paymentItemsData[idx].periodEnd,
     }));
-    if (serviceFeeCents > 0) {
-      emailItems.push({
-        serviceName: "Costi di servizio (1,5%)",
-        amountCents: serviceFeeCents,
-        periodEnd: null,
-      });
-    }
     const content = buildPaymentLinkEmail({
       items: emailItems,
-      totalCents: amountCents,
       currency,
       checkoutUrl: payUrl,
       expiresAt,

@@ -1166,8 +1166,6 @@ export type PaymentLinkEmailItem = {
 export type PaymentLinkEmailData = {
   /** Una voce per ciascun servizio incluso nel link di pagamento. */
   items: PaymentLinkEmailItem[];
-  /** Totale del pagamento (somma delle righe). */
-  totalCents: number;
   currency?: string;
   /** URL della pagina di pagamento (gate consenso) o Checkout reale. */
   checkoutUrl: string;
@@ -1177,12 +1175,12 @@ export type PaymentLinkEmailData = {
 
 /**
  * Email al cliente con il link di pagamento Stripe. Rivolta al cliente:
- * elenca i servizi inclusi con relativo importo, il totale e il pulsante
- * "Paga ora". Contiene SOLO il link di pagamento, mai link interni.
+ * elenca i servizi inclusi con il prezzo NETTO (IVA esclusa) e il pulsante
+ * "Paga ora". IVA, costo di servizio e totale sono mostrati sulla pagina
+ * /pay dopo il click. Contiene SOLO il link di pagamento, mai link interni.
  */
 export function buildPaymentLinkEmail(d: PaymentLinkEmailData): EmailContent {
   const currency = d.currency ?? "eur";
-  const total = formatEur(d.totalCents, currency);
   const label = servicesLabel(d.items);
 
   const subject = `Radar — Link di pagamento: ${label}`;
@@ -1191,7 +1189,7 @@ export function buildPaymentLinkEmail(d: PaymentLinkEmailData): EmailContent {
 
   const itemLinesText = d.items.map((it) => {
     const per = it.periodEnd ? ` (fino al ${formatDate(it.periodEnd)})` : "";
-    return `- ${it.serviceName}: ${formatEur(it.amountCents, currency)}${per}`;
+    return `- ${it.serviceName}: ${formatEur(it.amountCents, currency)}*${per}`;
   });
 
   const text = [
@@ -1199,8 +1197,7 @@ export function buildPaymentLinkEmail(d: PaymentLinkEmailData): EmailContent {
     "",
     "Servizi:",
     ...itemLinesText,
-    "",
-    `Totale:   ${total}`,
+    "* Prezzi IVA esclusa.",
     "",
     `Paga ora: ${d.checkoutUrl}`,
     "",
@@ -1212,7 +1209,7 @@ export function buildPaymentLinkEmail(d: PaymentLinkEmailData): EmailContent {
       (it) => `
         <tr>
           <td style="padding:6px 12px 6px 0;border-bottom:1px solid #f1f5f9">${it.serviceName}${it.periodEnd ? `<br/><span style="color:#94a3b8;font-size:12px">fino al ${formatDate(it.periodEnd)}</span>` : ""}</td>
-          <td style="padding:6px 0;border-bottom:1px solid #f1f5f9;text-align:right;white-space:nowrap">${formatEur(it.amountCents, currency)}</td>
+          <td style="padding:6px 0;border-bottom:1px solid #f1f5f9;text-align:right;white-space:nowrap">${formatEur(it.amountCents, currency)}*</td>
         </tr>`,
     )
     .join("");
@@ -1224,13 +1221,8 @@ export function buildPaymentLinkEmail(d: PaymentLinkEmailData): EmailContent {
       <p style="font-size:14px;line-height:1.5">${intro}</p>
       <table style="border-collapse:collapse;width:100%;font-family:sans-serif;font-size:14px;color:#1e293b">
         <tbody>${itemRowsHtml}</tbody>
-        <tfoot>
-          <tr>
-            <td style="padding:8px 12px 0 0;font-weight:600">Totale</td>
-            <td style="padding:8px 0 0;font-weight:600;text-align:right">${total}</td>
-          </tr>
-        </tfoot>
       </table>
+      <p style="font-size:11px;color:#94a3b8;margin:6px 0 0">* Prezzi IVA esclusa.</p>
       <p style="margin:20px 0">
         <a href="${d.checkoutUrl}" style="display:inline-block;background:#4f46e5;color:#ffffff;text-decoration:none;font-family:sans-serif;font-size:14px;font-weight:600;padding:12px 20px;border-radius:8px">Paga ora →</a>
       </p>

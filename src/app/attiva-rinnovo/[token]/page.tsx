@@ -56,13 +56,9 @@ export default async function AttivaRinnovoPage({
     );
   }
 
-  // Carta registrata con successo → conferma dedicata con elenco servizi + CTA.
+  // Carta registrata con successo → solo conferma + CTA recensione (nessun
+  // elenco servizi o prezzo: il cliente ha già deciso e attivato).
   if (searchParams.done) {
-    const doneItems = await prisma.subscriptionItem.findMany({
-      where: { id: { in: request.itemIds } },
-      include: { service: true },
-      orderBy: { endDate: "asc" },
-    });
     return (
       <Shell>
         <div className="text-center">
@@ -82,39 +78,13 @@ export default async function AttivaRinnovoPage({
             </svg>
           </div>
           <h1 className="mt-4 text-xl font-semibold tracking-tight text-ink">
-            Rinnovo automatico attivato
+            Rinnovo automatico attivato con successo
           </h1>
           <p className="mt-2 text-sm text-slate-600">
-            La carta è stata registrata. Il rinnovo automatico è ora attivo sui
-            servizi seguenti. Riceverai le conferme di pagamento via email.
+            La carta è stata registrata e il rinnovo automatico è ora attivo.
+            Riceverai le conferme di pagamento via email.
           </p>
         </div>
-
-        {doneItems.length > 0 ? (
-          <ul className="mt-5 space-y-2 border-y border-line-soft py-4 text-sm">
-            {doneItems.map((it) => (
-              <li key={it.id} className="flex items-start justify-between gap-4">
-                <div>
-                  <p className="text-ink">
-                    {it.service.name}
-                    {it.quantity > 1 ? (
-                      <span className="text-slate-500"> ×{it.quantity}</span>
-                    ) : null}
-                  </p>
-                  <p className="text-xs text-slate-500">
-                    {formatBillingPeriod(
-                      it.billingPeriod as BillingPeriodValue,
-                      it.customPeriodDays,
-                    )}
-                  </p>
-                </div>
-                <span className="shrink-0 font-mono text-ink">
-                  {formatEur(it.priceCents * it.quantity, it.currency)}
-                </span>
-              </li>
-            ))}
-          </ul>
-        ) : null}
 
         <div className="mt-6">
           <GoogleReviewCta />
