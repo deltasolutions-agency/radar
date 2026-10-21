@@ -3,6 +3,7 @@ import { NotificationType, type PaymentMethod } from "@prisma/client";
 import { formatDate, formatEur } from "@/lib/format";
 import { formatBillingPeriod, type BillingPeriodValue } from "@/lib/validations";
 import { splitVatFromGross, addVatToNet } from "@/lib/vat";
+import { escapeHtml as h } from "@/lib/html-escape";
 
 /**
  * Dati necessari a comporre le email di reminder/sollecito/cessazione.
@@ -62,8 +63,8 @@ function detailsHtml(d: ReminderEmailData): string {
   const url = detailUrl(d.subscriptionId);
   return `
     <table style="border-collapse:collapse;font-family:sans-serif;font-size:14px;color:#1e293b">
-      <tr><td style="padding:2px 12px 2px 0;color:#64748b">Cliente</td><td>${d.clientName}</td></tr>
-      <tr><td style="padding:2px 12px 2px 0;color:#64748b">Servizio</td><td>${d.serviceName}</td></tr>
+      <tr><td style="padding:2px 12px 2px 0;color:#64748b">Cliente</td><td>${h(d.clientName)}</td></tr>
+      <tr><td style="padding:2px 12px 2px 0;color:#64748b">Servizio</td><td>${h(d.serviceName)}</td></tr>
       <tr><td style="padding:2px 12px 2px 0;color:#64748b">Scadenza</td><td>${formatDate(d.endDate)}</td></tr>
     </table>
     <p style="font-family:sans-serif;font-size:14px">
@@ -76,7 +77,7 @@ function wrapHtml(title: string, intro: string, d: ReminderEmailData): string {
     <div style="max-width:560px;margin:0 auto;font-family:sans-serif;color:#1e293b">
       ${emailHeaderHtml()}
       <h2 style="font-size:18px;margin:0 0 8px">${title}</h2>
-      <p style="font-size:14px;line-height:1.5">${intro}</p>
+      <p style="font-size:14px;line-height:1.5">${h(intro)}</p>
       ${detailsHtml(d)}
       <hr style="border:none;border-top:1px solid #e2e8f0;margin:24px 0" />
       <p style="font-size:12px;color:#94a3b8">Radar — Delta Solutions · notifica automatica</p>
@@ -196,7 +197,7 @@ function clientDetailsText(d: ReminderEmailData): string {
 function clientDetailsHtml(d: ReminderEmailData): string {
   return `
     <table style="border-collapse:collapse;font-family:sans-serif;font-size:14px;color:#1e293b">
-      <tr><td style="padding:2px 12px 2px 0;color:#64748b">Servizio</td><td>${d.serviceName}</td></tr>
+      <tr><td style="padding:2px 12px 2px 0;color:#64748b">Servizio</td><td>${h(d.serviceName)}</td></tr>
       <tr><td style="padding:2px 12px 2px 0;color:#64748b">Scadenza</td><td>${formatDate(d.endDate)}</td></tr>
     </table>`;
 }
@@ -306,14 +307,14 @@ function clientRenewalHtml(
       ? `
       <p style="font-size:14px;line-height:1.5;margin:14px 0 6px">Vuoi evitare di doverci pensare ogni volta? Attiva il rinnovo automatico.</p>
       <p style="margin:0 0 4px">
-        <a href="${info.autoChargeUrl}" style="display:inline-block;background:#4f46e5;color:#ffffff;text-decoration:none;font-family:sans-serif;font-size:14px;font-weight:600;padding:12px 20px;border-radius:8px">Attiva il rinnovo automatico →</a>
+        <a href="${h(info.autoChargeUrl)}" style="display:inline-block;background:#4f46e5;color:#ffffff;text-decoration:none;font-family:sans-serif;font-size:14px;font-weight:600;padding:12px 20px;border-radius:8px">Attiva il rinnovo automatico →</a>
       </p>`
       : "";
   const payCta = info.payUrl
     ? `
       <p style="font-size:14px;line-height:1.5;margin:14px 0 6px">In alternativa al bonifico, puoi pagare online con carta:</p>
       <p style="margin:0 0 4px">
-        <a href="${info.payUrl}" style="display:inline-block;background:#2B7FFF;color:#ffffff;text-decoration:none;font-family:sans-serif;font-size:14px;font-weight:600;padding:12px 20px;border-radius:8px">Paga online con carta →</a>
+        <a href="${h(info.payUrl)}" style="display:inline-block;background:#2B7FFF;color:#ffffff;text-decoration:none;font-family:sans-serif;font-size:14px;font-weight:600;padding:12px 20px;border-radius:8px">Paga online con carta →</a>
       </p>`
     : "";
   return `
@@ -395,7 +396,7 @@ export function buildReminderEmail(
       <div style="max-width:560px;margin:0 auto;font-family:sans-serif;color:#1e293b">
         ${emailHeaderHtml()}
         <h2 style="font-size:18px;margin:0 0 8px">${cdef.title}</h2>
-        <p style="font-size:14px;line-height:1.5">Ciao ${d.clientName}, ${intro}</p>
+        <p style="font-size:14px;line-height:1.5">Ciao ${h(d.clientName)}, ${h(intro)}</p>
         ${clientDetailsHtml(d)}
         ${renewalHtmlBlock}
         <p style="font-size:13px;color:#64748b;line-height:1.5;margin-top:12px">
@@ -538,13 +539,13 @@ export function buildConfirmationEmail(
 
   const clientRowHtml = isClient
     ? ""
-    : `<p style="font-family:sans-serif;font-size:14px;margin:0 0 8px"><span style="color:#64748b">Cliente:</span> ${d.clientName}</p>`;
+    : `<p style="font-family:sans-serif;font-size:14px;margin:0 0 8px"><span style="color:#64748b">Cliente:</span> ${h(d.clientName)}</p>`;
 
   const itemRowsHtml = d.items
     .map(
       (it) => `
         <tr>
-          <td style="padding:6px 12px 6px 0;border-bottom:1px solid #f1f5f9">${it.serviceName}</td>
+          <td style="padding:6px 12px 6px 0;border-bottom:1px solid #f1f5f9">${h(it.serviceName)}</td>
           <td style="padding:6px 12px 6px 0;border-bottom:1px solid #f1f5f9;text-align:right;white-space:nowrap">${formatEur(it.amountCents, currency)}</td>
           <td style="padding:6px 0;border-bottom:1px solid #f1f5f9;text-align:right;white-space:nowrap;color:#64748b">${formatDate(it.newEndDate)}</td>
         </tr>`,
@@ -552,7 +553,7 @@ export function buildConfirmationEmail(
     .join("");
 
   const receiptLinkHtml = receiptUrl
-    ? `<a href="${receiptUrl}" style="color:#4f46e5">Visualizza la ricevuta →</a><br/>`
+    ? `<a href="${h(receiptUrl)}" style="color:#4f46e5">Visualizza la ricevuta →</a><br/>`
     : `<span style="color:#64748b">Ricevuta in generazione, disponibile a breve.</span><br/>`;
 
   const detailLinkHtml = detail
@@ -677,8 +678,8 @@ function billingDataSectionHtml(
     .map(
       (d) => `
         <tr>
-          <td style="padding:4px 12px 4px 0;color:#64748b;white-space:nowrap">${d.label}</td>
-          <td style="padding:4px 0;color:#1e293b">${dashValue(d.value)}</td>
+          <td style="padding:4px 12px 4px 0;color:#64748b;white-space:nowrap">${h(d.label)}</td>
+          <td style="padding:4px 0;color:#1e293b">${h(dashValue(d.value))}</td>
         </tr>`,
     )
     .join("");
@@ -689,7 +690,7 @@ function billingDataSectionHtml(
         <tbody>${rows}</tbody>
       </table>
       <p style="margin:14px 0 10px">
-        <a href="${url}" style="display:inline-block;background:#4f46e5;color:#ffffff;text-decoration:none;font-family:sans-serif;font-size:14px;font-weight:600;padding:12px 20px;border-radius:8px">${ctaLabel} →</a>
+        <a href="${h(url)}" style="display:inline-block;background:#4f46e5;color:#ffffff;text-decoration:none;font-family:sans-serif;font-size:14px;font-weight:600;padding:12px 20px;border-radius:8px">${ctaLabel} →</a>
       </p>
       <p style="font-size:12px;color:#94a3b8;line-height:1.6;margin:0">${BILLING_DATA_DISCLAIMER}</p>
     </div>`;
@@ -773,8 +774,8 @@ export function buildWelcomeEmail(d: WelcomeEmailData): EmailContent {
       const { name, period, price, expiry } = itemLabel(it);
       return `
         <tr>
-          <td style="padding:6px 12px 6px 0;border-bottom:1px solid #f1f5f9">${name}</td>
-          <td style="padding:6px 12px 6px 0;border-bottom:1px solid #f1f5f9;color:#64748b">${period}</td>
+          <td style="padding:6px 12px 6px 0;border-bottom:1px solid #f1f5f9">${h(name)}</td>
+          <td style="padding:6px 12px 6px 0;border-bottom:1px solid #f1f5f9;color:#64748b">${h(period)}</td>
           <td style="padding:6px 12px 6px 0;border-bottom:1px solid #f1f5f9;color:#64748b;white-space:nowrap">scade il ${expiry}</td>
           <td style="padding:6px 0;border-bottom:1px solid #f1f5f9;text-align:right;white-space:nowrap">${price}*</td>
         </tr>`;
@@ -785,7 +786,7 @@ export function buildWelcomeEmail(d: WelcomeEmailData): EmailContent {
     <div style="max-width:560px;margin:0 auto;font-family:sans-serif;color:#1e293b">
       ${emailHeaderHtml()}
       <h2 style="font-size:18px;margin:0 0 8px">Benvenuto in Delta Solutions Agency</h2>
-      <p style="font-size:14px;line-height:1.5">Ciao ${d.clientName},</p>
+      <p style="font-size:14px;line-height:1.5">Ciao ${h(d.clientName)},</p>
       <p style="font-size:14px;line-height:1.5">${intro}</p>
       <table style="border-collapse:collapse;width:100%;font-family:sans-serif;font-size:14px;color:#1e293b;margin:8px 0">
         <thead>
@@ -805,7 +806,7 @@ export function buildWelcomeEmail(d: WelcomeEmailData): EmailContent {
           ? `<div style="margin:16px 0;border:1px solid #e2e8f0;border-radius:12px;padding:16px;background:#f8fafc">
         <h3 style="font-size:15px;margin:0 0 6px">Attiva il rinnovo automatico</h3>
         <p style="font-size:14px;line-height:1.5;margin:0 0 12px">Per non pensare più alle scadenze, registra una carta una sola volta: i servizi indicati verranno rinnovati e addebitati in automatico. Puoi revocarlo quando vuoi.</p>
-        <a href="${d.autoChargeUrl}" style="display:inline-block;background:#4f46e5;color:#ffffff;text-decoration:none;font-family:sans-serif;font-size:14px;font-weight:600;padding:12px 20px;border-radius:8px">Attiva rinnovo automatico →</a>
+        <a href="${h(d.autoChargeUrl)}" style="display:inline-block;background:#4f46e5;color:#ffffff;text-decoration:none;font-family:sans-serif;font-size:14px;font-weight:600;padding:12px 20px;border-radius:8px">Attiva rinnovo automatico →</a>
       </div>`
           : ""
       }
@@ -874,9 +875,9 @@ export function buildAutoChargeRequestEmail(d: {
     .map(
       (it) => `
         <tr>
-          <td style="padding:6px 12px 6px 0;border-bottom:1px solid #f1f5f9">${it.serviceName}</td>
-          <td style="padding:6px 12px 6px 0;border-bottom:1px solid #f1f5f9;color:#64748b">${it.periodicityLabel}</td>
-          <td style="padding:6px 0;border-bottom:1px solid #f1f5f9;text-align:right;white-space:nowrap">${it.amountLabel}*</td>
+          <td style="padding:6px 12px 6px 0;border-bottom:1px solid #f1f5f9">${h(it.serviceName)}</td>
+          <td style="padding:6px 12px 6px 0;border-bottom:1px solid #f1f5f9;color:#64748b">${h(it.periodicityLabel)}</td>
+          <td style="padding:6px 0;border-bottom:1px solid #f1f5f9;text-align:right;white-space:nowrap">${h(it.amountLabel)}*</td>
         </tr>`,
     )
     .join("");
@@ -898,7 +899,7 @@ export function buildAutoChargeRequestEmail(d: {
       </table>
       <p style="font-size:11px;color:#94a3b8;margin:0">* Prezzi IVA esclusa.</p>
       <p style="margin:20px 0">
-        <a href="${d.activationUrl}" style="display:inline-block;background:#4f46e5;color:#ffffff;text-decoration:none;font-family:sans-serif;font-size:14px;font-weight:600;padding:12px 20px;border-radius:8px">Attiva rinnovo automatico →</a>
+        <a href="${h(d.activationUrl)}" style="display:inline-block;background:#4f46e5;color:#ffffff;text-decoration:none;font-family:sans-serif;font-size:14px;font-weight:600;padding:12px 20px;border-radius:8px">Attiva rinnovo automatico →</a>
       </p>
       <hr style="border:none;border-top:1px solid #e2e8f0;margin:24px 0" />
       <p style="font-size:12px;color:#94a3b8">Radar — Delta Solutions</p>
@@ -933,9 +934,9 @@ export function buildAutoChargeReminderEmail(d: {
     <div style="max-width:560px;margin:0 auto;font-family:sans-serif;color:#1e293b">
       ${emailHeaderHtml()}
       <h2 style="font-size:18px;margin:0 0 8px">Completa l'attivazione del rinnovo automatico</h2>
-      <p style="font-size:14px;line-height:1.5">Ciao ${d.clientName}, ${intro}</p>
+      <p style="font-size:14px;line-height:1.5">Ciao ${h(d.clientName)}, ${h(intro)}</p>
       <p style="margin:20px 0">
-        <a href="${d.activationUrl}" style="display:inline-block;background:#4f46e5;color:#ffffff;text-decoration:none;font-family:sans-serif;font-size:14px;font-weight:600;padding:12px 20px;border-radius:8px">Completa l'attivazione →</a>
+        <a href="${h(d.activationUrl)}" style="display:inline-block;background:#4f46e5;color:#ffffff;text-decoration:none;font-family:sans-serif;font-size:14px;font-weight:600;padding:12px 20px;border-radius:8px">Completa l'attivazione →</a>
       </p>
       <p style="font-size:13px;color:#64748b;line-height:1.5">Se preferisci non attivarlo o hai domande, scrivici a <a href="mailto:hello@deltasolutions.agency" style="color:#4f46e5">hello@deltasolutions.agency</a>.</p>
       <hr style="border:none;border-top:1px solid #e2e8f0;margin:24px 0" />
@@ -963,7 +964,7 @@ export function buildAutoChargeNotConfirmedEmail(d: {
     <div style="max-width:560px;margin:0 auto;font-family:sans-serif;color:#1e293b">
       ${emailHeaderHtml()}
       <h2 style="font-size:18px;margin:0 0 8px">Rinnovo automatico non completato</h2>
-      <p style="font-size:14px;line-height:1.5">${intro}</p>
+      <p style="font-size:14px;line-height:1.5">${h(intro)}</p>
       <hr style="border:none;border-top:1px solid #e2e8f0;margin:24px 0" />
       <p style="font-size:12px;color:#94a3b8">Radar — Delta Solutions · notifica automatica</p>
     </div>`;
@@ -1054,7 +1055,7 @@ export function buildRefundConfirmationEmail(
     .map(
       (it) => `
         <tr>
-          <td style="padding:6px 12px 6px 0;border-bottom:1px solid #f1f5f9">${it.serviceName}${
+          <td style="padding:6px 12px 6px 0;border-bottom:1px solid #f1f5f9">${h(it.serviceName)}${
             it.renewalReverted
               ? ` <span style="color:#94a3b8;font-size:12px">— rinnovo annullato</span>`
               : ""
@@ -1077,7 +1078,7 @@ export function buildRefundConfirmationEmail(
     <div style="max-width:560px;margin:0 auto;font-family:sans-serif;color:#1e293b">
       ${emailHeaderHtml()}
       <h2 style="font-size:18px;margin:0 0 8px">Rimborso effettuato</h2>
-      <p style="font-size:14px;line-height:1.5">Ciao ${d.clientName},</p>
+      <p style="font-size:14px;line-height:1.5">Ciao ${h(d.clientName)},</p>
       <p style="font-size:14px;line-height:1.5">${intro}</p>
       <table style="border-collapse:collapse;width:100%;font-family:sans-serif;font-size:14px;color:#1e293b;margin:8px 0">
         <tbody>${itemRowsHtml}${serviceFeeRowHtml}</tbody>
@@ -1149,7 +1150,7 @@ export function buildAutoChargeFailedAdminEmail(d: {
   const itemsHtml = d.items
     .map((it) => {
       const r = reasonOf(it);
-      return `<li style="margin-bottom:2px">${it.serviceName}${r ? ` <span style="color:#94a3b8">— ${r}</span>` : ""}</li>`;
+      return `<li style="margin-bottom:2px">${h(it.serviceName)}${r ? ` <span style="color:#94a3b8">— ${h(r)}</span>` : ""}</li>`;
     })
     .join("");
 
@@ -1157,7 +1158,7 @@ export function buildAutoChargeFailedAdminEmail(d: {
     <div style="max-width:560px;margin:0 auto;font-family:sans-serif;color:#1e293b">
       ${emailHeaderHtml()}
       <h2 style="font-size:18px;margin:0 0 8px">Addebito automatico fallito</h2>
-      <p style="font-size:14px;line-height:1.5">${intro}</p>
+      <p style="font-size:14px;line-height:1.5">${h(intro)}</p>
       <ul style="font-family:sans-serif;font-size:14px;color:#1e293b;padding-left:18px;margin:8px 0">${itemsHtml}</ul>
       <p style="font-family:sans-serif;font-size:14px">
         <a href="${detail}" style="color:#4f46e5">Apri il dettaglio dell'abbonamento →</a>
@@ -1225,7 +1226,7 @@ export function buildPaymentLinkEmail(d: PaymentLinkEmailData): EmailContent {
     .map(
       (it) => `
         <tr>
-          <td style="padding:6px 12px 6px 0;border-bottom:1px solid #f1f5f9">${it.serviceName}${it.periodEnd ? `<br/><span style="color:#94a3b8;font-size:12px">fino al ${formatDate(it.periodEnd)}</span>` : ""}</td>
+          <td style="padding:6px 12px 6px 0;border-bottom:1px solid #f1f5f9">${h(it.serviceName)}${it.periodEnd ? `<br/><span style="color:#94a3b8;font-size:12px">fino al ${formatDate(it.periodEnd)}</span>` : ""}</td>
           <td style="padding:6px 0;border-bottom:1px solid #f1f5f9;text-align:right;white-space:nowrap">${formatEur(it.amountCents, currency)}*</td>
         </tr>`,
     )
@@ -1241,7 +1242,7 @@ export function buildPaymentLinkEmail(d: PaymentLinkEmailData): EmailContent {
       </table>
       <p style="font-size:11px;color:#94a3b8;margin:6px 0 0">* Prezzi IVA esclusa.</p>
       <p style="margin:20px 0">
-        <a href="${d.checkoutUrl}" style="display:inline-block;background:#4f46e5;color:#ffffff;text-decoration:none;font-family:sans-serif;font-size:14px;font-weight:600;padding:12px 20px;border-radius:8px">Paga ora →</a>
+        <a href="${h(d.checkoutUrl)}" style="display:inline-block;background:#4f46e5;color:#ffffff;text-decoration:none;font-family:sans-serif;font-size:14px;font-weight:600;padding:12px 20px;border-radius:8px">Paga ora →</a>
       </p>
       <p style="font-size:12px;color:#64748b">Il link scade il ${formatDate(d.expiresAt)} (24 ore dall'invio).</p>
       <hr style="border:none;border-top:1px solid #e2e8f0;margin:24px 0" />
@@ -1294,9 +1295,9 @@ export function buildClientDataChangeEmail(
     .map(
       (c) => `
         <tr>
-          <td style="padding:6px 12px 6px 0;border-bottom:1px solid #f1f5f9;color:#64748b;white-space:nowrap">${c.label}</td>
-          <td style="padding:6px 12px 6px 0;border-bottom:1px solid #f1f5f9;color:#94a3b8;text-decoration:line-through">${dash(c.from)}</td>
-          <td style="padding:6px 0;border-bottom:1px solid #f1f5f9;font-weight:600">${dash(c.to)}</td>
+          <td style="padding:6px 12px 6px 0;border-bottom:1px solid #f1f5f9;color:#64748b;white-space:nowrap">${h(c.label)}</td>
+          <td style="padding:6px 12px 6px 0;border-bottom:1px solid #f1f5f9;color:#94a3b8;text-decoration:line-through">${h(dash(c.from))}</td>
+          <td style="padding:6px 0;border-bottom:1px solid #f1f5f9;font-weight:600">${h(dash(c.to))}</td>
         </tr>`,
     )
     .join("");
@@ -1305,7 +1306,7 @@ export function buildClientDataChangeEmail(
     <div style="max-width:560px;margin:0 auto;font-family:sans-serif;color:#1e293b">
       ${emailHeaderHtml()}
       <h2 style="font-size:18px;margin:0 0 8px">Dati di fatturazione aggiornati</h2>
-      <p style="font-size:14px;line-height:1.5">Il cliente <strong>${d.clientName}</strong> ha aggiornato i propri dati di fatturazione dalla pagina pubblica.</p>
+      <p style="font-size:14px;line-height:1.5">Il cliente <strong>${h(d.clientName)}</strong> ha aggiornato i propri dati di fatturazione dalla pagina pubblica.</p>
       <table style="border-collapse:collapse;width:100%;font-family:sans-serif;font-size:14px;color:#1e293b;margin:8px 0">
         <thead>
           <tr>
@@ -1316,7 +1317,7 @@ export function buildClientDataChangeEmail(
         </thead>
         <tbody>${changeRowsHtml}</tbody>
       </table>
-      <p style="font-size:13px;color:#64748b">IP di provenienza: ${d.ipAddress ?? "sconosciuto"}</p>
+      <p style="font-size:13px;color:#64748b">IP di provenienza: ${h(d.ipAddress ?? "sconosciuto")}</p>
       <p style="margin:16px 0">
         <a href="${clientUrl}" style="color:#4f46e5">Apri la scheda cliente →</a>
       </p>
@@ -1365,7 +1366,7 @@ export function buildDataUpdateRequestEmail(
     <div style="max-width:560px;margin:0 auto;font-family:sans-serif;color:#1e293b">
       ${emailHeaderHtml()}
       <h2 style="font-size:18px;margin:0 0 8px">Verifica i tuoi dati di fatturazione</h2>
-      <p style="font-size:14px;line-height:1.5">Ciao ${d.clientName},</p>
+      <p style="font-size:14px;line-height:1.5">Ciao ${h(d.clientName)},</p>
       <p style="font-size:14px;line-height:1.5">${intro}</p>
       ${billingDataSectionHtml(d.billingData, d.dataEditUrl, ctaLabel)}
       <p style="font-size:13px;color:#64748b;line-height:1.6">
@@ -1430,7 +1431,7 @@ export function buildAutoChargeUpcomingEmail(d: {
     <div style="max-width:560px;margin:0 auto;font-family:sans-serif;color:#1e293b">
       ${emailHeaderHtml()}
       <h2 style="font-size:18px;margin:0 0 8px">Prossimo addebito automatico</h2>
-      <p style="font-size:14px;line-height:1.5">${intro}</p>
+      <p style="font-size:14px;line-height:1.5">${h(intro)}</p>
       <div style="margin:16px 0;border:1px solid #E2DED6;border-left:4px solid #2B7FFF;border-radius:8px;background:#FAFAFA;padding:14px 16px">
         <table style="border-collapse:collapse;width:100%;font-family:sans-serif;font-size:14px;color:#4A463F">
           <tr><td style="padding:2px 0;color:#64748b">Imponibile</td><td style="padding:2px 0;text-align:right;font-family:'Space Mono','Courier New',monospace">${formatEur(d.netCents, currency)}</td></tr>
