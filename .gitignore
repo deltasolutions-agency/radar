@@ -11,7 +11,9 @@
 /build
 
 # misc
+# metadati macOS (anche quelli creati sui dischi esterni)
 .DS_Store
+._*
 *.pem
 
 # debug
