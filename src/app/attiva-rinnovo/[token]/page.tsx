@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { EndClientLabel } from "@/components/end-client-label";
 import { formatEur } from "@/lib/format";
 import { formatBillingPeriod, type BillingPeriodValue } from "@/lib/validations";
 import { CURRENT_CONSENT_VERSION } from "@/lib/legal";
@@ -186,6 +187,7 @@ export default async function AttivaRinnovoPage({
                   <span className="text-slate-500"> ×{it.quantity}</span>
                 ) : null}
               </p>
+              <EndClientLabel name={it.endClientName} />
               <p className="text-xs text-slate-500">
                 {formatBillingPeriod(
                   it.billingPeriod as BillingPeriodValue,

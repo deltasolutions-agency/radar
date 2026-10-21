@@ -1,11 +1,13 @@
 "use client";
 
 import { useState } from "react";
+import { EndClientLabel } from "@/components/end-client-label";
 import { useRouter } from "next/navigation";
 
 export type SelectableAutoChargeItem = {
   id: string;
   serviceName: string;
+  endClientName: string | null;
   priceLabel: string;
   periodicityLabel: string;
 };
@@ -103,6 +105,7 @@ export function AutoChargeRequestPanel({
                 onChange={() => toggle(it.id)}
               />
               {it.serviceName}
+              <EndClientLabel name={it.endClientName} />
             </span>
             <span className="flex items-center gap-3 text-xs text-slate-500">
               <span>{it.periodicityLabel}</span>

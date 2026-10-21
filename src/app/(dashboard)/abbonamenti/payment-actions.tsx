@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { EndClientLabel } from "@/components/end-client-label";
 import { useRouter } from "next/navigation";
 import { formatEur, formatDate } from "@/lib/format";
 import { computeServiceFeeCents } from "@/lib/service-fee";
@@ -9,6 +10,7 @@ import { addVatToNet } from "@/lib/vat";
 export type PayableItem = {
   id: string;
   serviceName: string;
+  endClientName: string | null;
   priceCents: number; // prezzo unitario
   quantity: number; // ≥ 1
   currency: string;
@@ -204,6 +206,7 @@ export function PaymentActions({
               {it.quantity > 1 ? (
                 <span className="text-xs text-slate-500">×{it.quantity}</span>
               ) : null}
+              <EndClientLabel name={it.endClientName} />
             </span>
             <span className="flex items-center gap-3">
               <span className="text-xs text-slate-500">

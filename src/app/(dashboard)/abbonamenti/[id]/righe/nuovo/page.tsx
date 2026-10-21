@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { ItemForm } from "../../../item-form";
+import { getEndClientSuggestions } from "@/lib/end-client";
 
 export const dynamic = "force-dynamic";
 
@@ -33,7 +34,11 @@ export default async function NuovaRigaPage({
           Aggiungi servizio
         </h1>
       </div>
-      <ItemForm mode="create" subscriptionId={sub.id} />
+      <ItemForm
+        mode="create"
+        subscriptionId={sub.id}
+        endClientSuggestions={await getEndClientSuggestions(sub.clientId)}
+      />
     </div>
   );
 }

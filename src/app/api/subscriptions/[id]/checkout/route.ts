@@ -79,6 +79,7 @@ export function POST(req: NextRequest, { params }: Params) {
             name: it.service.name,
             description: it.service.description,
           },
+          endClientName: it.endClientName,
         })),
       },
       appUrl,

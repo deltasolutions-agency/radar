@@ -10,6 +10,7 @@ import { MS_PER_DAY, periodDurationDays } from "@/lib/billing-period";
 export type ConfirmPaymentItemResult = {
   subscriptionItem: SubscriptionItem;
   serviceName: string;
+  endClientName: string | null;
   amountCents: number;
   /** Nuova scadenza della riga dopo il rinnovo (o quella corrente se saltato). */
   newEndDate: Date;
@@ -75,6 +76,7 @@ export async function confirmPaymentAndRenew(
         return {
           subscriptionItem: itemOnly,
           serviceName: service.name,
+          endClientName: itemOnly.endClientName,
           amountCents: pi.amountCents,
           newEndDate: itemOnly.endDate,
           renewalSkipped: false,
@@ -150,6 +152,7 @@ export async function confirmPaymentAndRenew(
       items.push({
         subscriptionItem: updatedItem,
         serviceName: service.name,
+        endClientName: itemOnly.endClientName,
         amountCents: pi.amountCents,
         newEndDate,
         renewalSkipped,
@@ -209,6 +212,7 @@ async function sendConfirmationEmail(
     clientName: receipt.clientName,
     items: result.items.map((i) => ({
       serviceName: i.serviceName,
+      endClientName: i.endClientName,
       amountCents: i.amountCents,
       newEndDate: i.newEndDate,
     })),

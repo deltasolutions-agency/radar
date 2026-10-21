@@ -52,6 +52,7 @@ export function POST(req: NextRequest, { params }: Params) {
         autoChargeEnabled: data.autoChargeEnabled ?? false,
         autoChargeEndDate: data.autoChargeEndDate ?? null,
         notes: data.notes,
+        endClientName: data.endClientName ?? null,
         status,
       },
       include: { service: true },

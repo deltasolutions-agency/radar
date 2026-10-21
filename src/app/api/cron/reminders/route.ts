@@ -4,6 +4,7 @@ import { computeItemStatus } from "@/lib/subscription-status";
 import {
   buildReminderEmail,
   buildAutoChargeUpcomingEmail,
+  type ClientRenewalInfo,
 } from "@/lib/email-templates";
 import { createCheckoutPayment } from "@/lib/payment-checkout";
 import { sendEmail } from "@/lib/send-email";
@@ -80,6 +81,7 @@ async function ensurePaymentLinkToken(
               name: item.service.name,
               description: item.service.description,
             },
+            endClientName: item.endClientName,
           },
         ],
       },
@@ -195,7 +197,12 @@ export async function GET(request: NextRequest) {
           const totalCents = grossCents + serviceFeeCents;
 
           const content = buildAutoChargeUpcomingEmail({
-            serviceName: item.service.name,
+            items: [
+              {
+                serviceName: item.service.name,
+                endClientName: item.endClientName,
+              },
+            ],
             endDate: item.endDate,
             netCents,
             vatCents,
@@ -226,7 +233,9 @@ export async function GET(request: NextRequest) {
       const emailData = {
         subscriptionId: item.subscriptionId,
         clientName,
-        serviceName: item.service.name,
+        items: [
+          { serviceName: item.service.name, endClientName: item.endClientName },
+        ],
         endDate: item.endDate,
         diffDays,
       };
@@ -282,14 +291,7 @@ export async function GET(request: NextRequest) {
         // solo per item SENZA rinnovo automatico. Caso A (promemoria/sollecito):
         // genera/riusa una AutoChargeRequest per la CTA. Caso B (cessazione):
         // solo coordinate + disclaimer, nessuna CTA.
-        let clientRenewal:
-          | {
-              netCents: number;
-              currency: string;
-              autoChargeUrl?: string | null;
-              payUrl?: string | null;
-            }
-          | undefined;
+        let clientRenewal: ClientRenewalInfo | undefined;
         if (!item.autoChargeEnabled) {
           // Il prezzo è NETTO: l'email mostra imponibile/IVA/totale a partire da qui.
           const netCents = item.priceCents * item.quantity;
@@ -304,7 +306,11 @@ export async function GET(request: NextRequest) {
           }
 
           if (milestone.type === "CESSAZIONE_MOROSITA") {
-            clientRenewal = { netCents, currency: item.currency, payUrl };
+            clientRenewal = {
+              itemNetCents: [netCents],
+              currency: item.currency,
+              payUrl,
+            };
           } else {
             let autoChargeUrl: string | null = null;
             if (appUrl) {
@@ -315,7 +321,7 @@ export async function GET(request: NextRequest) {
               autoChargeUrl = `${appUrl}/attiva-rinnovo/${token}`;
             }
             clientRenewal = {
-              netCents,
+              itemNetCents: [netCents],
               currency: item.currency,
               autoChargeUrl,
               payUrl,

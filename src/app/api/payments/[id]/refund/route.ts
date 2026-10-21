@@ -147,6 +147,7 @@ export function POST(req: NextRequest, { params }: Params) {
       let itemsReverted = 0;
       const refundedDetails: {
         serviceName: string;
+        endClientName: string | null;
         amountCents: number;
         renewalReverted: boolean;
       }[] = [];
@@ -160,6 +161,7 @@ export function POST(req: NextRequest, { params }: Params) {
         const renewalReverted = pi.previousEndDate != null;
         refundedDetails.push({
           serviceName: pi.subscriptionItem.service.name,
+          endClientName: pi.subscriptionItem.endClientName,
           amountCents: pi.amountCents,
           renewalReverted,
         });

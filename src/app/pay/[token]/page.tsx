@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { EndClientLabel } from "@/components/end-client-label";
 import { formatEur, formatDate } from "@/lib/format";
 import { CURRENT_CONSENT_VERSION } from "@/lib/legal";
 import { splitVatFromGross } from "@/lib/vat";
@@ -110,6 +111,7 @@ export default async function PayPage({
             <div key={pi.id} className="flex justify-between gap-4">
               <dt className="text-slate-500">
                 {pi.subscriptionItem.service.name}
+                <EndClientLabel name={pi.subscriptionItem.endClientName} />
                 {period ? (
                   <span className="block font-mono text-xs text-slate-400">
                     {period}

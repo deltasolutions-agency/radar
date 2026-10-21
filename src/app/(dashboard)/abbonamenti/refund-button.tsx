@@ -1,12 +1,14 @@
 "use client";
 
 import { useState } from "react";
+import { EndClientLabel } from "@/components/end-client-label";
 import { useRouter } from "next/navigation";
 import { formatEur } from "@/lib/format";
 
 export type RefundableItem = {
   id: string;
   serviceName: string;
+  endClientName: string | null;
   amountCents: number;
   currency: string;
   /** Scadenza a cui tornerebbe la riga se stornata (null = nessun rinnovo). */
@@ -141,6 +143,7 @@ export function RefundButton({
                 onChange={() => toggle(it.id)}
               />
               {it.serviceName}
+              <EndClientLabel name={it.endClientName} />
               {it.previousEndDateLabel ? (
                 <span className="text-amber-700">
                   → {it.previousEndDateLabel}

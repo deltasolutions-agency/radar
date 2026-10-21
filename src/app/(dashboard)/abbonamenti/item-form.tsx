@@ -25,11 +25,13 @@ export function ItemForm({
   subscriptionId,
   itemId,
   initial,
+  endClientSuggestions = [],
 }: {
   mode: "create" | "edit";
   subscriptionId: string;
   itemId?: string;
   initial?: Partial<ItemValues>;
+  endClientSuggestions?: string[];
 }) {
   const router = useRouter();
   const [value, setValue] = useState<ItemValues>({ ...EMPTY_ITEM, ...initial });
@@ -131,6 +133,7 @@ export function ItemForm({
           value={value}
           services={services}
           errors={errors}
+          endClientSuggestions={endClientSuggestions}
           onChange={(patch) => setValue((v) => ({ ...v, ...patch }))}
         />
       </section>

@@ -31,7 +31,14 @@ function parseIntList(input: string): number[] {
     .filter((n) => Number.isFinite(n) && n >= 0);
 }
 
-export function ImpostazioniForm({ initial }: { initial: ImpostazioniInitial }) {
+export function ImpostazioniForm({
+  initial,
+  placeholders,
+}: {
+  initial: ImpostazioniInitial;
+  /** Legenda dei segnaposto dei template reminder. */
+  placeholders: { token: string; description: string }[];
+}) {
   const router = useRouter();
   const [longDays, setLongDays] = useState(initial.thresholdsLongDays);
   const [shortDays, setShortDays] = useState(initial.thresholdsShortDays);
@@ -192,11 +199,16 @@ export function ImpostazioniForm({ initial }: { initial: ImpostazioniInitial }) 
           <h2 className="mono-label">Testi email</h2>
           <p className="mt-1 text-xs text-slate-500">
             Lascia vuoto per usare il testo predefinito (mostrato come
-            segnaposto). Segnaposto disponibili:{" "}
-            <code className="font-mono text-[11px]">
-              {"{clientName} {serviceName} {endDate} {diffDays} {diffDaysAfter}"}
-            </code>
+            segnaposto). Segnaposto disponibili:
           </p>
+          <ul className="mt-1 space-y-0.5 text-xs text-slate-500">
+            {placeholders.map((p) => (
+              <li key={p.token}>
+                <code className="font-mono text-[11px] text-ink">{p.token}</code>{" "}
+                — {p.description}
+              </li>
+            ))}
+          </ul>
         </div>
 
         <div className="space-y-6">

@@ -8,6 +8,7 @@ import { buildAutoChargeFailedAdminEmail } from "@/lib/email-templates";
 import { MS_PER_DAY, periodDurationDays } from "@/lib/billing-period";
 import { computeServiceFeeCents } from "@/lib/service-fee";
 import { addVatToNet } from "@/lib/vat";
+import { withEndClient } from "@/lib/end-client";
 import {
   classifyAutoChargeCandidate,
   groupAutoChargeItems,
@@ -16,6 +17,17 @@ import {
 } from "@/lib/cron/auto-charge-selection";
 
 export const runtime = "nodejs";
+
+/** Descrizione PaymentIntent: "Rinnovo automatico: Servizio – Cliente finale, ...". */
+function autoChargeDescription(group: EligibleItem[]): string {
+  const names = group.map((it) =>
+    withEndClient(
+      it.quantity > 1 ? `${it.service.name} ×${it.quantity}` : it.service.name,
+      it.endClientName,
+    ),
+  );
+  return `Rinnovo automatico: ${names.join(", ")}`.slice(0, 500);
+}
 export const dynamic = "force-dynamic";
 
 // GET /api/cron/auto-charge — addebito automatico ricorrente (off_session).
@@ -129,6 +141,8 @@ export async function GET(request: NextRequest) {
           payment_method: client.stripeDefaultPaymentMethodId!,
           off_session: true,
           confirm: true,
+          // Solo testo descrittivo (servizi + cliente finale): importi invariati.
+          description: autoChargeDescription(group),
         });
         paymentIntentId = pi.id;
         charged = pi.status === "succeeded";
@@ -213,6 +227,7 @@ export async function GET(request: NextRequest) {
                     name: it.service.name,
                     description: it.service.description,
                   },
+                  endClientName: it.endClientName,
                 })),
               },
               appUrl,
@@ -237,6 +252,7 @@ export async function GET(request: NextRequest) {
             clientName,
             items: disabledItems.map((it) => ({
               serviceName: it.service.name,
+              endClientName: it.endClientName,
             })),
             reason: chargeError,
           }),

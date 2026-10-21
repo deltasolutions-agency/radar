@@ -318,6 +318,10 @@ model SubscriptionItem {
   // l'importo effettivo della riga (es. 3 caselle email a 10€ = 30€).
   quantity  Int                @default(1)
 
+  // Cliente finale (facoltativo) per le agenzie che subappaltano: nome del
+  // cliente dell'agenzia a cui si riferisce questo servizio. Max 120 caratteri.
+  endClientName String?
+
   // Snapshot economico al momento della sottoscrizione della riga.
   priceCents       Int
   currency         String        @default("eur")
@@ -498,6 +502,8 @@ model ReceiptLine {
   receipt     Receipt   @relation(fields: [receiptId], references: [id], onDelete: Cascade)
   serviceName String
   description String?
+  // Snapshot del cliente finale della riga al momento della ricevuta.
+  endClientName String?
   periodStart DateTime?
   periodEnd   DateTime?
   // Quantità (snapshot) e importo TOTALE della riga (unitario × quantità).

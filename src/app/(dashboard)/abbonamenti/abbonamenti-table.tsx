@@ -10,6 +10,8 @@ export type SubscriptionRow = {
   subscriptionId: string;
   clientName: string;
   services: string[];
+  /** Clienti finali distinti delle righe (per sottotitolo e ricerca). */
+  endClients: string[];
   /** Stato del contenitore: uno stato noto, oppure "MISTO" se le righe divergono. */
   status: string;
   /** Scadenza più imminente (ISO) tra i servizi attivi; null se non applicabile. */
@@ -20,7 +22,8 @@ export type SubscriptionRow = {
 
 /**
  * Lista abbonamenti AGGREGATA per cliente (una riga per contenitore) con ricerca
- * istantanea client-side su nome cliente e nome servizio (nessun submit).
+ * istantanea client-side su nome cliente, nome servizio e cliente finale
+ * (nessun submit).
  */
 export function AbbonamentiTable({ rows }: { rows: SubscriptionRow[] }) {
   const [query, setQuery] = useState("");
@@ -31,7 +34,8 @@ export function AbbonamentiTable({ rows }: { rows: SubscriptionRow[] }) {
     return rows.filter(
       (r) =>
         r.clientName.toLowerCase().includes(q) ||
-        r.services.some((s) => s.toLowerCase().includes(q)),
+        r.services.some((s) => s.toLowerCase().includes(q)) ||
+        r.endClients.some((s) => s.toLowerCase().includes(q)),
     );
   }, [rows, query]);
 
@@ -41,7 +45,7 @@ export function AbbonamentiTable({ rows }: { rows: SubscriptionRow[] }) {
         type="search"
         value={query}
         onChange={(e) => setQuery(e.target.value)}
-        placeholder="Cerca per cliente o servizio…"
+        placeholder="Cerca per cliente, servizio o cliente finale…"
         className="field w-full max-w-md"
         aria-label="Cerca abbonamenti"
       />
@@ -95,6 +99,14 @@ export function AbbonamentiTable({ rows }: { rows: SubscriptionRow[] }) {
                       <span title={r.services.join(", ")}>
                         {compactServices(r.services)}
                       </span>
+                      {r.endClients.length > 0 ? (
+                        <span
+                          className="block font-mono text-xs text-slate-500"
+                          title={r.endClients.join(", ")}
+                        >
+                          Cliente finale: {compactEndClients(r.endClients)}
+                        </span>
+                      ) : null}
                     </td>
                     <td className="px-5 py-3 text-slate-600">
                       {r.nextDueISO ? formatDate(new Date(r.nextDueISO)) : "—"}
@@ -176,4 +188,10 @@ function NoteIcon() {
       <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
     </svg>
   );
+}
+
+function compactEndClients(names: string[]): string {
+  return names.length <= 2
+    ? names.join(", ")
+    : `${names.slice(0, 2).join(", ")}… (+${names.length - 2})`;
 }

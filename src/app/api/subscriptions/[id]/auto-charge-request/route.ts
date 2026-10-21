@@ -84,6 +84,7 @@ export function POST(req: NextRequest, { params }: Params) {
       items: subscription.items.map((it) => ({
         serviceName:
           it.quantity > 1 ? `${it.service.name} ×${it.quantity}` : it.service.name,
+        endClientName: it.endClientName,
         amountLabel: formatEur(it.priceCents * it.quantity, it.currency),
         periodicityLabel: formatBillingPeriod(
           it.billingPeriod as BillingPeriodValue,

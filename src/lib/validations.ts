@@ -250,6 +250,9 @@ export const PAYMENT_STATUS_LABELS: Record<PaymentStatusValue, string> = {
 // come righe (SubscriptionItem) con propria scadenza/prezzo/stato/auto-charge.
 // La creazione di un abbonamento è quindi { clientId, notes?, items: [...] }.
 
+/** Lunghezza massima del nome cliente finale (condivisa client/server). */
+export const END_CLIENT_NAME_MAX = 120;
+
 // Oggetto base di una riga di servizio, riusato per create (intero, dentro
 // l'abbonamento o aggiunto in seguito) e update (parziale).
 const subscriptionItemObject = z.object({
@@ -283,6 +286,16 @@ const subscriptionItemObject = z.object({
     z.coerce.date().nullable().optional(),
   ),
   notes: z.preprocess(emptyToUndef, z.string().trim().max(5000).optional()),
+  // Cliente finale (facoltativo): trim, max 120; stringa vuota → null (svuota).
+  endClientName: z.preprocess(
+    (v) => (typeof v === "string" && v.trim() === "" ? null : v),
+    z
+      .string()
+      .trim()
+      .max(END_CLIENT_NAME_MAX, `Massimo ${END_CLIENT_NAME_MAX} caratteri`)
+      .nullable()
+      .optional(),
+  ),
 });
 
 // La scadenza deve essere successiva all'inizio (quando entrambe presenti).

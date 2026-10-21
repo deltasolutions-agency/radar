@@ -5,19 +5,68 @@ import { formatBillingPeriod, type BillingPeriodValue } from "@/lib/validations"
 import { splitVatFromGross, addVatToNet } from "@/lib/vat";
 import { escapeHtml as h } from "@/lib/html-escape";
 
+/** Una riga (servizio) di un'email di reminder. */
+export type ReminderEmailItem = {
+  /** Nome servizio (già comprensivo di "×N" se quantità > 1). */
+  serviceName: string;
+  /** Cliente finale della riga (facoltativo). */
+  endClientName?: string | null;
+};
+
 /**
  * Dati necessari a comporre le email di reminder/sollecito/cessazione.
- * clientName/serviceName sono i valori correnti (join live nel cron): le email
- * sono comunicazioni operative per l'admin, non documenti immutabili.
+ * Un'email copre una o più righe dello stesso abbonamento con la stessa
+ * scadenza. clientName/serviceName sono i valori correnti (join live nel cron).
  */
 export type ReminderEmailData = {
   subscriptionId: string;
   clientName: string;
-  serviceName: string;
+  items: ReminderEmailItem[];
   endDate: Date;
   /** Giorni mancanti alla scadenza (negativo se già scaduto). */
   diffDays: number;
 };
+
+// ──────────────────────────────────────────────────────────────────────────
+// Righe servizio con CLIENTE FINALE — helper condivisi da tutte le email
+// ──────────────────────────────────────────────────────────────────────────
+
+/** Riga servizio, versione testo: "Servizio — Cliente finale: X". */
+function serviceLineText(name: string, endClientName?: string | null): string {
+  return endClientName ? `${name} — Cliente finale: ${endClientName}` : name;
+}
+
+/** Cella servizio, versione HTML: nome + cliente finale come sottotitolo. */
+function serviceCellHtml(name: string, endClientName?: string | null): string {
+  return endClientName
+    ? `${h(name)}<br/><span style="font-family:'Space Mono','Courier New',monospace;font-size:12px;color:#64748b">Cliente finale: ${h(endClientName)}</span>`
+    : h(name);
+}
+
+/** Nomi dei servizi del reminder, separati da virgola ({serviceName}). */
+function reminderServiceNames(d: ReminderEmailData): string {
+  return d.items.map((it) => it.serviceName).join(", ");
+}
+
+/** Cliente finale comune a tutte le righe, altrimenti null. */
+function reminderCommonEndClient(d: ReminderEmailData): string | null {
+  const first = d.items[0]?.endClientName ?? null;
+  if (!first) return null;
+  return d.items.every((it) => it.endClientName === first) ? first : null;
+}
+
+/** Righe servizio del reminder, versione testo ({serviceLines}). */
+function reminderServiceLinesText(d: ReminderEmailData): string {
+  return d.items
+    .map((it) => `- ${serviceLineText(it.serviceName, it.endClientName)}`)
+    .join("\n");
+}
+
+/** Aggiunge " – {cliente finale}" all'oggetto se comune a tutte le righe. */
+function withEndClientSubject(subject: string, d: ReminderEmailData): string {
+  const common = reminderCommonEndClient(d);
+  return common ? `${subject} – ${common}` : subject;
+}
 
 export type EmailContent = {
   subject: string;
@@ -52,10 +101,22 @@ function emailHeaderHtml(): string {
 function detailsText(d: ReminderEmailData): string {
   return [
     `Cliente:   ${d.clientName}`,
-    `Servizio:  ${d.serviceName}`,
+    d.items.length === 1
+      ? `Servizio:  ${serviceLineText(d.items[0].serviceName, d.items[0].endClientName)}`
+      : `Servizi:\n${reminderServiceLinesText(d)}`,
     `Scadenza:  ${formatDate(d.endDate)}`,
     `Dettaglio: ${detailUrl(d.subscriptionId)}`,
   ].join("\n");
+}
+
+/** Righe "Servizio" della tabella dettagli (una per riga del reminder). */
+function reminderServiceRowsHtml(d: ReminderEmailData): string {
+  return d.items
+    .map(
+      (it, i) =>
+        `<tr><td style="padding:2px 12px 2px 0;color:#64748b;vertical-align:top">${i === 0 ? (d.items.length > 1 ? "Servizi" : "Servizio") : ""}</td><td style="padding:2px 0">${serviceCellHtml(it.serviceName, it.endClientName)}</td></tr>`,
+    )
+    .join("");
 }
 
 /** Blocco dati comune (HTML). */
@@ -64,7 +125,7 @@ function detailsHtml(d: ReminderEmailData): string {
   return `
     <table style="border-collapse:collapse;font-family:sans-serif;font-size:14px;color:#1e293b">
       <tr><td style="padding:2px 12px 2px 0;color:#64748b">Cliente</td><td>${h(d.clientName)}</td></tr>
-      <tr><td style="padding:2px 12px 2px 0;color:#64748b">Servizio</td><td>${h(d.serviceName)}</td></tr>
+      ${reminderServiceRowsHtml(d)}
       <tr><td style="padding:2px 12px 2px 0;color:#64748b">Scadenza</td><td>${formatDate(d.endDate)}</td></tr>
     </table>
     <p style="font-family:sans-serif;font-size:14px">
@@ -77,7 +138,7 @@ function wrapHtml(title: string, intro: string, d: ReminderEmailData): string {
     <div style="max-width:560px;margin:0 auto;font-family:sans-serif;color:#1e293b">
       ${emailHeaderHtml()}
       <h2 style="font-size:18px;margin:0 0 8px">${title}</h2>
-      <p style="font-size:14px;line-height:1.5">${h(intro)}</p>
+      <p style="font-size:14px;line-height:1.5">${multilineHtml(intro)}</p>
       ${detailsHtml(d)}
       <hr style="border:none;border-top:1px solid #e2e8f0;margin:24px 0" />
       <p style="font-size:12px;color:#94a3b8">Radar — Delta Solutions · notifica automatica</p>
@@ -97,9 +158,8 @@ export type ReminderConfigurableType =
 
 /**
  * Testi di DEFAULT (oggetto/corpo/titolo) di ciascun reminder. subject e body
- * supportano i segnaposto: {clientName} {serviceName} {endDate} {diffDays}
- * {diffDaysAfter}. Usati sia come fallback quando non c'è override, sia come
- * placeholder nel form di Impostazioni.
+ * supportano i segnaposto elencati in REMINDER_PLACEHOLDERS. Usati sia come
+ * fallback quando non c'è override, sia come placeholder nel form di Impostazioni.
  */
 export const REMINDER_DEFAULTS: Record<
   ReminderConfigurableType,
@@ -137,15 +197,53 @@ export const REMINDER_DEFAULTS: Record<
   },
 };
 
+/** Segnaposto disponibili nei template reminder (legenda in Impostazioni). */
+export const REMINDER_PLACEHOLDERS: { token: string; description: string }[] = [
+  { token: "{clientName}", description: "nome o ragione sociale del cliente" },
+  { token: "{serviceName}", description: "servizi, separati da virgola" },
+  {
+    token: "{serviceLines}",
+    description: "elenco servizi, uno per riga, con il cliente finale",
+  },
+  {
+    token: "{endClientName}",
+    description:
+      "cliente finale, se uguale per tutti i servizi (alias {{cliente_finale}})",
+  },
+  { token: "{endDate}", description: "data di scadenza" },
+  { token: "{diffDays}", description: "giorni mancanti alla scadenza" },
+  { token: "{diffDaysAfter}", description: "giorni trascorsi dalla scadenza" },
+];
+
 /** Sostituisce i segnaposto {token} con i valori del reminder. */
 function fillReminderPlaceholders(tpl: string, d: ReminderEmailData): string {
   const diffDaysAfter = -d.diffDays;
+  const endClient = reminderCommonEndClient(d) ?? "";
   return tpl
+    .replaceAll("{{cliente_finale}}", endClient)
     .replaceAll("{clientName}", d.clientName)
-    .replaceAll("{serviceName}", d.serviceName)
+    .replaceAll("{serviceName}", reminderServiceNames(d))
+    .replaceAll("{serviceLines}", reminderServiceLinesText(d))
+    .replaceAll("{endClientName}", endClient)
     .replaceAll("{endDate}", formatDate(d.endDate))
     .replaceAll("{diffDays}", String(d.diffDays))
     .replaceAll("{diffDaysAfter}", String(diffDaysAfter));
+}
+
+/**
+ * Oggetto del reminder: segnaposto risolti + " – {cliente finale}" se comune a
+ * tutte le righe (salvo che il template lo includa già esplicitamente).
+ */
+function reminderSubject(tpl: string, d: ReminderEmailData): string {
+  const filled = fillReminderPlaceholders(tpl, d).replaceAll("\n", " ");
+  const explicit =
+    tpl.includes("{endClientName}") || tpl.includes("{{cliente_finale}}");
+  return explicit ? filled : withEndClientSubject(filled, d);
+}
+
+/** Testo con a capo → HTML (escape + <br/>), per corpi che includono {serviceLines}. */
+function multilineHtml(text: string): string {
+  return h(text).replaceAll("\n", "<br/>");
 }
 
 /**
@@ -184,20 +282,59 @@ const REMINDER_CLIENT_DEFAULTS: Record<
   },
 };
 
+/**
+ * Varianti PLURALI dei testi cliente, usate quando l'email copre più servizi
+ * (stesso abbonamento, stessa scadenza). L'elenco dei servizi è nel blocco
+ * dettagli, quindi qui non si ripete {serviceName}.
+ */
+const REMINDER_CLIENT_DEFAULTS_PLURAL: Record<
+  ReminderConfigurableType,
+  { subject: string; body: string; title: string }
+> = {
+  PROMEMORIA_30: {
+    subject: "I tuoi servizi sono in scadenza il {endDate}",
+    body: "ti ricordiamo che i servizi elencati qui sotto scadranno il {endDate} (tra {diffDays} giorni). Per non interromperli, ti invitiamo a provvedere al rinnovo per tempo.",
+    title: "I tuoi servizi sono in scadenza",
+  },
+  PROMEMORIA_15: {
+    subject: "I tuoi servizi sono in scadenza il {endDate}",
+    body: "ti ricordiamo che i servizi elencati qui sotto scadranno il {endDate} (tra {diffDays} giorni). Per non interromperli, ti invitiamo a provvedere al rinnovo per tempo.",
+    title: "I tuoi servizi sono in scadenza",
+  },
+  PROMEMORIA_7: {
+    subject: "I tuoi servizi sono in scadenza il {endDate}",
+    body: "ti ricordiamo che i servizi elencati qui sotto scadranno il {endDate} (tra {diffDays} giorni). Per non interromperli, ti invitiamo a provvedere al rinnovo per tempo.",
+    title: "I tuoi servizi sono in scadenza",
+  },
+  SOLLECITO: {
+    subject: "I tuoi servizi sono scaduti il {endDate}",
+    body: "i servizi elencati qui sotto sono scaduti il {endDate} e non risultano ancora rinnovati. Ti invitiamo a regolarizzare il pagamento al più presto per evitare l'interruzione dei servizi.",
+    title: "I tuoi servizi sono scaduti",
+  },
+  CESSAZIONE_MOROSITA: {
+    subject: "I tuoi servizi sono stati cessati",
+    body: "ti informiamo che i servizi elencati qui sotto sono stati cessati per mancato rinnovo, trascorsi i giorni previsti dalla scadenza. Se desideri riattivarli, contattaci il prima possibile.",
+    title: "I tuoi servizi sono stati cessati",
+  },
+};
+
 const CONTACT_LINE_TEXT =
   "Per qualsiasi domanda scrivici a hello@deltasolutions.agency.";
 
-/** Blocco dettagli per il CLIENTE (solo servizio + scadenza, nessun link admin). */
+/** Blocco dettagli per il CLIENTE (servizi + scadenza, nessun link admin). */
 function clientDetailsText(d: ReminderEmailData): string {
-  return [`Servizio:  ${d.serviceName}`, `Scadenza:  ${formatDate(d.endDate)}`].join(
-    "\n",
-  );
+  return [
+    d.items.length === 1
+      ? `Servizio:  ${serviceLineText(d.items[0].serviceName, d.items[0].endClientName)}`
+      : `Servizi:\n${reminderServiceLinesText(d)}`,
+    `Scadenza:  ${formatDate(d.endDate)}`,
+  ].join("\n");
 }
 
 function clientDetailsHtml(d: ReminderEmailData): string {
   return `
     <table style="border-collapse:collapse;font-family:sans-serif;font-size:14px;color:#1e293b">
-      <tr><td style="padding:2px 12px 2px 0;color:#64748b">Servizio</td><td>${h(d.serviceName)}</td></tr>
+      ${reminderServiceRowsHtml(d)}
       <tr><td style="padding:2px 12px 2px 0;color:#64748b">Scadenza</td><td>${formatDate(d.endDate)}</td></tr>
     </table>`;
 }
@@ -228,17 +365,41 @@ const RENEWAL_DISCLAIMER_CESSATION =
  * assente per la cessazione (Caso B).
  */
 export type ClientRenewalInfo = {
-  /** Netto (priceCents × quantity) dell'item; l'IVA e il lordo si calcolano qui. */
-  netCents: number;
+  /**
+   * Netto (priceCents × quantity) di CIASCUNA riga coperta dall'email. IVA e
+   * lordo sono calcolati per riga con addVatToNet e poi sommati — come fanno
+   * il checkout Stripe e l'auto-charge — così il totale coincide con il link.
+   * Con una sola riga il risultato è identico al calcolo precedente.
+   */
+  itemNetCents: number[];
   currency: string;
   autoChargeUrl?: string | null;
   /** Link pagamento elettronico (/pay/{payToken}) alternativo al bonifico. */
   payUrl?: string | null;
 };
 
+/** Somma per riga di netto/IVA/lordo (addVatToNet su ciascuna riga). */
+function sumVatPerItem(itemNetCents: number[]): {
+  netCents: number;
+  vatCents: number;
+  grossCents: number;
+} {
+  return itemNetCents.reduce(
+    (acc, net) => {
+      const r = addVatToNet(net);
+      return {
+        netCents: acc.netCents + r.netCents,
+        vatCents: acc.vatCents + r.vatCents,
+        grossCents: acc.grossCents + r.grossCents,
+      };
+    },
+    { netCents: 0, vatCents: 0, grossCents: 0 },
+  );
+}
+
 /** Coordinate bancarie, versione testo. */
-function bankSectionText(netCents: number, currency: string): string {
-  const { netCents: net, vatCents, grossCents } = addVatToNet(netCents);
+function bankSectionText(itemNetCents: number[], currency: string): string {
+  const { netCents: net, vatCents, grossCents } = sumVatPerItem(itemNetCents);
   return [
     "Istruzioni per il rinnovo:",
     `1. Effettuare bonifico a: ${RENEWAL_BANK.beneficiary}`,
@@ -252,8 +413,8 @@ function bankSectionText(netCents: number, currency: string): string {
 }
 
 /** Coordinate bancarie, versione HTML (card con bordo sinistro blu). */
-function bankSectionHtml(netCents: number, currency: string): string {
-  const { netCents: net, vatCents, grossCents } = addVatToNet(netCents);
+function bankSectionHtml(itemNetCents: number[], currency: string): string {
+  const { netCents: net, vatCents, grossCents } = sumVatPerItem(itemNetCents);
   const mono = "font-family:'Space Mono','Courier New',monospace";
   return `
     <div style="margin:16px 0;border:1px solid #E2DED6;border-left:4px solid #2B7FFF;border-radius:8px;background:#FAFAFA;padding:14px 16px">
@@ -274,7 +435,7 @@ function clientRenewalText(
   info: ClientRenewalInfo,
   isCessation: boolean,
 ): string[] {
-  const blocks = ["", bankSectionText(info.netCents, info.currency)];
+  const blocks = ["", bankSectionText(info.itemNetCents, info.currency)];
   if (info.payUrl) {
     blocks.push(
       "",
@@ -318,7 +479,7 @@ function clientRenewalHtml(
       </p>`
     : "";
   return `
-    ${bankSectionHtml(info.netCents, info.currency)}
+    ${bankSectionHtml(info.itemNetCents, info.currency)}
     ${payCta}
     <p style="font-size:12px;color:#94a3b8;font-style:italic;line-height:1.6;margin:14px 0 0">${disclaimer}</p>
     ${cta}`;
@@ -355,7 +516,10 @@ export function buildReminderEmail(
 
   // Type non gestito (es. CONFERMA_ACQUISTO ha il suo generatore).
   if (!def) {
-    const subject = `[Radar] Notifica abbonamento: ${d.clientName} — ${d.serviceName}`;
+    const subject = withEndClientSubject(
+      `[Radar] Notifica abbonamento: ${d.clientName} — ${reminderServiceNames(d)}`,
+      d,
+    );
     return {
       subject,
       text: detailsText(d),
@@ -365,8 +529,12 @@ export function buildReminderEmail(
 
   // ── Versione CLIENTE ─────────────────────────────────────────────────────
   if (audience === "client") {
-    const cdef = REMINDER_CLIENT_DEFAULTS[type as ReminderConfigurableType];
-    const subject = fillReminderPlaceholders(cdef.subject, d);
+    const cdef = (
+      d.items.length > 1
+        ? REMINDER_CLIENT_DEFAULTS_PLURAL
+        : REMINDER_CLIENT_DEFAULTS
+    )[type as ReminderConfigurableType];
+    const subject = reminderSubject(cdef.subject, d);
     const intro = fillReminderPlaceholders(cdef.body, d);
 
     // Sezione rinnovo (coordinate + disclaimer + eventuale CTA): compare SOLO se
@@ -396,7 +564,7 @@ export function buildReminderEmail(
       <div style="max-width:560px;margin:0 auto;font-family:sans-serif;color:#1e293b">
         ${emailHeaderHtml()}
         <h2 style="font-size:18px;margin:0 0 8px">${cdef.title}</h2>
-        <p style="font-size:14px;line-height:1.5">Ciao ${h(d.clientName)}, ${h(intro)}</p>
+        <p style="font-size:14px;line-height:1.5">Ciao ${h(d.clientName)}, ${multilineHtml(intro)}</p>
         ${clientDetailsHtml(d)}
         ${renewalHtmlBlock}
         <p style="font-size:13px;color:#64748b;line-height:1.5;margin-top:12px">
@@ -412,12 +580,12 @@ export function buildReminderEmail(
     return { subject, text, html };
   }
 
-  // ── Versione ADMIN (invariata) ───────────────────────────────────────────
+  // ── Versione ADMIN ───────────────────────────────────────────────────────
   const override = opts?.override;
   const subjectTpl = override?.subject?.trim() ? override.subject : def.subject;
   const bodyTpl = override?.body?.trim() ? override.body : def.body;
 
-  const subject = fillReminderPlaceholders(subjectTpl, d);
+  const subject = reminderSubject(subjectTpl, d);
   const intro = fillReminderPlaceholders(bodyTpl, d);
   const text = `${intro}\n\n${detailsText(d)}`;
 
@@ -430,6 +598,8 @@ export function buildReminderEmail(
 
 export type ConfirmationEmailItem = {
   serviceName: string;
+  /** Cliente finale della riga (facoltativo). */
+  endClientName?: string | null;
   amountCents: number;
   /** Nuova scadenza dopo il rinnovo (o scadenza corrente se il rinnovo è saltato). */
   newEndDate: Date;
@@ -517,7 +687,7 @@ export function buildConfirmationEmail(
 
   const itemLinesText = d.items.map(
     (it) =>
-      `- ${it.serviceName}: ${formatEur(it.amountCents, currency)} · nuova scadenza ${formatDate(it.newEndDate)}`,
+      `- ${serviceLineText(it.serviceName, it.endClientName)}: ${formatEur(it.amountCents, currency)} · nuova scadenza ${formatDate(it.newEndDate)}`,
   );
 
   const textLines = [
@@ -545,7 +715,7 @@ export function buildConfirmationEmail(
     .map(
       (it) => `
         <tr>
-          <td style="padding:6px 12px 6px 0;border-bottom:1px solid #f1f5f9">${h(it.serviceName)}</td>
+          <td style="padding:6px 12px 6px 0;border-bottom:1px solid #f1f5f9">${serviceCellHtml(it.serviceName, it.endClientName)}</td>
           <td style="padding:6px 12px 6px 0;border-bottom:1px solid #f1f5f9;text-align:right;white-space:nowrap">${formatEur(it.amountCents, currency)}</td>
           <td style="padding:6px 0;border-bottom:1px solid #f1f5f9;text-align:right;white-space:nowrap;color:#64748b">${formatDate(it.newEndDate)}</td>
         </tr>`,
@@ -611,6 +781,8 @@ export function buildConfirmationEmail(
 
 export type WelcomeEmailItem = {
   serviceName: string;
+  /** Cliente finale della riga (facoltativo). */
+  endClientName?: string | null;
   priceCents: number; // prezzo unitario
   quantity: number; // ≥ 1
   currency?: string;
@@ -725,7 +897,7 @@ export function buildWelcomeEmail(d: WelcomeEmailData): EmailContent {
 
   const itemLinesText = d.items.map((it) => {
     const { name, period, price, expiry } = itemLabel(it);
-    return `- ${name} — ${period} — scade il ${expiry} — ${price}*`;
+    return `- ${serviceLineText(name, it.endClientName)} — ${period} — scade il ${expiry} — ${price}*`;
   });
 
   // Sezione rinnovo automatico (solo se richiesto in creazione).
@@ -774,7 +946,7 @@ export function buildWelcomeEmail(d: WelcomeEmailData): EmailContent {
       const { name, period, price, expiry } = itemLabel(it);
       return `
         <tr>
-          <td style="padding:6px 12px 6px 0;border-bottom:1px solid #f1f5f9">${h(name)}</td>
+          <td style="padding:6px 12px 6px 0;border-bottom:1px solid #f1f5f9">${serviceCellHtml(name, it.endClientName)}</td>
           <td style="padding:6px 12px 6px 0;border-bottom:1px solid #f1f5f9;color:#64748b">${h(period)}</td>
           <td style="padding:6px 12px 6px 0;border-bottom:1px solid #f1f5f9;color:#64748b;white-space:nowrap">scade il ${expiry}</td>
           <td style="padding:6px 0;border-bottom:1px solid #f1f5f9;text-align:right;white-space:nowrap">${price}*</td>
@@ -838,6 +1010,8 @@ export function buildWelcomeEmail(d: WelcomeEmailData): EmailContent {
 
 export type AutoChargeRequestItem = {
   serviceName: string;
+  /** Cliente finale della riga (facoltativo). */
+  endClientName?: string | null;
   amountLabel: string;
   periodicityLabel: string;
 };
@@ -858,7 +1032,8 @@ export function buildAutoChargeRequestEmail(d: {
     "Puoi attivare il rinnovo automatico registrando una carta: autorizzerai l'addebito ricorrente per i servizi elencati qui sotto, ciascuno alla propria cadenza. Puoi revocare l'autorizzazione in qualsiasi momento scrivendo a hello@deltasolutions.agency.";
 
   const itemLinesText = d.items.map(
-    (it) => `- ${it.serviceName}: ${it.amountLabel}* · ${it.periodicityLabel}`,
+    (it) =>
+      `- ${serviceLineText(it.serviceName, it.endClientName)}: ${it.amountLabel}* · ${it.periodicityLabel}`,
   );
 
   const text = [
@@ -875,7 +1050,7 @@ export function buildAutoChargeRequestEmail(d: {
     .map(
       (it) => `
         <tr>
-          <td style="padding:6px 12px 6px 0;border-bottom:1px solid #f1f5f9">${h(it.serviceName)}</td>
+          <td style="padding:6px 12px 6px 0;border-bottom:1px solid #f1f5f9">${serviceCellHtml(it.serviceName, it.endClientName)}</td>
           <td style="padding:6px 12px 6px 0;border-bottom:1px solid #f1f5f9;color:#64748b">${h(it.periodicityLabel)}</td>
           <td style="padding:6px 0;border-bottom:1px solid #f1f5f9;text-align:right;white-space:nowrap">${h(it.amountLabel)}*</td>
         </tr>`,
@@ -978,6 +1153,8 @@ export function buildAutoChargeNotConfirmedEmail(d: {
 
 export type RefundConfirmationItem = {
   serviceName: string;
+  /** Cliente finale della riga (facoltativo). */
+  endClientName?: string | null;
   amountCents: number;
   /** true se il rinnovo di questo servizio è stato annullato dallo storno. */
   renewalReverted: boolean;
@@ -1022,7 +1199,7 @@ export function buildRefundConfirmationEmail(
 
   const itemLinesText = d.items.map(
     (it) =>
-      `- ${it.serviceName}: ${formatEur(it.amountCents, currency)}${
+      `- ${serviceLineText(it.serviceName, it.endClientName)}: ${formatEur(it.amountCents, currency)}${
         it.renewalReverted ? " (rinnovo annullato)" : ""
       }`,
   );
@@ -1055,7 +1232,7 @@ export function buildRefundConfirmationEmail(
     .map(
       (it) => `
         <tr>
-          <td style="padding:6px 12px 6px 0;border-bottom:1px solid #f1f5f9">${h(it.serviceName)}${
+          <td style="padding:6px 12px 6px 0;border-bottom:1px solid #f1f5f9">${serviceCellHtml(it.serviceName, it.endClientName)}${
             it.renewalReverted
               ? ` <span style="color:#94a3b8;font-size:12px">— rinnovo annullato</span>`
               : ""
@@ -1109,6 +1286,8 @@ export function buildRefundConfirmationEmail(
 
 export type AutoChargeFailedItem = {
   serviceName: string;
+  /** Cliente finale della riga (facoltativo). */
+  endClientName?: string | null;
   /** Motivo specifico della riga, se diverso dal motivo comune del gruppo. */
   reason?: string;
 };
@@ -1141,7 +1320,7 @@ export function buildAutoChargeFailedAdminEmail(d: {
     "Servizi disattivati:",
     ...d.items.map((it) => {
       const r = reasonOf(it);
-      return `- ${it.serviceName}${r ? ` — ${r}` : ""}`;
+      return `- ${serviceLineText(it.serviceName, it.endClientName)}${r ? ` — ${r}` : ""}`;
     }),
     "",
     `Dettaglio: ${detail}`,
@@ -1150,7 +1329,7 @@ export function buildAutoChargeFailedAdminEmail(d: {
   const itemsHtml = d.items
     .map((it) => {
       const r = reasonOf(it);
-      return `<li style="margin-bottom:2px">${h(it.serviceName)}${r ? ` <span style="color:#94a3b8">— ${h(r)}</span>` : ""}</li>`;
+      return `<li style="margin-bottom:2px">${serviceCellHtml(it.serviceName, it.endClientName)}${r ? ` <span style="color:#94a3b8">— ${h(r)}</span>` : ""}</li>`;
     })
     .join("");
 
@@ -1176,6 +1355,8 @@ export function buildAutoChargeFailedAdminEmail(d: {
 
 export type PaymentLinkEmailItem = {
   serviceName: string;
+  /** Cliente finale della riga (facoltativo). */
+  endClientName?: string | null;
   amountCents: number;
   /** Fine del periodo coperto da questa riga (opzionale). */
   periodEnd?: Date | null;
@@ -1207,7 +1388,7 @@ export function buildPaymentLinkEmail(d: PaymentLinkEmailData): EmailContent {
 
   const itemLinesText = d.items.map((it) => {
     const per = it.periodEnd ? ` (fino al ${formatDate(it.periodEnd)})` : "";
-    return `- ${it.serviceName}: ${formatEur(it.amountCents, currency)}*${per}`;
+    return `- ${serviceLineText(it.serviceName, it.endClientName)}: ${formatEur(it.amountCents, currency)}*${per}`;
   });
 
   const text = [
@@ -1226,7 +1407,7 @@ export function buildPaymentLinkEmail(d: PaymentLinkEmailData): EmailContent {
     .map(
       (it) => `
         <tr>
-          <td style="padding:6px 12px 6px 0;border-bottom:1px solid #f1f5f9">${h(it.serviceName)}${it.periodEnd ? `<br/><span style="color:#94a3b8;font-size:12px">fino al ${formatDate(it.periodEnd)}</span>` : ""}</td>
+          <td style="padding:6px 12px 6px 0;border-bottom:1px solid #f1f5f9">${serviceCellHtml(it.serviceName, it.endClientName)}${it.periodEnd ? `<br/><span style="color:#94a3b8;font-size:12px">fino al ${formatDate(it.periodEnd)}</span>` : ""}</td>
           <td style="padding:6px 0;border-bottom:1px solid #f1f5f9;text-align:right;white-space:nowrap">${formatEur(it.amountCents, currency)}*</td>
         </tr>`,
     )
@@ -1392,7 +1573,8 @@ export function buildDataUpdateRequestEmail(
  * coincidere ESATTAMENTE con quanto il cron auto-charge addebiterà quel giorno.
  */
 export function buildAutoChargeUpcomingEmail(d: {
-  serviceName: string;
+  /** Righe con rinnovo automatico che verranno addebitate insieme. */
+  items: { serviceName: string; endClientName?: string | null }[];
   endDate: Date;
   netCents: number;
   vatCents: number;
@@ -1404,8 +1586,24 @@ export function buildAutoChargeUpcomingEmail(d: {
   const currency = d.currency ?? "eur";
   const dateStr = formatDate(d.endDate);
 
-  const subject = `Radar — Prossimo addebito automatico: ${d.serviceName}`;
-  const intro = `Il ${dateStr} verrà addebitato automaticamente sulla carta registrata per il rinnovo di ${d.serviceName}.`;
+  const subject = `Radar — Prossimo addebito automatico: ${servicesLabel(d.items)}`;
+  const intro =
+    d.items.length === 1
+      ? `Il ${dateStr} verrà addebitato automaticamente sulla carta registrata per il rinnovo di ${d.items[0].serviceName}.`
+      : `Il ${dateStr} verrà addebitato automaticamente sulla carta registrata per il rinnovo dei servizi elencati qui sotto.`;
+  const showLines = d.items.length > 1 || d.items.some((it) => it.endClientName);
+  const serviceLinesText = showLines
+    ? [
+        "",
+        "Servizi:",
+        ...d.items.map((it) => `- ${serviceLineText(it.serviceName, it.endClientName)}`),
+      ]
+    : [];
+  const serviceRowsHtml = showLines
+    ? `<ul style="font-family:sans-serif;font-size:14px;color:#1e293b;padding-left:18px;margin:8px 0">${d.items
+        .map((it) => `<li style="margin-bottom:4px">${serviceCellHtml(it.serviceName, it.endClientName)}</li>`)
+        .join("")}</ul>`
+    : "";
 
   const feeTextLine =
     d.serviceFeeCents > 0
@@ -1413,6 +1611,7 @@ export function buildAutoChargeUpcomingEmail(d: {
       : [];
   const text = [
     intro,
+    ...serviceLinesText,
     "",
     `Imponibile: ${formatEur(d.netCents, currency)}`,
     `IVA (22%): ${formatEur(d.vatCents, currency)}`,
@@ -1432,6 +1631,7 @@ export function buildAutoChargeUpcomingEmail(d: {
       ${emailHeaderHtml()}
       <h2 style="font-size:18px;margin:0 0 8px">Prossimo addebito automatico</h2>
       <p style="font-size:14px;line-height:1.5">${h(intro)}</p>
+      ${serviceRowsHtml}
       <div style="margin:16px 0;border:1px solid #E2DED6;border-left:4px solid #2B7FFF;border-radius:8px;background:#FAFAFA;padding:14px 16px">
         <table style="border-collapse:collapse;width:100%;font-family:sans-serif;font-size:14px;color:#4A463F">
           <tr><td style="padding:2px 0;color:#64748b">Imponibile</td><td style="padding:2px 0;text-align:right;font-family:'Space Mono','Courier New',monospace">${formatEur(d.netCents, currency)}</td></tr>

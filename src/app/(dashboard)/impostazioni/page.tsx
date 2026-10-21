@@ -6,6 +6,7 @@ import {
 import {
   REMINDER_CONFIGURABLE_TYPES,
   REMINDER_DEFAULTS,
+  REMINDER_PLACEHOLDERS,
   type ReminderConfigurableType,
 } from "@/lib/email-templates";
 import { ImpostazioniForm, type TemplateField } from "./impostazioni-form";
@@ -52,6 +53,7 @@ export default async function ImpostazioniPage() {
       </div>
 
       <ImpostazioniForm
+        placeholders={REMINDER_PLACEHOLDERS}
         initial={{
           thresholdsLongDays: thresholds.thresholdsLongDays.join(", "),
           thresholdsShortDays: thresholds.thresholdsShortDays.join(", "),

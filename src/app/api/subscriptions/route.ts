@@ -124,6 +124,7 @@ export function POST(req: NextRequest) {
               autoChargeEnabled: it.autoChargeEnabled ?? false,
               autoChargeEndDate: it.autoChargeEndDate ?? null,
               notes: it.notes,
+              endClientName: it.endClientName ?? null,
               status,
             };
           }),
@@ -180,6 +181,7 @@ export function POST(req: NextRequest) {
           clientName,
           items: subscription.items.map((it) => ({
             serviceName: it.service.name,
+            endClientName: it.endClientName,
             priceCents: it.priceCents,
             quantity: it.quantity,
             currency: it.currency,
@@ -232,6 +234,7 @@ export function POST(req: NextRequest) {
               it.quantity > 1
                 ? `${it.service.name} ×${it.quantity}`
                 : it.service.name,
+            endClientName: it.endClientName,
             amountLabel: formatEur(it.priceCents * it.quantity, it.currency),
             periodicityLabel: formatBillingPeriod(
               it.billingPeriod as BillingPeriodValue,

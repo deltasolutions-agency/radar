@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { ItemForm } from "../../../../item-form";
+import { getEndClientSuggestions } from "@/lib/end-client";
 
 export const dynamic = "force-dynamic";
 
@@ -38,6 +39,7 @@ export default async function ModificaRigaPage({
           className="text-sm text-slate-500 hover:underline"
         >
           ← {clientName} · {item.service.name}
+          {item.endClientName ? ` – ${item.endClientName}` : ""}
         </Link>
         <h1 className="mt-1 text-2xl font-semibold tracking-tight">
           Modifica servizio
@@ -47,6 +49,9 @@ export default async function ModificaRigaPage({
         mode="edit"
         subscriptionId={params.id}
         itemId={item.id}
+        endClientSuggestions={await getEndClientSuggestions(
+          item.subscription.clientId,
+        )}
         initial={{
           serviceId: item.serviceId,
           startDate: toDateInput(item.startDate),
@@ -60,6 +65,7 @@ export default async function ModificaRigaPage({
             ? toDateInput(item.autoChargeEndDate)
             : "",
           notes: item.notes ?? "",
+          endClientName: item.endClientName ?? "",
         }}
       />
     </div>

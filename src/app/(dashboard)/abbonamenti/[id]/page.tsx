@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { EndClientLabel } from "@/components/end-client-label";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import {
@@ -82,6 +83,7 @@ export default async function AbbonamentoDettaglioPage({
       id: it.id,
       serviceName:
         it.quantity > 1 ? `${it.service.name} ×${it.quantity}` : it.service.name,
+      endClientName: it.endClientName,
       priceLabel: formatEur(it.priceCents * it.quantity, it.currency),
       periodicityLabel: formatBillingPeriod(
         it.billingPeriod as BillingPeriodValue,
@@ -95,6 +97,7 @@ export default async function AbbonamentoDettaglioPage({
     .map((it) => ({
       id: it.id,
       serviceName: it.service.name,
+      endClientName: it.endClientName,
       priceCents: it.priceCents,
       quantity: it.quantity,
       currency: it.currency,
@@ -228,16 +231,19 @@ export default async function AbbonamentoDettaglioPage({
             {sub.items.map((it) => (
               <div key={it.id} className="card space-y-4 p-6">
                 <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div className="flex items-center gap-3">
-                    <Link
-                      href={`/servizi/${it.serviceId}`}
-                      className="text-base font-medium text-ink hover:underline"
-                    >
-                      {it.service.name}
-                    </Link>
-                    <SubscriptionStatusBadge
-                      status={it.status as SubscriptionStatusValue}
-                    />
+                  <div>
+                    <div className="flex items-center gap-3">
+                      <Link
+                        href={`/servizi/${it.serviceId}`}
+                        className="text-base font-medium text-ink hover:underline"
+                      >
+                        {it.service.name}
+                      </Link>
+                      <SubscriptionStatusBadge
+                        status={it.status as SubscriptionStatusValue}
+                      />
+                    </div>
+                    <EndClientLabel name={it.endClientName} className="mt-0.5" />
                   </div>
                   <div className="flex items-center gap-3 text-sm">
                     <Link
@@ -378,6 +384,9 @@ export default async function AbbonamentoDettaglioPage({
                             >
                               <span className={refunded ? "text-slate-400" : ""}>
                                 {pi.subscriptionItem.service.name}
+                                <EndClientLabel
+                                  name={pi.subscriptionItem.endClientName}
+                                />
                               </span>
                               <span
                                 className={
@@ -441,6 +450,7 @@ export default async function AbbonamentoDettaglioPage({
                             items={refundable.map((pi) => ({
                               id: pi.id,
                               serviceName: pi.subscriptionItem.service.name,
+                              endClientName: pi.subscriptionItem.endClientName,
                               amountCents: pi.amountCents,
                               currency: p.currency,
                               previousEndDateLabel: pi.previousEndDate

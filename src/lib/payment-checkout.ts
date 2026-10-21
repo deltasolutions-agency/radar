@@ -7,6 +7,7 @@ import { buildPaymentLinkEmail } from "@/lib/email-templates";
 import { MS_PER_DAY, periodDurationDays } from "@/lib/billing-period";
 import { computeServiceFeeCents } from "@/lib/service-fee";
 import { addVatToNet } from "@/lib/vat";
+import { withEndClient } from "@/lib/end-client";
 
 // Durata di validità della Checkout Session. Stripe impone un MASSIMO di 24h
 // da expires_at: usiamo 23h per lasciare margine contro arrotondamenti/latenza
@@ -23,6 +24,8 @@ export type SubscriptionItemForCheckout = {
   billingPeriod: BillingPeriod;
   customPeriodDays: number | null;
   service: { name: string; description: string | null };
+  /** Cliente finale della riga: aggiunto al nome su Stripe e nell'email. */
+  endClientName: string | null;
 };
 
 /**
@@ -97,7 +100,11 @@ export async function createCheckoutPayment(
       currency: it.currency,
       unit_amount: itemGrossCents[idx],
       product_data: {
-        name: it.quantity > 1 ? `${it.service.name} ×${it.quantity}` : it.service.name,
+        // Solo testo: " – {cliente finale}" in coda al nome (importi invariati).
+        name: withEndClient(
+          it.quantity > 1 ? `${it.service.name} ×${it.quantity}` : it.service.name,
+          it.endClientName,
+        ),
         ...(it.service.description
           ? { description: it.service.description }
           : {}),
@@ -187,6 +194,7 @@ export async function createCheckoutPayment(
     const emailItems = items.map((it, idx) => ({
       serviceName:
         it.quantity > 1 ? `${it.service.name} ×${it.quantity}` : it.service.name,
+      endClientName: it.endClientName,
       amountCents: it.priceCents * it.quantity,
       periodEnd: paymentItemsData[idx].periodEnd,
     }));
@@ -258,10 +266,12 @@ export async function createAutoChargeCheckoutSession(
       currency,
       unit_amount: pi.amountCents,
       product_data: {
-        name:
+        name: withEndClient(
           pi.subscriptionItem.quantity > 1
             ? `${pi.subscriptionItem.service.name} ×${pi.subscriptionItem.quantity}`
             : pi.subscriptionItem.service.name,
+          pi.subscriptionItem.endClientName,
+        ),
         ...(pi.subscriptionItem.service.description
           ? { description: pi.subscriptionItem.service.description }
           : {}),

@@ -65,6 +65,8 @@ export function PATCH(req: NextRequest, { params }: Params) {
         autoChargeEnabled: data.autoChargeEnabled,
         autoChargeEndDate: data.autoChargeEndDate,
         notes: data.notes,
+        // undefined = invariato, null = svuotato.
+        endClientName: data.endClientName,
         ...(status !== undefined ? { status } : {}),
       },
       include: { service: true },

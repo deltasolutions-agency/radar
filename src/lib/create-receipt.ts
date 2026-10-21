@@ -114,6 +114,7 @@ export async function createReceiptForPayment(
     return {
       serviceName: pi.subscriptionItem.service.name,
       description: pi.subscriptionItem.service.description,
+      endClientName: pi.subscriptionItem.endClientName,
       periodStart: pi.periodStart,
       periodEnd: pi.periodEnd,
       quantity: pi.subscriptionItem.quantity,

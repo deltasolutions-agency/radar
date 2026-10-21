@@ -1,6 +1,10 @@
 "use client";
 
-import { BILLING_PERIODS, BILLING_PERIOD_LABELS } from "@/lib/validations";
+import {
+  BILLING_PERIODS,
+  BILLING_PERIOD_LABELS,
+  END_CLIENT_NAME_MAX,
+} from "@/lib/validations";
 
 /** Valori di una riga di servizio nel form (stringhe = input controllati). */
 export type ItemValues = {
@@ -14,6 +18,7 @@ export type ItemValues = {
   autoChargeEnabled: boolean;
   autoChargeEndDate: string; // YYYY-MM-DD
   notes: string;
+  endClientName: string;
 };
 
 export const EMPTY_ITEM: ItemValues = {
@@ -27,6 +32,7 @@ export const EMPTY_ITEM: ItemValues = {
   autoChargeEnabled: false,
   autoChargeEndDate: "",
   notes: "",
+  endClientName: "",
 };
 
 export type ServiceOption = {
@@ -65,6 +71,8 @@ export function itemValuesToApi(v: ItemValues) {
     autoChargeEndDate:
       v.autoChargeEnabled && v.autoChargeEndDate ? v.autoChargeEndDate : null,
     notes: v.notes || undefined,
+    // Stringa vuota → null lato schema (svuota il cliente finale).
+    endClientName: v.endClientName.trim(),
   };
 }
 
@@ -78,12 +86,15 @@ export function ItemFields({
   services,
   errors,
   onChange,
+  endClientSuggestions = [],
 }: {
   idPrefix: string;
   value: ItemValues;
   services: ServiceOption[];
   errors: Record<string, string>;
   onChange: (patch: Partial<ItemValues>) => void;
+  /** Clienti finali già usati per lo stesso cliente (autocomplete). */
+  endClientSuggestions?: string[];
 }) {
   const isCustom = value.billingPeriod === "PERSONALIZZATA";
 
@@ -126,6 +137,31 @@ export function ItemFields({
           </select>
           {errors.serviceId ? (
             <p className="mt-1 text-xs text-red-600">{errors.serviceId}</p>
+          ) : null}
+        </div>
+
+        <div className="sm:col-span-2">
+          <label htmlFor={`${idPrefix}-endClientName`} className="field-label">
+            Cliente finale
+          </label>
+          <input
+            id={`${idPrefix}-endClientName`}
+            type="text"
+            className="field"
+            maxLength={END_CLIENT_NAME_MAX}
+            list={`${idPrefix}-endClientName-list`}
+            autoComplete="off"
+            placeholder="Facoltativo: cliente dell'agenzia a cui si riferisce il servizio"
+            value={value.endClientName}
+            onChange={(e) => onChange({ endClientName: e.target.value })}
+          />
+          <datalist id={`${idPrefix}-endClientName-list`}>
+            {endClientSuggestions.map((name) => (
+              <option key={name} value={name} />
+            ))}
+          </datalist>
+          {errors.endClientName ? (
+            <p className="mt-1 text-xs text-red-600">{errors.endClientName}</p>
           ) : null}
         </div>
 

@@ -31,7 +31,12 @@ export default async function AbbonamentiPage({
     include: {
       client: { select: { name: true, ragioneSociale: true } },
       items: {
-        select: { status: true, endDate: true, service: { select: { name: true } } },
+        select: {
+          status: true,
+          endDate: true,
+          endClientName: true,
+          service: { select: { name: true } },
+        },
         orderBy: { endDate: "asc" },
       },
     },
@@ -44,6 +49,13 @@ export default async function AbbonamentiPage({
       : sub.client.name;
 
     const services = sub.items.map((it) => it.service.name);
+    const endClients = [
+      ...new Set(
+        sub.items
+          .map((it) => it.endClientName)
+          .filter((n): n is string => !!n),
+      ),
+    ];
 
     // Stato del contenitore: unico se tutte le righe concordano, altrimenti MISTO.
     const distinctStatuses = new Set(sub.items.map((it) => it.status));
@@ -67,6 +79,7 @@ export default async function AbbonamentiPage({
       subscriptionId: sub.id,
       clientName,
       services,
+      endClients,
       status,
       nextDueISO,
       notes: sub.notes ?? null,

@@ -73,6 +73,7 @@ export function POST(_req: NextRequest, { params }: Params) {
             billingPeriod: it.billingPeriod,
             customPeriodDays: it.customPeriodDays,
             service: { name: it.service.name, description: it.service.description },
+            endClientName: it.endClientName,
           };
         }),
       },

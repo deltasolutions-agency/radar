@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import { EndClientLabel } from "@/components/end-client-label";
 import { prisma } from "@/lib/prisma";
 import { formatEur, formatDate } from "@/lib/format";
 import { isReceiptPubliclyAccessible } from "@/lib/receipt-access";
@@ -149,6 +150,7 @@ export default async function RicevutaPubblicaPage({
                         <span className="text-slate-500"> ×{line.quantity}</span>
                       ) : null}
                     </p>
+                    <EndClientLabel name={line.endClientName} />
                     {line.description?.trim() ? (
                       <p className="text-xs text-slate-500">
                         {line.description}

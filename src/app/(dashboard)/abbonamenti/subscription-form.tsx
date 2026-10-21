@@ -56,6 +56,27 @@ export function SubscriptionForm() {
     };
   }, []);
 
+  // Clienti finali già usati per il cliente selezionato (autocomplete).
+  const [endClientSuggestions, setEndClientSuggestions] = useState<string[]>([]);
+  useEffect(() => {
+    if (!clientId) {
+      setEndClientSuggestions([]);
+      return;
+    }
+    let active = true;
+    fetch(`/api/clients/${clientId}/end-clients`)
+      .then((r) => r.json())
+      .then((b) => {
+        if (active) setEndClientSuggestions(b.endClients ?? []);
+      })
+      .catch(() => {
+        if (active) setEndClientSuggestions([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, [clientId]);
+
   function patchItem(index: number, patch: Partial<ItemValues>) {
     setItems((arr) =>
       arr.map((it, i) => (i === index ? { ...it, ...patch } : it)),
@@ -226,6 +247,7 @@ export function SubscriptionForm() {
             value={item}
             services={services}
             errors={itemErrors[index] ?? {}}
+            endClientSuggestions={endClientSuggestions}
             onChange={(patch) => patchItem(index, patch)}
           />
         </section>
