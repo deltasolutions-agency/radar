@@ -79,3 +79,9 @@ export async function getSession(): Promise<SessionPayload | null> {
   const token = cookies().get(SESSION_COOKIE)?.value;
   return verifySessionToken(token);
 }
+
+/** Sessione corrente SOLO se con ruolo ADMIN (per le pagine riservate). */
+export async function getAdminSession(): Promise<SessionPayload | null> {
+  const session = await getSession();
+  return session?.role === "ADMIN" ? session : null;
+}

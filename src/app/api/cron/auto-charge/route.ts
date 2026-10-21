@@ -161,7 +161,7 @@ export async function GET(request: NextRequest) {
           });
         }
         // Percorso condiviso: rinnovo (indipendente per riga) + ricevuta + email.
-        await confirmPaymentAndRenew(payment.id);
+        await confirmPaymentAndRenew(payment.id, "CRON");
         await prisma.subscriptionItem.updateMany({
           where: { id: { in: group.map((it) => it.id) } },
           data: { autoChargeFailCount: 0, autoChargeLastAttemptAt: now },
@@ -231,7 +231,7 @@ export async function GET(request: NextRequest) {
                 })),
               },
               appUrl,
-              { sendToClient: true },
+              { sendToClient: true, trigger: "CRON" },
             );
           } catch (e) {
             console.error(
@@ -256,6 +256,15 @@ export async function GET(request: NextRequest) {
             })),
             reason: chargeError,
           }),
+          undefined,
+          {
+            type: "AUTOCHARGE_FAILED",
+            trigger: "CRON",
+            clientId: client.id,
+            subscriptionId: first.subscriptionId,
+            dueDate: first.endDate,
+            itemIds: disabledItems.map((it) => it.id),
+          },
         );
       }
     } catch (e) {

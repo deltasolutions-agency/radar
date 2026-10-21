@@ -30,6 +30,19 @@ export async function requireSession(): Promise<SessionPayload> {
   return session;
 }
 
+/** Errore sentinella lanciato quando la sessione non è di un ADMIN. */
+export class ForbiddenError extends Error {}
+
+/**
+ * Richiede una sessione con ruolo ADMIN (403 altrimenti). Usato SOLO dalle
+ * funzionalità nuove (log email, reinvio, invio test, stato cron).
+ */
+export async function requireAdmin(): Promise<SessionPayload> {
+  const session = await requireSession();
+  if (session.role !== "ADMIN") throw new ForbiddenError();
+  return session;
+}
+
 /** Formatta gli errori Zod in { campo: messaggio }. */
 function formatZod(err: ZodError): Record<string, string> {
   const out: Record<string, string> = {};
@@ -52,6 +65,9 @@ export async function withApi(
   } catch (e) {
     if (e instanceof UnauthorizedError) {
       return error("Non autenticato", 401);
+    }
+    if (e instanceof ForbiddenError) {
+      return error("Accesso riservato agli amministratori", 403);
     }
     if (e instanceof ZodError) {
       return error("Dati non validi", 400, formatZod(e));

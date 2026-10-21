@@ -211,7 +211,19 @@ export function POST(req: NextRequest) {
           );
         }
 
-        const sent = await sendEmail(content, client.email, attachments);
+        const sent = await sendEmail(
+          content,
+          client.email,
+          {
+            type: "WELCOME",
+            trigger: "MANUAL",
+            clientId: client.id,
+            subscriptionId: subscription.id,
+            itemIds: subscription.items.map((it) => it.id),
+            dedupeKey: `welcome:${client.id}`,
+          },
+          attachments,
+        );
         if (sent.status === "INVIATA") {
           await prisma.client.update({
             where: { id: client.id },
@@ -243,7 +255,13 @@ export function POST(req: NextRequest) {
           })),
           activationUrl: autoChargeUrl,
         });
-        await sendEmail(content, client.email);
+        await sendEmail(content, client.email, {
+          type: "AUTOCHARGE_REQUEST",
+          trigger: "MANUAL",
+          clientId: client.id,
+          subscriptionId: subscription.id,
+          itemIds: subscription.items.map((it) => it.id),
+        });
       } catch (e) {
         console.error(
           `[subscriptions] invio richiesta rinnovo automatico fallito (client ${client.id}):`,

@@ -155,6 +155,7 @@ model Client {
   consentLogs        ConsentLog[]
   autoChargeRequests AutoChargeRequest[]
   dataChangeLogs     ClientDataChangeLog[]
+  emailLogs          EmailLog[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -291,8 +292,9 @@ model Subscription {
   // contenitore, applicata solo ai pagamenti con metodo STRIPE.
   serviceFeeEnabled Boolean @default(false)
 
-  items    SubscriptionItem[]
-  payments Payment[]
+  items     SubscriptionItem[]
+  payments  Payment[]
+  emailLogs EmailLog[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -586,4 +588,81 @@ model NotificationLog {
   @@index([paymentId])
   @@index([type])
   @@map("notification_logs")
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// EMAIL LOG — registro completo di TUTTE le email inviate (contenuto incluso)
+// ──────────────────────────────────────────────────────────────────────────
+
+enum EmailLogType {
+  REMINDER // promemoria / sollecito / cessazione al cliente
+  AUTOCHARGE_NOTICE // preavviso addebito automatico
+  AUTOCHARGE_FAILED // addebito automatico fallito (admin)
+  AUTOCHARGE_REQUEST // richiesta attivazione rinnovo automatico
+  AUTOCHARGE_ACTIVATION_REMINDER // sollecito attivazione rinnovo automatico
+  ADMIN_ESCALATION // escalation attivazione non completata (admin)
+  ADMIN_SUMMARY // riepilogo esecuzione cron (admin)
+  WELCOME
+  PAYMENT_RECEIPT // conferma pagamento + ricevuta
+  PAYMENT_LINK
+  REFUND
+  DATA_CHANGE_NOTICE // dati di fatturazione modificati dal cliente (admin)
+  DATA_UPDATE_REQUEST // richiesta verifica dati al cliente
+  OTHER
+}
+
+enum EmailLogStatus {
+  SENT
+  FAILED
+  SKIPPED
+}
+
+enum EmailTrigger {
+  CRON
+  MANUAL // azione di un utente in dashboard
+  WEBHOOK
+  SYSTEM
+  CLIENT // azione del cliente da pagina pubblica
+}
+
+model EmailLog {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+
+  type    EmailLogType
+  status  EmailLogStatus
+  trigger EmailTrigger
+
+  from    String
+  to      String[]
+  cc      String[]
+  bcc     String[]
+  replyTo String?
+
+  subject String
+  html    String  @db.Text
+  text    String? @db.Text
+  // Nomi degli allegati inviati (il contenuto non viene conservato).
+  attachmentNames String[]
+
+  resendId     String?
+  errorMessage String? @db.Text
+
+  clientId       String?
+  client         Client?       @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  subscriptionId String?
+  subscription   Subscription? @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
+
+  dueDate DateTime?
+  itemIds String[]
+
+  // Protezione anti-doppio invio aggiuntiva: unica sull'ultimo tentativo con
+  // quella chiave. Un invio con la stessa chiave viene SKIPPED se esiste un SENT.
+  dedupeKey String? @unique
+
+  @@index([createdAt])
+  @@index([type])
+  @@index([status])
+  @@index([clientId])
+  @@map("email_logs")
 }

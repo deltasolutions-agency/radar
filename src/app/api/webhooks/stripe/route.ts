@@ -217,7 +217,7 @@ export async function POST(request: NextRequest) {
           });
         }
 
-        const result = await confirmPaymentAndRenew(payment.id);
+        const result = await confirmPaymentAndRenew(payment.id, "WEBHOOK");
         const skipped = result.items.filter((i) => i.renewalSkipped);
         if (skipped.length > 0) {
           console.warn(

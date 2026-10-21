@@ -1,9 +1,14 @@
 import "server-only";
-import type { Payment, Receipt, SubscriptionItem } from "@prisma/client";
+import type {
+  EmailTrigger,
+  Payment,
+  Receipt,
+  SubscriptionItem,
+} from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { createReceiptForPayment } from "@/lib/create-receipt";
 import { buildConfirmationEmail } from "@/lib/email-templates";
-import { sendEmail } from "@/lib/send-email";
+import { sendEmail, type EmailLogMeta } from "@/lib/send-email";
 import { MS_PER_DAY, periodDurationDays } from "@/lib/billing-period";
 
 /** Esito del rinnovo di una singola riga (SubscriptionItem) del pagamento. */
@@ -52,6 +57,8 @@ export type ConfirmPaymentResult = {
  */
 export async function confirmPaymentAndRenew(
   paymentId: string,
+  /** Chi ha innescato la conferma (per EmailLog): WEBHOOK, MANUAL o CRON. */
+  trigger: EmailTrigger,
 ): Promise<ConfirmPaymentResult> {
   const result = await prisma.$transaction(async (tx) => {
     const payment = await tx.payment.findUnique({
@@ -181,7 +188,7 @@ export async function confirmPaymentAndRenew(
   // Mai bloccante: un fallimento non annulla il pagamento già confermato.
   // Saltata sui retry (alreadyProcessed) e comunque de-duplicata su paymentId.
   if (!result.alreadyProcessed) {
-    await sendConfirmationEmail(paymentId, result);
+    await sendConfirmationEmail(paymentId, result, trigger);
   }
 
   return result;
@@ -203,9 +210,19 @@ export async function confirmPaymentAndRenew(
 async function sendConfirmationEmail(
   paymentId: string,
   result: ConfirmPaymentResult,
+  trigger: EmailTrigger,
 ): Promise<void> {
   const receipt = result.receipt;
   const subscriptionId = result.payment.subscriptionId;
+  const sub = await prisma.subscription
+    .findUnique({ where: { id: subscriptionId }, select: { clientId: true } })
+    .catch(() => null);
+  const logMeta = {
+    trigger,
+    clientId: sub?.clientId ?? null,
+    subscriptionId,
+    itemIds: result.items.map((i) => i.subscriptionItem.id),
+  };
 
   const commonData = {
     subscriptionId,
@@ -231,6 +248,7 @@ async function sendConfirmationEmail(
     dedupeKey: `${paymentId}-admin`,
     recipient: process.env.ADMIN_EMAIL,
     content: buildConfirmationEmail({ ...commonData, audience: "admin" }),
+    logMeta,
   });
 
   // Invio al cliente (email dallo snapshot ricevuta): mai link dashboard admin.
@@ -240,6 +258,7 @@ async function sendConfirmationEmail(
       dedupeKey: `${paymentId}-client`,
       recipient: receipt.clientEmail,
       content: buildConfirmationEmail({ ...commonData, audience: "client" }),
+      logMeta,
     });
   }
 }
@@ -257,6 +276,7 @@ async function deliverConfirmation(params: {
   dedupeKey: string;
   recipient?: string;
   content: { subject: string; text: string; html: string };
+  logMeta: Omit<EmailLogMeta, "type" | "dedupeKey">;
 }): Promise<void> {
   try {
     const existing = await prisma.notificationLog.findFirst({
@@ -265,7 +285,11 @@ async function deliverConfirmation(params: {
     });
     if (existing) return;
 
-    const sent = await sendEmail(params.content, params.recipient);
+    const sent = await sendEmail(params.content, params.recipient, {
+      ...params.logMeta,
+      type: "PAYMENT_RECEIPT",
+      dedupeKey: `payment-receipt:${params.dedupeKey}`,
+    });
 
     await prisma.notificationLog.create({
       data: {

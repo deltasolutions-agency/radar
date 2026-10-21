@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { purgeOldEmailLogs } from "@/lib/email-log-retention";
 import { computeItemStatus } from "@/lib/subscription-status";
 import {
   buildReminderEmail,
@@ -210,7 +211,15 @@ export async function GET(request: NextRequest) {
             totalCents,
             currency: item.currency,
           });
-          const sent = await sendEmail(content, client.email);
+          const sent = await sendEmail(content, client.email, {
+            type: "AUTOCHARGE_NOTICE",
+            trigger: "CRON",
+            clientId: client.id,
+            subscriptionId: item.subscriptionId,
+            dueDate: item.endDate,
+            itemIds: [item.id],
+            dedupeKey: `autocharge-notice:${item.id}:${dedupeKey}`,
+          });
           await prisma.notificationLog.create({
             data: {
               subscriptionItemId: item.id,
@@ -253,7 +262,15 @@ export async function GET(request: NextRequest) {
           override: templates[milestone.type],
           audience: "admin",
         });
-        const sent = await sendEmail(adminContent); // → ADMIN_EMAIL
+        const sent = await sendEmail(adminContent, undefined, {
+          type: "REMINDER",
+          trigger: "CRON",
+          clientId: client.id,
+          subscriptionId: item.subscriptionId,
+          dueDate: item.endDate,
+          itemIds: [item.id],
+          dedupeKey: `reminder:${item.id}:${milestone.type}:${adminKey}`,
+        }); // → ADMIN_EMAIL
         await prisma.notificationLog.create({
           data: {
             subscriptionItemId: item.id,
@@ -332,7 +349,15 @@ export async function GET(request: NextRequest) {
           audience: "client",
           clientRenewal,
         });
-        const sent = await sendEmail(clientContent, client.email);
+        const sent = await sendEmail(clientContent, client.email, {
+          type: "REMINDER",
+          trigger: "CRON",
+          clientId: client.id,
+          subscriptionId: item.subscriptionId,
+          dueDate: item.endDate,
+          itemIds: [item.id],
+          dedupeKey: `reminder:${item.id}:${milestone.type}:${clientKey}`,
+        });
         await prisma.notificationLog.create({
           data: {
             subscriptionItemId: item.id,
@@ -365,7 +390,16 @@ export async function GET(request: NextRequest) {
     }
   }
 
+  // ── 3. Retention EmailLog (24 mesi) ─────────────────────────────────────────
+  let emailLogsPurged = 0;
+  try {
+    emailLogsPurged = await purgeOldEmailLogs(now);
+  } catch (e) {
+    console.error("[cron] retention EmailLog fallita:", e);
+  }
+
   return NextResponse.json({
+    emailLogsPurged,
     statusUpdated,
     remindersSent,
     remindersSkipped,

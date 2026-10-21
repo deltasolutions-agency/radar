@@ -1,5 +1,5 @@
 import "server-only";
-import type { Payment, BillingPeriod } from "@prisma/client";
+import type { Payment, BillingPeriod, EmailTrigger } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getStripe } from "@/lib/stripe";
 import { sendEmail } from "@/lib/send-email";
@@ -66,7 +66,11 @@ export type CheckoutResult = {
 export async function createCheckoutPayment(
   request: CheckoutRequest,
   appUrl: string,
-  opts: { sendToClient: boolean },
+  opts: {
+    sendToClient: boolean;
+    /** Chi ha innescato l'invio del link (per EmailLog). Default MANUAL. */
+    trigger?: EmailTrigger;
+  },
 ): Promise<CheckoutResult> {
   const { subscriptionId, clientEmail, items, serviceFeeEnabled } = request;
 
@@ -204,7 +208,17 @@ export async function createCheckoutPayment(
       checkoutUrl: payUrl,
       expiresAt,
     });
-    const sent = await sendEmail(content, recipient);
+    const sub = await prisma.subscription.findUnique({
+      where: { id: subscriptionId },
+      select: { clientId: true },
+    });
+    const sent = await sendEmail(content, recipient, {
+      type: "PAYMENT_LINK",
+      trigger: opts.trigger ?? "MANUAL",
+      clientId: sub?.clientId ?? null,
+      subscriptionId,
+      itemIds: items.map((it) => it.id),
+    });
     emailSent = sent.status === "INVIATA";
   }
 

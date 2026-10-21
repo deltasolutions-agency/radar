@@ -1,3 +1,5 @@
+import type { EmailLogStatus } from "@prisma/client";
+import { EMAIL_LOG_STATUS_LABELS } from "@/lib/email-log-labels";
 import {
   SERVICE_TYPE_LABELS,
   CLIENT_STATUS_LABELS,
@@ -100,6 +102,23 @@ export function ActiveBadge({ active }: { active: boolean }) {
       }`}
     >
       {active ? "Attivo" : "Disattivo"}
+    </span>
+  );
+}
+
+// Stato invio email: verde (inviata), rosso (fallita), grigio (saltata).
+const EMAIL_STATUS_STYLES: Record<EmailLogStatus, string> = {
+  SENT: "bg-emerald-50 text-emerald-700 border-emerald-200",
+  FAILED: "bg-red-50 text-red-700 border-red-200",
+  SKIPPED: "bg-slate-100 text-slate-500 border-slate-200",
+};
+
+export function EmailStatusBadge({ status }: { status: EmailLogStatus }) {
+  return (
+    <span
+      className={`inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-medium ${EMAIL_STATUS_STYLES[status]}`}
+    >
+      {EMAIL_LOG_STATUS_LABELS[status]}
     </span>
   );
 }

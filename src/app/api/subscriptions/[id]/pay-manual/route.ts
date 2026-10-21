@@ -85,7 +85,7 @@ export function POST(req: NextRequest, { params }: Params) {
       },
     });
 
-    const result = await confirmPaymentAndRenew(created.id);
+    const result = await confirmPaymentAndRenew(created.id, "MANUAL");
 
     return json(
       {

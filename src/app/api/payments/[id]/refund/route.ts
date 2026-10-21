@@ -234,7 +234,13 @@ export function POST(req: NextRequest, { params }: Params) {
           currency: payment.currency,
           isTotal,
         });
-        await sendEmail(content, client.email);
+        await sendEmail(content, client.email, {
+          type: "REFUND",
+          trigger: "MANUAL",
+          clientId: client.id,
+          subscriptionId: payment.subscriptionId,
+          itemIds: selected.map((pi) => pi.subscriptionItemId),
+        });
       } catch (e) {
         console.error(
           `[refund] invio conferma storno fallito (payment ${payment.id}):`,

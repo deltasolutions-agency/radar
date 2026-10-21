@@ -78,6 +78,14 @@ export async function GET(request: NextRequest) {
               clientName,
               requestedAt: req.createdAt,
             }),
+            undefined,
+            {
+              type: "ADMIN_ESCALATION",
+              trigger: "CRON",
+              clientId: req.clientId,
+              itemIds: req.itemIds,
+              dedupeKey: `activation-escalation:${req.id}:${mark}`,
+            },
           );
           if (sent.status === "INVIATA") adminEscalationsSent++;
         } else if (req.client.email && appUrl) {
@@ -91,6 +99,13 @@ export async function GET(request: NextRequest) {
               activationUrl: `${appUrl}/attiva-rinnovo/${req.token}`,
             }),
             req.client.email,
+            {
+              type: "AUTOCHARGE_ACTIVATION_REMINDER",
+              trigger: "CRON",
+              clientId: req.clientId,
+              itemIds: req.itemIds,
+              dedupeKey: `activation-reminder:${req.id}:${mark}`,
+            },
           );
           if (sent.status === "INVIATA") clientRemindersSent++;
         }

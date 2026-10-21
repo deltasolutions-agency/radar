@@ -94,7 +94,13 @@ export function POST(req: NextRequest, { params }: Params) {
       activationUrl,
     });
 
-    const sent = await sendEmail(content, client.email);
+    const sent = await sendEmail(content, client.email, {
+      type: "AUTOCHARGE_REQUEST",
+      trigger: "MANUAL",
+      clientId: client.id,
+      subscriptionId: subscription.id,
+      itemIds: subscription.items.map((it) => it.id),
+    });
 
     return json({
       sent: sent.status === "INVIATA",

@@ -48,7 +48,11 @@ export function POST(_req: NextRequest, { params }: Params) {
       billingData: billingDataFor(client),
       dataEditUrl,
     });
-    const sent = await sendEmail(content, client.email);
+    const sent = await sendEmail(content, client.email, {
+      type: "DATA_UPDATE_REQUEST",
+      trigger: "MANUAL",
+      clientId: client.id,
+    });
     if (sent.status !== "INVIATA") {
       return error(
         `Invio non riuscito: ${sent.error ?? "errore sconosciuto"}`,

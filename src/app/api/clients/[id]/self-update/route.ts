@@ -91,7 +91,11 @@ export function PATCH(req: NextRequest, { params }: Params) {
         changes: readable,
         ipAddress: clientIp(),
       });
-      await sendEmail(content, process.env.ADMIN_EMAIL);
+      await sendEmail(content, process.env.ADMIN_EMAIL, {
+        type: "DATA_CHANGE_NOTICE",
+        trigger: "CLIENT",
+        clientId: client.id,
+      });
     } catch (e) {
       console.error(
         `[self-update] notifica admin fallita (client ${client.id}):`,
