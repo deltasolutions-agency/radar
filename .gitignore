@@ -37,3 +37,6 @@ docker-data/
 
 # log dei cron (curl da crontab)
 logs/
+
+# script di sviluppo locali (fixture, test usa-e-getta)
+scripts/_*

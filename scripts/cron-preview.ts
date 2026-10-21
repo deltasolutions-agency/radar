@@ -116,7 +116,7 @@ async function previewReminders() {
       }
     }
     if (g.autoCharge && g.kind === "REMINDER" && g.diffDays === 0) {
-      console.log(`  ⚠ Rinnovo automatico attivo: il sollecito parte alle 8:00, prima dell'addebito delle 9:00`);
+      console.log(`  (rinnovo automatico attivo ma carta non utilizzabile o addebito escluso: il sollecito parte)`);
     }
     if (g.isCessation) {
       console.log(`  ⚠ Le righe passerebbero a CESSATO`);
@@ -124,6 +124,12 @@ async function previewReminders() {
     }
   }
   if (plan.groups.length === 0) console.log("\nNessuna email da inviare.");
+  if (plan.autoChargeToday.length > 0) {
+    console.log(`\nSollecito "scade oggi" NON inviato (addebito automatico alle 9:00 con carta utilizzabile):`);
+    for (const it of plan.autoChargeToday) {
+      console.log(`  - ${clientDisplayName(it.subscription.client)} · ${withEndClient(serviceLabel(it), it.endClientName)} · scadenza ${date(it.endDate)}`);
+    }
+  }
 
   console.log(`\nRiepilogo reminder:`);
   console.log(`  righe candidate:                    ${plan.candidates}`);

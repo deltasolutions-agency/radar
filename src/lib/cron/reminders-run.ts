@@ -11,6 +11,10 @@ import {
 import { createCheckoutPayment } from "@/lib/payment-checkout";
 import { sendEmail } from "@/lib/send-email";
 import { purgeOldEmailLogs } from "@/lib/email-log-retention";
+import {
+  loadReminderTemplates,
+  type ReminderTemplateMap,
+} from "@/lib/reminder-settings";
 import { formatDate, formatEur } from "@/lib/format";
 import { withEndClient } from "@/lib/end-client";
 import { serviceLabel, type CronResult } from "@/lib/cron/common";
@@ -47,13 +51,22 @@ function groupDetail(g: PlannedGroup, extra: Record<string, unknown> = {}) {
   };
 }
 
+/** Righe con "scade oggi" non inviato perché coperte dall'addebito delle 9:00. */
+function autoChargeTodayDetails(plan: ReminderPlan) {
+  return plan.autoChargeToday.map((it) => ({
+    outcome: "SKIPPED_AUTOCHARGE_TODAY",
+    subscriptionId: it.subscriptionId,
+    itemId: it.id,
+  }));
+}
+
 /** Esito dry-run: il piano, senza invii/addebiti/scritture. */
 function dryRunResult(plan: ReminderPlan): CronResult {
   return {
     dryRun: true,
     candidates: plan.candidates,
     sent: 0,
-    skipped: plan.alreadySent,
+    skipped: plan.alreadySent + plan.autoChargeToday.length,
     failed: 0,
     wouldSend: plan.groups.length,
     statusChanges: plan.statusChanges.length,
@@ -68,6 +81,7 @@ function dryRunResult(plan: ReminderPlan): CronResult {
             g.kind === "REMINDER" && !g.autoCharge && !!g.clientEmail && !g.isCessation && !g.reusableAutoChargeToken && !!process.env.APP_URL,
         }),
       ),
+      ...autoChargeTodayDetails(plan),
       ...plan.backlog.map((b) => ({
         outcome: "BACKLOG",
         subscriptionId: b.item.subscriptionId,
@@ -126,7 +140,10 @@ async function ensureAutoChargeUrl(g: PlannedGroup, appUrl: string): Promise<str
 }
 
 /** Contenuto dell'email al cliente per il gruppo. */
-async function buildGroupEmail(g: PlannedGroup): Promise<EmailContent> {
+async function buildGroupEmail(
+  g: PlannedGroup,
+  templates: ReminderTemplateMap,
+): Promise<EmailContent> {
   const items = g.items.map((it) => ({
     serviceName: it.service.name,
     endClientName: it.endClientName,
@@ -162,7 +179,7 @@ async function buildGroupEmail(g: PlannedGroup): Promise<EmailContent> {
       endDate: g.endDate,
       diffDays: g.diffDays,
     },
-    { audience: "client", clientRenewal },
+    { audience: "client", clientRenewal, override: templates[g.type] },
   );
 }
 
@@ -224,8 +241,9 @@ export async function runReminders({
   }
 
   // ── 2. Invii per gruppo + cessazioni ───────────────────────────────────────
+  const templates = await loadReminderTemplates();
   let sent = 0;
-  let skipped = plan.alreadySent;
+  let skipped = plan.alreadySent + plan.autoChargeToday.length;
   let failed = 0;
   let cessations = 0;
   const details: Record<string, unknown>[] = [];
@@ -242,7 +260,7 @@ export async function runReminders({
         summaryErrors.push(`${line} → cliente senza email`);
         details.push(groupDetail(g, { outcome: "NO_EMAIL" }));
       } else {
-        const content = await buildGroupEmail(g);
+        const content = await buildGroupEmail(g, templates);
         const res = await sendEmail(content, g.clientEmail, {
           type: g.kind === "PREAVVISO" ? "AUTOCHARGE_NOTICE" : "REMINDER",
           trigger: "CRON",
@@ -292,6 +310,7 @@ export async function runReminders({
     (b) =>
       `${b.item.subscription.client.ragioneSociale?.trim() || b.item.subscription.client.name} · ${withEndClient(serviceLabel(b.item), b.item.endClientName)} · ${milestoneLabel(b)} non inviata da ${b.daysLate} gg · scadenza ${formatDate(b.item.endDate)} · ${formatEur(b.item.priceCents * b.item.quantity, b.item.currency)} netti`,
   );
+  details.push(...autoChargeTodayDetails(plan));
   for (const b of plan.backlog) {
     details.push({
       outcome: "BACKLOG",

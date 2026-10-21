@@ -251,7 +251,7 @@ function multilineHtml(text: string): string {
  * verso il cliente, nessun riferimento a "contattare il cliente"/dashboard.
  * Non personalizzabili da Impostazioni (gli override lì valgono per l'admin).
  */
-const REMINDER_CLIENT_DEFAULTS: Record<
+export const REMINDER_CLIENT_DEFAULTS: Record<
   ReminderConfigurableType,
   { subject: string; body: string; title: string }
 > = {
@@ -499,8 +499,9 @@ export type ReminderAudience = "admin" | "client";
  * - audience "admin" (default): comportamento invariato — link al dettaglio
  *   dashboard; `override` (da ReminderTemplate) sostituisce oggetto/corpo.
  * - audience "client": tono diretto verso il cliente, NESSUN link interno,
- *   contatto hello@deltasolutions.agency; usa i testi client di default
- *   (gli override di Impostazioni valgono solo per la versione admin).
+ *   contatto hello@deltasolutions.agency; `override` (testi personalizzati da
+ *   Impostazioni) sostituisce oggetto/corpo, altrimenti i testi client di
+ *   default (singolare o plurale in base al numero di servizi).
  */
 export function buildReminderEmail(
   type: NotificationType,
@@ -534,8 +535,16 @@ export function buildReminderEmail(
         ? REMINDER_CLIENT_DEFAULTS_PLURAL
         : REMINDER_CLIENT_DEFAULTS
     )[type as ReminderConfigurableType];
-    const subject = reminderSubject(cdef.subject, d);
-    const intro = fillReminderPlaceholders(cdef.body, d);
+    // Testi personalizzati da Impostazioni (se presenti) al posto dei default.
+    const override = opts?.override;
+    const subject = reminderSubject(
+      override?.subject?.trim() ? override.subject : cdef.subject,
+      d,
+    );
+    const intro = fillReminderPlaceholders(
+      override?.body?.trim() ? override.body : cdef.body,
+      d,
+    );
 
     // Sezione rinnovo (coordinate + disclaimer + eventuale CTA): compare SOLO se
     // l'item non ha il rinnovo automatico attivo (clientRenewal valorizzato).

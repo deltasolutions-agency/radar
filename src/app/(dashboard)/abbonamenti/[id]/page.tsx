@@ -1,4 +1,6 @@
 import Link from "next/link";
+import { getAdminSession } from "@/lib/auth";
+import { ReconcileUnlockButton } from "../reconcile-unlock-button";
 import { EndClientLabel } from "@/components/end-client-label";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
@@ -41,6 +43,7 @@ export default async function AbbonamentoDettaglioPage({
   params: { id: string };
   searchParams: { payment?: string; setup?: string };
 }) {
+  const isAdmin = !!(await getAdminSession());
   const sub = await prisma.subscription.findUnique({
     where: { id: params.id },
     include: {
@@ -267,6 +270,19 @@ export default async function AbbonamentoDettaglioPage({
                     ) : null}
                   </div>
                 </div>
+
+                {it.autoChargeReconcileAt ? (
+                  <div className="space-y-2 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+                    <p className="font-medium">
+                      Da riconciliare dal {formatDate(it.autoChargeReconcileAt)}: escluso
+                      dall&apos;addebito automatico.
+                    </p>
+                    {it.autoChargeReconcileNote ? (
+                      <p className="text-xs">{it.autoChargeReconcileNote}</p>
+                    ) : null}
+                    {isAdmin ? <ReconcileUnlockButton itemId={it.id} /> : null}
+                  </div>
+                ) : null}
 
                 <dl className="grid gap-x-6 gap-y-1 sm:grid-cols-2">
                   <div className="flex gap-2 text-sm">

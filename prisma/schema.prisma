@@ -692,3 +692,19 @@ model CronRun {
   @@index([name, startedAt])
   @@map("cron_runs")
 }
+
+// Registro delle azioni amministrative sensibili (es. sblocco "da riconciliare").
+model AdminActionLog {
+  id         String   @id @default(cuid())
+  createdAt  DateTime @default(now())
+  userId     String?
+  userEmail  String
+  action     String // es. AUTOCHARGE_RECONCILE_UNLOCK
+  entityType String // es. SubscriptionItem
+  entityId   String
+  details    Json?
+
+  @@index([createdAt])
+  @@index([entityType, entityId])
+  @@map("admin_action_logs")
+}

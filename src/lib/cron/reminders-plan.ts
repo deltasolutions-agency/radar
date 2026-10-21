@@ -11,6 +11,8 @@ import {
   type ReminderThresholds,
 } from "@/lib/reminder-settings";
 import { addVatToNet } from "@/lib/vat";
+import { getStripe } from "@/lib/stripe";
+import { periodDurationDays } from "@/lib/billing-period";
 import { computeServiceFeeCents } from "@/lib/service-fee";
 import { withEndClient } from "@/lib/end-client";
 import {
@@ -237,6 +239,53 @@ export type BacklogEntry = {
   daysLate: number;
 };
 
+/**
+ * Verifica se la carta salvata è utilizzabile (metodo esistente, carta non
+ * scaduta). Sola lettura su Stripe; in caso di errore → false (prudenza: si
+ * invia il sollecito).
+ */
+export type CardCheck = (paymentMethodId: string, now: Date) => Promise<boolean>;
+
+export const stripeCardCheck: CardCheck = async (paymentMethodId, now) => {
+  try {
+    const pm = await getStripe().paymentMethods.retrieve(paymentMethodId);
+    if (!pm.card) return true; // metodo non-carta (es. SEPA): nessuna scadenza
+    // Valida fino all'ultimo giorno del mese di scadenza.
+    const expiresAt = new Date(pm.card.exp_year, pm.card.exp_month, 1);
+    return expiresAt.getTime() > now.getTime();
+  } catch (e) {
+    console.error(`[cron reminders] verifica carta ${paymentMethodId} fallita:`, e);
+    return false;
+  }
+};
+
+/**
+ * true se il cron auto-charge delle 9:00 addebiterà la riga oggi: rinnovo
+ * automatico attivo, customer + carta utilizzabile, durata nota, non da
+ * riconciliare e nessun pagamento già in attesa. In tal caso il sollecito
+ * "scade oggi" delle 8:00 non va inviato.
+ */
+async function willBeAutoChargedToday(
+  item: ReminderItem,
+  now: Date,
+  cardCheck: CardCheck,
+  cache: Map<string, boolean>,
+): Promise<boolean> {
+  const client = item.subscription.client;
+  if (!item.autoChargeEnabled || item.autoChargeReconcileAt) return false;
+  if (item.autoChargeEndDate && item.autoChargeEndDate.getTime() < now.getTime()) return false;
+  if (!client.stripeCustomerId || !client.stripeDefaultPaymentMethodId) return false;
+  if (periodDurationDays(item) == null) return false;
+  const pending = await prisma.paymentItem.findFirst({
+    where: { subscriptionItemId: item.id, status: "IN_ATTESA", payment: { status: "IN_ATTESA" } },
+    select: { id: true },
+  });
+  if (pending) return false;
+  const pm = client.stripeDefaultPaymentMethodId;
+  if (!cache.has(pm)) cache.set(pm, await cardCheck(pm, now));
+  return cache.get(pm) === true;
+}
+
 export type ReminderPlan = {
   now: Date;
   settings: ReminderThresholds;
@@ -245,6 +294,8 @@ export type ReminderPlan = {
   groups: PlannedGroup[];
   /** Righe la cui ultima milestone dovuta è già stata inviata. */
   alreadySent: number;
+  /** Righe con sollecito "scade oggi" NON inviato: verranno addebitate alle 9:00. */
+  autoChargeToday: ReminderItem[];
   backlog: BacklogEntry[];
 };
 
@@ -286,7 +337,13 @@ async function findReusableAutoChargeToken(clientId: string, itemIds: string[]):
 }
 
 /** Calcola cosa farebbe il cron reminder adesso. Nessuna scrittura. */
-export async function planReminders(now: Date): Promise<ReminderPlan> {
+export async function planReminders(
+  now: Date,
+  opts: { cardCheck?: CardCheck } = {},
+): Promise<ReminderPlan> {
+  const cardCheck = opts.cardCheck ?? stripeCardCheck;
+  const cardCache = new Map<string, boolean>();
+  const autoChargeToday: ReminderItem[] = [];
   const settings = await loadReminderThresholds();
 
   const items = await prisma.subscriptionItem.findMany({
@@ -310,6 +367,18 @@ export async function planReminders(now: Date): Promise<ReminderPlan> {
     if (!due) continue;
     if (await milestoneAlreadySent(item.id, due.milestone.type, due.dueAt)) {
       alreadySent++;
+      continue;
+    }
+    // "Scade oggi": niente sollecito se l'addebito automatico delle 9:00 lo
+    // coprirà. Non viene registrato come inviato: se l'addebito non va a buon
+    // fine, il sollecito successivo parte normalmente.
+    if (
+      due.milestone.type === "SOLLECITO" &&
+      due.milestone.offset === 0 &&
+      due.daysLate === 0 &&
+      (await willBeAutoChargedToday(item, now, cardCheck, cardCache))
+    ) {
+      autoChargeToday.push(item);
       continue;
     }
     if (due.daysLate > REMINDER_RECOVERY_DAYS) {
@@ -375,6 +444,7 @@ export async function planReminders(now: Date): Promise<ReminderPlan> {
     candidates: items.length,
     groups,
     alreadySent,
+    autoChargeToday,
     backlog,
   };
 }

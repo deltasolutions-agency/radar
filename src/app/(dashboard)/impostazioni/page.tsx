@@ -5,7 +5,7 @@ import {
 } from "@/lib/reminder-settings";
 import {
   REMINDER_CONFIGURABLE_TYPES,
-  REMINDER_DEFAULTS,
+  REMINDER_CLIENT_DEFAULTS,
   REMINDER_PLACEHOLDERS,
   type ReminderConfigurableType,
 } from "@/lib/email-templates";
@@ -30,7 +30,7 @@ export default async function ImpostazioniPage() {
 
   const templateFields: TemplateField[] = REMINDER_CONFIGURABLE_TYPES.map(
     (type) => {
-      const def = REMINDER_DEFAULTS[type];
+      const def = REMINDER_CLIENT_DEFAULTS[type];
       const current = templates[type];
       return {
         type,
