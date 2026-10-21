@@ -3,7 +3,6 @@ import {
   loadReminderTemplates,
   loadAutoChargeReminderHours,
   loadAutoChargeMaxDelayDays,
-  loadShowBankTransferInstructions,
 } from "@/lib/reminder-settings";
 import {
   REMINDER_CONFIGURABLE_TYPES,
@@ -29,13 +28,11 @@ export default async function ImpostazioniPage() {
     templates,
     autoChargeReminderHours,
     autoChargeMaxDelayDays,
-    showBankTransferInstructions,
   ] = await Promise.all([
     loadReminderThresholds(),
     loadReminderTemplates(),
     loadAutoChargeReminderHours(),
     loadAutoChargeMaxDelayDays(),
-    loadShowBankTransferInstructions(),
   ]);
 
   const templateFields: TemplateField[] = REMINDER_CONFIGURABLE_TYPES.map(
@@ -71,7 +68,6 @@ export default async function ImpostazioniPage() {
           cessationDay: String(thresholds.cessationDay),
           autoChargeReminderHours: autoChargeReminderHours.join(", "),
           autoChargeMaxDelayDays: String(autoChargeMaxDelayDays),
-          showBankTransferInstructions,
           templates: templateFields,
         }}
       />

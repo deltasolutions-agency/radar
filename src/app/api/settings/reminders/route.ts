@@ -30,7 +30,6 @@ const bodySchema = z.object({
   cessationDay: z.number().int().min(0).max(3650).optional(),
   autoChargeReminderHours: hourArray.optional(),
   autoChargeMaxDelayDays: z.number().int().min(0).max(10).optional(),
-  showBankTransferInstructions: z.boolean().optional(),
   templates: z.record(z.string(), overrideSchema).optional(),
 });
 
@@ -66,9 +65,6 @@ export function PATCH(req: NextRequest) {
         : {}),
       ...(data.autoChargeMaxDelayDays !== undefined
         ? { autoChargeMaxDelayDays: data.autoChargeMaxDelayDays }
-        : {}),
-      ...(data.showBankTransferInstructions !== undefined
-        ? { showBankTransferInstructions: data.showBankTransferInstructions }
         : {}),
     };
 

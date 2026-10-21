@@ -14,7 +14,6 @@ import { logUnsentEmail, sendEmail } from "@/lib/send-email";
 import { purgeOldEmailLogs } from "@/lib/email-log-retention";
 import {
   loadReminderTemplates,
-  loadShowBankTransferInstructions,
   type ReminderTemplateMap,
 } from "@/lib/reminder-settings";
 import { formatDate, formatEur } from "@/lib/format";
@@ -149,7 +148,6 @@ async function ensureAutoChargeUrl(g: PlannedGroup, appUrl: string): Promise<str
 async function buildGroupEmail(
   g: PlannedGroup,
   templates: ReminderTemplateMap,
-  showBankTransfer: boolean,
 ): Promise<{ content: EmailContent; payLinkError?: string }> {
   const items = g.items.map((it) => ({
     serviceName: it.service.name,
@@ -189,7 +187,6 @@ async function buildGroupEmail(
       // Richiesta di attivazione creata solo se l'email partirà davvero.
       autoChargeUrl:
         appUrl && !g.isCessation && !payLinkError ? await ensureAutoChargeUrl(g, appUrl) : null,
-      showBankTransfer,
     };
   }
   const content = buildReminderEmail(
@@ -264,10 +261,7 @@ export async function runReminders({
   }
 
   // ── 2. Invii per gruppo + cessazioni ───────────────────────────────────────
-  const [templates, showBankTransfer] = await Promise.all([
-    loadReminderTemplates(),
-    loadShowBankTransferInstructions(),
-  ]);
+  const templates = await loadReminderTemplates();
   let sent = 0;
   let skipped = plan.alreadySent + plan.autoChargeToday.length;
   let failed = 0;
@@ -286,7 +280,7 @@ export async function runReminders({
         summaryErrors.push(`${line} → cliente senza email`);
         details.push(groupDetail(g, { outcome: "NO_EMAIL" }));
       } else {
-        const { content, payLinkError } = await buildGroupEmail(g, templates, showBankTransfer);
+        const { content, payLinkError } = await buildGroupEmail(g, templates);
         const logMeta = {
           type: g.kind === "PREAVVISO" ? ("AUTOCHARGE_NOTICE" as const) : ("REMINDER" as const),
           trigger: "CRON" as const,

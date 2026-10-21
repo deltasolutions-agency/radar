@@ -566,8 +566,9 @@ model ReminderSettings {
   // Ritardo massimo (giorni dalla scadenza) entro cui il cron auto-charge
   // addebita una riga; oltre → esclusa e segnalata all'admin. Range 0–10.
   autoChargeMaxDelayDays Int @default(3)
-  // Mostra le istruzioni per il bonifico (IBAN ecc.) nei reminder al cliente.
-  // Spento: si paga solo con carta tramite il link /pay.
+  // DEPRECATA (fase19): il bonifico non è più un'opzione di pagamento per i
+  // clienti. Colonna mantenuta solo per non fare una migration distruttiva:
+  // NON va letta né scritta da nessuna parte del codice.
   showBankTransferInstructions Boolean @default(false)
 
   updatedAt DateTime @updatedAt

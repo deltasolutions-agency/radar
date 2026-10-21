@@ -349,16 +349,8 @@ function clientDetailsHtml(d: ReminderEmailData): string {
 
 // ──────────────────────────────────────────────────────────────────────────
 // Sezione RINNOVO del reminder CLIENTE (righe senza rinnovo automatico):
-// pagamento online con carta (blocco principale) + istruzioni per il bonifico
-// solo se abilitate in Impostazioni (showBankTransferInstructions).
+// pagamento online con carta tramite il link /pay (unica modalità per il cliente).
 // ──────────────────────────────────────────────────────────────────────────
-
-// Dati bancari: mostrati solo con l'interruttore attivo in Impostazioni.
-const RENEWAL_BANK = {
-  beneficiary: "Andrea Trinca",
-  iban: "IT40L0366901600715069802019",
-  swift: "REVOITM2",
-} as const;
 
 const RENEWAL_PRICE_MAY_VARY =
   "Il prezzo dei rinnovi successivi potrebbe variare, in aumento o in diminuzione, rispetto a quello indicato.";
@@ -422,8 +414,6 @@ export type ClientRenewalInfo = {
   /** Link di pagamento online (/pay/{payToken}). */
   payUrl: string | null;
   autoChargeUrl?: string | null;
-  /** Istruzioni per il bonifico come alternativa (Impostazioni, default no). */
-  showBankTransfer?: boolean;
   /** Righe coperte: periodo reale e modalità prezzo per il disclaimer. */
   terms: RenewalTermsItem[];
 };
@@ -462,39 +452,7 @@ const NET_ONLY_LABEL = "Imponibile (IVA esclusa)";
 const NET_ONLY_NOTE =
   "IVA e commissione di servizio sono indicate nella pagina di pagamento.";
 
-/** Coordinate bancarie (alternativa), versione testo. */
-function bankSectionText(itemNetCents: number[], currency: string): string {
-  const { netCents, vatCents, grossCents } = sumVatPerItem(itemNetCents);
-  return [
-    "In alternativa, puoi pagare con bonifico:",
-    `- Intestatario: ${RENEWAL_BANK.beneficiary}`,
-    `- IBAN: ${RENEWAL_BANK.iban}`,
-    `- SWIFT (o BIC): ${RENEWAL_BANK.swift}`,
-    `- Imponibile: ${formatEur(netCents, currency)}`,
-    `- IVA (22%): ${formatEur(vatCents, currency)}`,
-    `- Totale da bonificare (senza commissione): ${formatEur(grossCents, currency)}`,
-  ].join("\n");
-}
-
-/** Coordinate bancarie (alternativa), versione HTML. */
-function bankSectionHtml(itemNetCents: number[], currency: string): string {
-  const { netCents, vatCents, grossCents } = sumVatPerItem(itemNetCents);
-  const mono = "font-family:'Space Mono','Courier New',monospace";
-  return `
-    <div style="margin:16px 0;border:1px solid #E2DED6;border-radius:8px;padding:12px 16px">
-      <p style="font-size:13px;font-weight:600;margin:0 0 6px;color:#4A463F">In alternativa, puoi pagare con bonifico</p>
-      <table style="border-collapse:collapse;font-family:sans-serif;font-size:13px;color:#4A463F">
-        <tr><td style="padding:2px 8px 2px 0;color:#94a3b8">Intestatario</td><td>${RENEWAL_BANK.beneficiary}</td></tr>
-        <tr><td style="padding:2px 8px 2px 0;color:#94a3b8">IBAN</td><td><span style="${mono}">${RENEWAL_BANK.iban}</span></td></tr>
-        <tr><td style="padding:2px 8px 2px 0;color:#94a3b8">SWIFT (o BIC)</td><td><span style="${mono}">${RENEWAL_BANK.swift}</span></td></tr>
-        <tr><td style="padding:2px 8px 2px 0;color:#94a3b8">Imponibile</td><td><span style="${mono}">${formatEur(netCents, currency)}</span></td></tr>
-        <tr><td style="padding:2px 8px 2px 0;color:#94a3b8">IVA (22%)</td><td><span style="${mono}">${formatEur(vatCents, currency)}</span></td></tr>
-        <tr><td style="padding:2px 8px 2px 0;color:#94a3b8">Totale</td><td><span style="${mono}">${formatEur(grossCents, currency)}</span> <span style="color:#94a3b8">(senza commissione)</span></td></tr>
-      </table>
-    </div>`;
-}
-
-/** Blocchi testo (pagamento online + eventuale bonifico + disclaimer + CTA). */
+/** Blocchi testo (pagamento online + disclaimer + CTA). */
 function clientRenewalText(info: ClientRenewalInfo, isCessation: boolean): string[] {
   const p = cardPaymentSummary(info);
   const c = info.currency;
@@ -509,7 +467,6 @@ function clientRenewalText(info: ClientRenewalInfo, isCessation: boolean): strin
       `Paga online: ${info.payUrl}`,
     );
   }
-  if (info.showBankTransfer) blocks.push("", bankSectionText(info.itemNetCents, c));
   if (isCessation) blocks.push("", RENEWAL_DISCLAIMER_CESSATION);
   else for (const line of renewalDisclaimerLines(info.terms)) blocks.push("", line);
   if (!isCessation && info.autoChargeUrl) {
@@ -521,7 +478,7 @@ function clientRenewalText(info: ClientRenewalInfo, isCessation: boolean): strin
   return blocks;
 }
 
-/** Blocco HTML (pagamento online + eventuale bonifico + disclaimer + CTA). */
+/** Blocco HTML (pagamento online + disclaimer + CTA). */
 function clientRenewalHtml(info: ClientRenewalInfo, isCessation: boolean): string {
   const p = cardPaymentSummary(info);
   const c = info.currency;
@@ -556,7 +513,6 @@ function clientRenewalHtml(info: ClientRenewalInfo, isCessation: boolean): strin
       : "";
   return `
     ${payBlock}
-    ${info.showBankTransfer ? bankSectionHtml(info.itemNetCents, c) : ""}
     <p style="font-size:12px;color:#94a3b8;font-style:italic;line-height:1.6;margin:14px 0 0">${disclaimer}</p>
     ${cta}`;
 }

@@ -67,23 +67,6 @@ export async function loadAutoChargeMaxDelayDays(): Promise<number> {
 }
 
 /**
- * true se i reminder al cliente devono includere le istruzioni per il bonifico
- * (default false: pagamento solo con carta). Non lancia.
- */
-export async function loadShowBankTransferInstructions(): Promise<boolean> {
-  try {
-    const s = await prisma.reminderSettings.findUnique({
-      where: { id: SETTINGS_SINGLETON_ID },
-      select: { showBankTransferInstructions: true },
-    });
-    return s?.showBankTransferInstructions ?? false;
-  } catch (e) {
-    console.error("[reminder-settings] load showBankTransferInstructions fallito, uso false:", e);
-    return false;
-  }
-}
-
-/**
  * Carica le soglie reminder dal record singleton, con fallback ai default se il
  * record non esiste ancora o un array è vuoto/nullo. Non lancia mai.
  */

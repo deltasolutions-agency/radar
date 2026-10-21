@@ -1,10 +1,7 @@
 import { json, error, withApi, requireAdmin } from "@/lib/api";
 import { sendEmail } from "@/lib/send-email";
 import { buildReminderEmail } from "@/lib/email-templates";
-import {
-  loadReminderTemplates,
-  loadShowBankTransferInstructions,
-} from "@/lib/reminder-settings";
+import { loadReminderTemplates } from "@/lib/reminder-settings";
 import { EXAMPLE_TOKEN } from "@/lib/example-link";
 
 // POST /api/email-logs/test — invia all'admin collegato un reminder DI ESEMPIO
@@ -46,7 +43,6 @@ export function POST() {
           ],
           payUrl: `${appUrl}/pay/${EXAMPLE_TOKEN}`,
           autoChargeUrl: `${appUrl}/attiva-rinnovo/${EXAMPLE_TOKEN}`,
-          showBankTransfer: await loadShowBankTransferInstructions(),
         },
         override: (await loadReminderTemplates()).PROMEMORIA_7,
       },
