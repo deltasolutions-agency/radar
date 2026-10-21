@@ -18,7 +18,7 @@ import {
 } from "@/lib/reminder-settings";
 import { formatDate, formatEur } from "@/lib/format";
 import { withEndClient } from "@/lib/end-client";
-import { serviceLabel, type CronResult } from "@/lib/cron/common";
+import { itemSummary, serviceLabel, type CronResult } from "@/lib/cron/common";
 import {
   BLOCKING,
   NO_EMAIL_RECIPIENT,
@@ -35,7 +35,9 @@ function groupDetail(g: PlannedGroup, extra: Record<string, unknown> = {}) {
   return {
     subscriptionId: g.subscriptionId,
     client: g.clientName,
+    services: groupServicesLabel(g),
     recipient: g.clientEmail,
+    note: milestoneLabel(g),
     milestone: g.type,
     offset: g.offset,
     daysLate: g.daysLate,
@@ -56,8 +58,20 @@ function groupDetail(g: PlannedGroup, extra: Record<string, unknown> = {}) {
 function autoChargeTodayDetails(plan: ReminderPlan) {
   return plan.autoChargeToday.map((it) => ({
     outcome: "SKIPPED_AUTOCHARGE_TODAY",
-    subscriptionId: it.subscriptionId,
-    itemId: it.id,
+    ...itemSummary(it),
+    note: "scade oggi: coperta dall'addebito automatico delle 9:00",
+  }));
+}
+
+/** Arretrati: milestone non inviata da oltre la finestra di recupero. */
+function backlogDetails(plan: ReminderPlan) {
+  return plan.backlog.map((b) => ({
+    outcome: "BACKLOG",
+    ...itemSummary(b.item),
+    milestone: b.type,
+    offset: b.offset,
+    daysLate: b.daysLate,
+    note: `${milestoneLabel(b)} non inviata da ${b.daysLate} gg`,
   }));
 }
 
@@ -83,14 +97,7 @@ function dryRunResult(plan: ReminderPlan): CronResult {
         }),
       ),
       ...autoChargeTodayDetails(plan),
-      ...plan.backlog.map((b) => ({
-        outcome: "BACKLOG",
-        subscriptionId: b.item.subscriptionId,
-        itemId: b.item.id,
-        milestone: b.type,
-        offset: b.offset,
-        daysLate: b.daysLate,
-      })),
+      ...backlogDetails(plan),
     ],
   };
 }
@@ -303,16 +310,7 @@ export async function runReminders({
       `${b.item.subscription.client.ragioneSociale?.trim() || b.item.subscription.client.name} · ${withEndClient(serviceLabel(b.item), b.item.endClientName)} · ${milestoneLabel(b)} non inviata da ${b.daysLate} gg · scadenza ${formatDate(b.item.endDate)} · ${formatEur(renewalChargePriceCents(b.item) * b.item.quantity, b.item.currency)} netti`,
   );
   details.push(...autoChargeTodayDetails(plan));
-  for (const b of plan.backlog) {
-    details.push({
-      outcome: "BACKLOG",
-      subscriptionId: b.item.subscriptionId,
-      itemId: b.item.id,
-      milestone: b.type,
-      offset: b.offset,
-      daysLate: b.daysLate,
-    });
-  }
+  details.push(...backlogDetails(plan));
 
   // ── 3. Riepilogo admin (solo se qualcosa è partito o è fallito) ───────────
   if (sent + failed > 0) {

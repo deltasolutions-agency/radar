@@ -7,6 +7,7 @@ import {
 import { LogTable, type LogRow, type LogChange } from "./log-table";
 import { EmailLogTab } from "./email-tab";
 import { CronStatus } from "./cron-status";
+import { CronTab } from "./cron-tab";
 import { TestEmailButton } from "./test-email-button";
 import Link from "next/link";
 import { getAdminSession } from "@/lib/auth";
@@ -37,7 +38,8 @@ export default async function LogPage({
 }: {
   searchParams: LogSearchParams;
 }) {
-  const tab = searchParams.tab === "email" ? "email" : "dati";
+  const tab =
+    searchParams.tab === "email" ? "email" : searchParams.tab === "cron" ? "cron" : "dati";
   const admin = await getAdminSession();
 
   return (
@@ -47,7 +49,9 @@ export default async function LogPage({
         <p className="mt-1 text-sm text-slate-500">
           {tab === "email"
             ? "Tutte le email inviate da Radar, con contenuto completo"
-            : "Modifiche ai dati di fatturazione effettuate dai clienti"}
+            : tab === "cron"
+              ? "Esecuzioni dei cron, pausa, anteprima ed esecuzione manuale"
+              : "Modifiche ai dati di fatturazione effettuate dai clienti"}
         </p>
       </div>
 
@@ -60,9 +64,22 @@ export default async function LogPage({
             Email
           </TabLink>
         ) : null}
+        {admin ? (
+          <TabLink href="/log?tab=cron" active={tab === "cron"}>
+            Cron
+          </TabLink>
+        ) : null}
       </nav>
 
-      {tab === "email" ? (
+      {tab === "cron" ? (
+        admin ? (
+          <CronTab searchParams={searchParams} />
+        ) : (
+          <p className="rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-800">
+            Sezione riservata agli amministratori.
+          </p>
+        )
+      ) : tab === "email" ? (
         admin ? (
           <EmailLogTab
             searchParams={searchParams}

@@ -45,6 +45,27 @@ export async function loadAutoChargeReminderHours(): Promise<number[]> {
   }
 }
 
+/** Ritardo massimo di default (giorni) per l'addebito automatico. */
+export const DEFAULT_AUTOCHARGE_MAX_DELAY_DAYS = 3;
+
+/**
+ * Carica il ritardo massimo dell'auto-charge (0–10), con fallback al default
+ * se il record non esiste o il valore è fuori range. Non lancia.
+ */
+export async function loadAutoChargeMaxDelayDays(): Promise<number> {
+  try {
+    const s = await prisma.reminderSettings.findUnique({
+      where: { id: SETTINGS_SINGLETON_ID },
+      select: { autoChargeMaxDelayDays: true },
+    });
+    const v = s?.autoChargeMaxDelayDays;
+    return v != null && v >= 0 && v <= 10 ? v : DEFAULT_AUTOCHARGE_MAX_DELAY_DAYS;
+  } catch (e) {
+    console.error("[reminder-settings] load autoChargeMaxDelayDays fallito, uso default:", e);
+    return DEFAULT_AUTOCHARGE_MAX_DELAY_DAYS;
+  }
+}
+
 /**
  * Carica le soglie reminder dal record singleton, con fallback ai default se il
  * record non esiste ancora o un array è vuoto/nullo. Non lancia mai.

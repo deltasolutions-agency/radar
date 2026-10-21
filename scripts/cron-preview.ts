@@ -21,7 +21,6 @@ import {
   planReminders,
 } from "@/lib/cron/reminders-plan";
 import {
-  AUTOCHARGE_MAX_DELAY_DAYS,
   EXCLUSION_LABELS,
   planAutoCharge,
 } from "@/lib/cron/auto-charge-plan";
@@ -63,6 +62,13 @@ const renewalNote = (it: RenewalPricingItem & { quantity: number; currency: stri
     ? ` · aumento una tantum: ${money(it.priceCents * it.quantity, it.currency)} → ${money(renewalChargePriceCents(it) * it.quantity, it.currency)}`
     : ` · ${renewalIncreaseLabel(it)}`;
 const hr = (title: string) => console.log(`\n${"═".repeat(78)}\n${title}\n${"═".repeat(78)}`);
+/** Stato dell'interruttore in dashboard (Log → Cron). */
+const pausedNote = async (name: string) => {
+  const s = await prisma.cronSetting.findUnique({ where: { name } });
+  return s && !s.enabled
+    ? "⏸  IN PAUSA dalla dashboard: l'esecuzione programmata non farebbe nulla (anteprima comunque calcolata)."
+    : "▶  Attivo";
+};
 
 const adminEmail = process.env.ADMIN_EMAIL ?? "(ADMIN_EMAIL non configurata)";
 const appUrl = process.env.APP_URL;
@@ -72,6 +78,7 @@ const appUrl = process.env.APP_URL;
 // ═════════════════════════════════════════════════════════════════════════════
 async function previewReminders() {
   hr(`CRON REMINDER — /api/cron/reminders — riferimento ${dateTime(now)}`);
+  console.log(await pausedNote("reminders"));
   const plan = await planReminders(now);
   const s = plan.settings;
   console.log(
@@ -169,6 +176,7 @@ async function previewReminders() {
 // ═════════════════════════════════════════════════════════════════════════════
 async function previewAutoCharge() {
   hr(`CRON AUTO-CHARGE — /api/cron/auto-charge — riferimento ${dateTime(now)}`);
+  console.log(await pausedNote("auto-charge"));
   const plan = await planAutoCharge(now);
   const stripe =
     checkStripe && process.env.STRIPE_SECRET_KEY ? new Stripe(process.env.STRIPE_SECRET_KEY) : null;
@@ -230,7 +238,7 @@ async function previewAutoCharge() {
   }
   if (plan.attemptedToday.length > 0) console.log(`\nRighe già tentate oggi (saltate): ${plan.attemptedToday.length}`);
 
-  console.log(`\nRiepilogo auto-charge (ritardo massimo ${AUTOCHARGE_MAX_DELAY_DAYS} gg):`);
+  console.log(`\nRiepilogo auto-charge (ritardo massimo ${plan.maxDelayDays} gg):`);
   console.log(`  addebiti Stripe (gruppi):  ${plan.charges.length}`);
   console.log(`  righe addebitate:          ${plan.charges.reduce((n, c) => n + c.items.length, 0)}`);
   console.log(`  importo totale:            ${money(total)}`);
@@ -243,6 +251,7 @@ async function previewAutoCharge() {
 // ═════════════════════════════════════════════════════════════════════════════
 async function previewActivation() {
   hr(`CRON ORARIO — /api/cron/autocharge-reminders — riferimento ${dateTime(now)}`);
+  console.log(await pausedNote("autocharge-reminders"));
   const plan = await planActivationReminders(now);
   console.log(`Soglie: ${JSON.stringify(plan.hours)} h (l'ultima è l'escalation admin) · richieste nelle ultime 48h: ${plan.candidates}`);
   for (const g of plan.groups) {

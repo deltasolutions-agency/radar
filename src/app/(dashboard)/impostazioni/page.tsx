@@ -2,6 +2,7 @@ import {
   loadReminderThresholds,
   loadReminderTemplates,
   loadAutoChargeReminderHours,
+  loadAutoChargeMaxDelayDays,
 } from "@/lib/reminder-settings";
 import {
   REMINDER_CONFIGURABLE_TYPES,
@@ -22,11 +23,13 @@ const TYPE_LABELS: Record<ReminderConfigurableType, string> = {
 };
 
 export default async function ImpostazioniPage() {
-  const [thresholds, templates, autoChargeReminderHours] = await Promise.all([
-    loadReminderThresholds(),
-    loadReminderTemplates(),
-    loadAutoChargeReminderHours(),
-  ]);
+  const [thresholds, templates, autoChargeReminderHours, autoChargeMaxDelayDays] =
+    await Promise.all([
+      loadReminderThresholds(),
+      loadReminderTemplates(),
+      loadAutoChargeReminderHours(),
+      loadAutoChargeMaxDelayDays(),
+    ]);
 
   const templateFields: TemplateField[] = REMINDER_CONFIGURABLE_TYPES.map(
     (type) => {
@@ -60,6 +63,7 @@ export default async function ImpostazioniPage() {
           overdueDays: thresholds.overdueDays.join(", "),
           cessationDay: String(thresholds.cessationDay),
           autoChargeReminderHours: autoChargeReminderHours.join(", "),
+          autoChargeMaxDelayDays: String(autoChargeMaxDelayDays),
           templates: templateFields,
         }}
       />

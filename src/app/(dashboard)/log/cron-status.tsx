@@ -1,47 +1,44 @@
+import Link from "next/link";
 import { prisma } from "@/lib/prisma";
-import { CRON_NAMES, type CronName } from "@/lib/cron/common";
 import { formatRomeDateTime } from "@/lib/email-log-labels";
+import { CRON_META, cronHealth } from "@/lib/cron/meta";
 
-const HOUR = 60 * 60 * 1000;
+const TONE = {
+  ok: "border-emerald-200 bg-emerald-50 text-emerald-700",
+  bad: "border-red-200 bg-red-50 text-red-700",
+  muted: "border-slate-200 bg-slate-100 text-slate-600",
+};
 
-// Soglie oltre le quali un cron è considerato fermo.
-const CRONS: { name: CronName; label: string; maxAgeMs: number; schedule: string }[] = [
-  { name: CRON_NAMES.reminders, label: "Reminder", maxAgeMs: 26 * HOUR, schedule: "ogni giorno 8:00" },
-  { name: CRON_NAMES.autoCharge, label: "Addebiti automatici", maxAgeMs: 26 * HOUR, schedule: "ogni giorno 9:00" },
-  { name: CRON_NAMES.activationReminders, label: "Solleciti attivazione", maxAgeMs: 2 * HOUR, schedule: "ogni ora" },
-];
-
-/** Riquadro "Stato cron": ultima esecuzione reale per cron (da CronRun). */
+/** Riquadro "Stato cron" (tab Email): ultima esecuzione e badge per cron. */
 export async function CronStatus() {
-  const now = Date.now();
-  const latest = await Promise.all(
-    CRONS.map((c) =>
-      prisma.cronRun.findFirst({ where: { name: c.name }, orderBy: { startedAt: "desc" } }),
+  const [settings, latest] = await Promise.all([
+    prisma.cronSetting.findMany(),
+    Promise.all(
+      CRON_META.map((c) =>
+        prisma.cronRun.findFirst({ where: { name: c.name }, orderBy: { startedAt: "desc" } }),
+      ),
     ),
-  );
+  ]);
 
   return (
     <section className="card p-4">
-      <h2 className="mono-label">Stato cron</h2>
+      <div className="flex items-center justify-between">
+        <h2 className="mono-label">Stato cron</h2>
+        <Link href="/log?tab=cron" className="text-xs text-brand hover:underline">
+          Gestisci →
+        </Link>
+      </div>
       <div className="mt-3 grid gap-3 sm:grid-cols-3">
-        {CRONS.map((c, i) => {
+        {CRON_META.map((c, i) => {
           const run = latest[i];
-          const stale = !run || now - run.startedAt.getTime() > c.maxAgeMs;
-          const errored = !!run?.error;
-          const running = !!run && !run.finishedAt && !run.error;
-          const bad = stale || errored;
+          const enabled = settings.find((s) => s.name === c.name)?.enabled ?? true;
+          const health = cronHealth(c, enabled, run);
           return (
             <div key={c.name} className="rounded-lg border border-line-soft p-3 text-sm">
               <div className="flex items-center justify-between gap-2">
                 <span className="font-medium text-ink">{c.label}</span>
-                <span
-                  className={`inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-medium ${
-                    bad
-                      ? "border-red-200 bg-red-50 text-red-700"
-                      : "border-emerald-200 bg-emerald-50 text-emerald-700"
-                  }`}
-                >
-                  {!run ? "Mai eseguito" : errored ? "Errore" : stale ? "Fermo" : running ? "In corso" : "OK"}
+                <span className={`inline-flex rounded-md border px-2 py-0.5 text-xs font-medium ${TONE[health.tone]}`}>
+                  {health.text}
                 </span>
               </div>
               <p className="mt-1 text-xs text-slate-500">{c.schedule}</p>
@@ -51,7 +48,7 @@ export async function CronStatus() {
                     Ultima: {formatRomeDateTime(run.startedAt)}
                   </p>
                   <p className="text-xs text-slate-500">
-                    {run.sent} inviati/eseguiti · {run.skipped} saltati · {run.failed} falliti
+                    {run.sent} eseguiti · {run.skipped} saltati · {run.failed} falliti
                   </p>
                   {run.error ? (
                     <p className="mt-1 line-clamp-2 text-xs text-red-700" title={run.error}>
@@ -62,11 +59,6 @@ export async function CronStatus() {
               ) : (
                 <p className="mt-2 text-xs text-slate-500">Nessuna esecuzione registrata.</p>
               )}
-              {stale && run ? (
-                <p className="mt-1 text-xs text-red-700">
-                  Non gira da più di {Math.round(c.maxAgeMs / HOUR)} ore
-                </p>
-              ) : null}
             </div>
           );
         })}

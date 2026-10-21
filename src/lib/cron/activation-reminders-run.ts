@@ -23,6 +23,10 @@ function groupDetail(g: ActivationGroup, extra: Record<string, unknown> = {}) {
     clientId: g.clientId,
     client: g.clientName,
     recipient: g.kind === "ADMIN_ESCALATION" ? "admin" : g.clientEmail,
+    note:
+      g.kind === "ADMIN_ESCALATION"
+        ? `escalation admin (${g.marks.length} soglie)`
+        : `sollecito attivazione (${g.marks.length} soglie)`,
     marks: g.marks.map((m) => ({ requestId: m.request.id, hoursMark: m.mark, attempts: m.attempts })),
     ...extra,
   };

@@ -1,6 +1,7 @@
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { periodDurationDays } from "@/lib/billing-period";
+import { loadAutoChargeMaxDelayDays } from "@/lib/reminder-settings";
 import { computeServiceFeeCents } from "@/lib/service-fee";
 import { addVatToNet } from "@/lib/vat";
 import { withEndClient } from "@/lib/end-client";
@@ -11,8 +12,8 @@ import { MS_PER_DAY, idsHash, serviceLabel, ymd } from "@/lib/cron/common";
 // (esecuzione reale e ?dryRun=1) e da scripts/cron-preview.ts.
 //
 // Regole:
-//  1. Si addebitano solo righe scadute da al massimo AUTOCHARGE_MAX_DELAY_DAYS
-//     giorni; oltre → nessun addebito, segnalazione all'admin.
+//  1. Si addebitano solo righe scadute da al massimo N giorni (Impostazioni,
+//     ReminderSettings.autoChargeMaxDelayDays, default 3); oltre → nessun addebito, segnalazione all'admin.
 //  2. Al massimo un addebito per riga per esecuzione, nessun recupero
 //     multi-giorno (riga già addebitata di recente → esclusa).
 //  3. Idempotency key Stripe deterministica per periodo e tentativo.
@@ -20,9 +21,6 @@ import { MS_PER_DAY, idsHash, serviceLabel, ymd } from "@/lib/cron/common";
 //  5. Nessun addebito se esiste già un Payment in attesa per la riga.
 //  6. PERSONALIZZATA senza durata esclusa.
 
-export const AUTOCHARGE_MAX_DELAY_DAYS = 3;
-/** Finestra in cui un addebito già riuscito blocca un nuovo addebito della riga. */
-export const RECENT_CHARGE_DAYS = AUTOCHARGE_MAX_DELAY_DAYS + 1;
 
 export const BLOCKING = ["CESSATO", "SOSPESO"] as const;
 
@@ -39,7 +37,7 @@ export type AutoChargeExclusion =
   | "NO_CARD";
 
 export const EXCLUSION_LABELS: Record<AutoChargeExclusion, string> = {
-  TOO_LATE: `scaduta da più di ${AUTOCHARGE_MAX_DELAY_DAYS} giorni`,
+  TOO_LATE: "scaduta oltre il ritardo massimo",
   PENDING_PAYMENT: "esiste già un pagamento in attesa",
   RECENTLY_CHARGED: "già addebitata di recente (nessun recupero multi-giorno)",
   NO_PERIOD: "periodicità personalizzata senza durata",
@@ -79,6 +77,8 @@ export type PlannedCharge = {
 
 export type AutoChargePlan = {
   now: Date;
+  /** Ritardo massimo (giorni) in vigore per questa esecuzione. */
+  maxDelayDays: number;
   candidates: number;
   toDisable: AutoChargeItem[];
   attemptedToday: AutoChargeItem[];
@@ -112,7 +112,10 @@ export async function planAutoCharge(now: Date): Promise<AutoChargePlan> {
   const attemptedToday: AutoChargeItem[] = [];
   const excluded: AutoChargePlan["excluded"] = [];
   const eligible: AutoChargeItem[] = [];
-  const recentSince = new Date(now.getTime() - RECENT_CHARGE_DAYS * MS_PER_DAY);
+  const maxDelayDays = await loadAutoChargeMaxDelayDays();
+  // Un addebito riuscito in questa finestra blocca un nuovo addebito della riga
+  // (nessun recupero multi-giorno).
+  const recentSince = new Date(now.getTime() - (maxDelayDays + 1) * MS_PER_DAY);
 
   for (const item of candidates) {
     const client = item.subscription.client;
@@ -135,7 +138,7 @@ export async function planAutoCharge(now: Date): Promise<AutoChargePlan> {
       continue;
     }
     if (!client.stripeCustomerId || !client.stripeDefaultPaymentMethodId) continue;
-    if (lateDays > AUTOCHARGE_MAX_DELAY_DAYS) {
+    if (lateDays > maxDelayDays) {
       excluded.push({ item, reason: "TOO_LATE", lateDays });
       continue;
     }
@@ -223,5 +226,5 @@ export async function planAutoCharge(now: Date): Promise<AutoChargePlan> {
     });
   }
 
-  return { now, candidates: candidates.length, toDisable, attemptedToday, excluded, charges };
+  return { now, maxDelayDays, candidates: candidates.length, toDisable, attemptedToday, excluded, charges };
 }

@@ -18,6 +18,7 @@ export type ImpostazioniInitial = {
   overdueDays: string;
   cessationDay: string;
   autoChargeReminderHours: string;
+  autoChargeMaxDelayDays: string;
   templates: TemplateField[];
 };
 
@@ -47,6 +48,7 @@ export function ImpostazioniForm({
   const [autoChargeHours, setAutoChargeHours] = useState(
     initial.autoChargeReminderHours,
   );
+  const [maxDelay, setMaxDelay] = useState(initial.autoChargeMaxDelayDays);
   const [templates, setTemplates] = useState(initial.templates);
 
   const [pending, setPending] = useState(false);
@@ -71,6 +73,7 @@ export function ImpostazioniForm({
       overdueDays: parseIntList(overdue),
       cessationDay: parseInt(cessation, 10) || 0,
       autoChargeReminderHours: parseIntList(autoChargeHours),
+      autoChargeMaxDelayDays: Math.min(10, Math.max(0, parseInt(maxDelay, 10) || 0)),
       templates: Object.fromEntries(
         templates.map((t) => [
           t.type,
@@ -188,6 +191,25 @@ export function ImpostazioniForm({
             <p className="mt-1 text-xs text-slate-500">
               Alle soglie intermedie viene inviato un sollecito al cliente; alla
               soglia più alta scatta l&apos;escalation all&apos;admin.
+            </p>
+          </div>
+          <div>
+            <label htmlFor="autoChargeMaxDelay" className="field-label">
+              Addebito automatico · ritardo massimo (giorni)
+            </label>
+            <input
+              id="autoChargeMaxDelay"
+              type="number"
+              min={0}
+              max={10}
+              className="field"
+              value={maxDelay}
+              onChange={(e) => setMaxDelay(e.target.value)}
+              placeholder="3"
+            />
+            <p className="mt-1 text-xs text-slate-500">
+              Da 0 a 10. Le righe scadute da più giorni non vengono addebitate e
+              sono segnalate all&apos;admin.
             </p>
           </div>
         </div>

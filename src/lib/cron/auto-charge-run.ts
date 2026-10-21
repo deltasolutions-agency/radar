@@ -12,9 +12,13 @@ import {
 import { MS_PER_DAY, periodDurationDays } from "@/lib/billing-period";
 import { formatDate, formatEur } from "@/lib/format";
 import { withEndClient } from "@/lib/end-client";
-import { clientDisplayName, serviceLabel, type CronResult } from "@/lib/cron/common";
 import {
-  AUTOCHARGE_MAX_DELAY_DAYS,
+  clientDisplayName,
+  itemSummary,
+  serviceLabel,
+  type CronResult,
+} from "@/lib/cron/common";
+import {
   EXCLUSION_LABELS,
   planAutoCharge,
   type AutoChargeItem,
@@ -30,6 +34,7 @@ function chargeDetail(c: PlannedCharge, extra: Record<string, unknown> = {}) {
   return {
     subscriptionId: c.subscriptionId,
     client: clientDisplayName(c.client),
+    services: c.items.map((it) => withEndClient(serviceLabel(it), it.endClientName)).join(", "),
     dueDate: c.endDate.toISOString().slice(0, 10),
     items: c.items.map((it, i) => ({
       id: it.id,
@@ -50,13 +55,21 @@ function exclusionDetails(plan: AutoChargePlan) {
   return [
     ...plan.excluded.map((e) => ({
       outcome: "EXCLUDED",
+      ...itemSummary(e.item),
       reason: e.reason,
-      itemId: e.item.id,
-      subscriptionId: e.item.subscriptionId,
+      note: `${EXCLUSION_LABELS[e.reason]}${e.reason === "TOO_LATE" ? ` (${e.lateDays} gg, massimo ${plan.maxDelayDays})` : ""}`,
       lateDays: e.lateDays,
     })),
-    ...plan.toDisable.map((it) => ({ outcome: "DISABLE_EXPIRED", itemId: it.id })),
-    ...plan.attemptedToday.map((it) => ({ outcome: "ALREADY_ATTEMPTED_TODAY", itemId: it.id })),
+    ...plan.toDisable.map((it) => ({
+      outcome: "DISABLE_EXPIRED",
+      ...itemSummary(it),
+      note: "fine rinnovo automatico superata: verrà disattivato",
+    })),
+    ...plan.attemptedToday.map((it) => ({
+      outcome: "ALREADY_ATTEMPTED_TODAY",
+      ...itemSummary(it),
+      note: "già tentata oggi",
+    })),
   ];
 }
 
@@ -292,7 +305,7 @@ export async function runAutoCharge({
 
   // ── Riepilogo admin (una email per esecuzione, solo se c'è qualcosa) ──────
   const excludedLines = plan.excluded.map(
-    (e) => `${itemLine(e.item)} — ${EXCLUSION_LABELS[e.reason]}${e.reason === "TOO_LATE" ? ` (${e.lateDays} gg)` : ""}`,
+    (e) => `${itemLine(e.item)} — ${EXCLUSION_LABELS[e.reason]}${e.reason === "TOO_LATE" ? ` (${e.lateDays} gg, massimo ${plan.maxDelayDays})` : ""}`,
   );
   const disabledLines = plan.toDisable.map((it) => `${itemLine(it)} — fine rinnovo automatico superata`);
   if (plan.charges.length + excludedLines.length + disabledLines.length > 0) {
@@ -300,7 +313,7 @@ export async function runAutoCharge({
       buildCronSummaryEmail({
         subject: `[Radar] Riepilogo addebiti automatici ${formatDate(now)}: ${succeeded} riusciti${failed ? `, ${failed} falliti` : ""}${summaryReconcile.length ? `, ${summaryReconcile.length} da riconciliare` : ""}`,
         title: "Riepilogo cron addebiti automatici",
-        intro: `Esecuzione del ${now.toLocaleString("it-IT", { timeZone: "Europe/Rome" })}. Le righe escluse richiedono una gestione manuale (si addebitano solo scadenze con ritardo ≤ ${AUTOCHARGE_MAX_DELAY_DAYS} giorni).`,
+        intro: `Esecuzione del ${now.toLocaleString("it-IT", { timeZone: "Europe/Rome" })}. Le righe escluse richiedono una gestione manuale (si addebitano solo scadenze con ritardo ≤ ${plan.maxDelayDays} giorni).`,
         sections: [
           { heading: "Addebiti riusciti", lines: summaryCharged },
           { heading: "Addebiti falliti", lines: summaryFailed },

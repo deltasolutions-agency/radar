@@ -563,6 +563,9 @@ model ReminderSettings {
   // Ore dalla creazione di una AutoChargeRequest in cui sollecitare l'attivazione
   // (soglia intermedia = reminder al cliente; ultima soglia = escalation admin).
   autoChargeReminderHours Int[] @default([12, 24])
+  // Ritardo massimo (giorni dalla scadenza) entro cui il cron auto-charge
+  // addebita una riga; oltre → esclusa e segnalata all'admin. Range 0–10.
+  autoChargeMaxDelayDays Int @default(3)
 
   updatedAt DateTime @updatedAt
 
@@ -699,12 +702,28 @@ model EmailLog {
   @@map("email_logs")
 }
 
+enum CronRunStatus {
+  RUNNING
+  SUCCESS
+  FAILED
+  PAUSED // cron in pausa: nessuna operazione
+}
+
+enum CronTrigger {
+  CRON // crontab del server
+  MANUAL // "Esegui ora" dalla dashboard
+}
+
 // Registro delle esecuzioni REALI dei cron (non dei dry-run).
 model CronRun {
-  id         String    @id @default(cuid())
-  name       String // reminders | auto-charge | autocharge-reminders
-  startedAt  DateTime  @default(now())
-  finishedAt DateTime?
+  id          String        @id @default(cuid())
+  name        String // reminders | auto-charge | autocharge-reminders
+  status      CronRunStatus @default(RUNNING)
+  trigger     CronTrigger   @default(CRON)
+  // Email dell'utente per le esecuzioni manuali.
+  triggeredBy String?
+  startedAt   DateTime      @default(now())
+  finishedAt  DateTime?
   candidates Int       @default(0)
   sent       Int       @default(0)
   skipped    Int       @default(0)
@@ -730,4 +749,17 @@ model AdminActionLog {
   @@index([createdAt])
   @@index([entityType, entityId])
   @@map("admin_action_logs")
+}
+
+// Interruttore e lock di esecuzione per ciascun cron (gestiti dalla dashboard).
+model CronSetting {
+  name      String   @id // reminders | auto-charge | autocharge-reminders
+  enabled   Boolean  @default(true)
+  updatedAt DateTime @updatedAt
+  updatedBy String?
+  // Lock anti-concorrenza: valorizzato durante un'esecuzione; scade dopo 15 min.
+  lockedAt  DateTime?
+  lockedBy  String?
+
+  @@map("cron_settings")
 }
