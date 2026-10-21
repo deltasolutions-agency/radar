@@ -1427,9 +1427,10 @@ export type PaymentLinkEmailData = {
   currency?: string;
   /** URL della pagina di pagamento (gate consenso) o Checkout reale. */
   checkoutUrl: string;
-  /** Scadenza del link (max 24h). */
-  expiresAt: Date;
 };
+
+/** Il link /pay rigenera la sessione Stripe al click: resta valido fino al pagamento. */
+const PAYMENT_LINK_VALIDITY_NOTE = "Il link resta valido fino al pagamento.";
 
 /**
  * Email al cliente con il link di pagamento Stripe. Rivolta al cliente:
@@ -1459,7 +1460,7 @@ export function buildPaymentLinkEmail(d: PaymentLinkEmailData): EmailContent {
     "",
     `Paga ora: ${d.checkoutUrl}`,
     "",
-    `Il link scade il ${formatDate(d.expiresAt)} (24 ore).`,
+    PAYMENT_LINK_VALIDITY_NOTE,
   ].join("\n");
 
   const itemRowsHtml = d.items
@@ -1484,7 +1485,7 @@ export function buildPaymentLinkEmail(d: PaymentLinkEmailData): EmailContent {
       <p style="margin:20px 0">
         <a href="${h(d.checkoutUrl)}" style="display:inline-block;background:#4f46e5;color:#ffffff;text-decoration:none;font-family:sans-serif;font-size:14px;font-weight:600;padding:12px 20px;border-radius:8px">Paga ora →</a>
       </p>
-      <p style="font-size:12px;color:#64748b">Il link scade il ${formatDate(d.expiresAt)} (24 ore dall'invio).</p>
+      <p style="font-size:12px;color:#64748b">${PAYMENT_LINK_VALIDITY_NOTE}</p>
       <hr style="border:none;border-top:1px solid #e2e8f0;margin:24px 0" />
       <p style="font-size:12px;color:#94a3b8">Radar — Delta Solutions</p>
     </div>`;

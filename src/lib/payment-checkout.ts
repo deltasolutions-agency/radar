@@ -18,7 +18,8 @@ import { withEndClient } from "@/lib/end-client";
 
 // Durata di validità della Checkout Session. Stripe impone un MASSIMO di 24h
 // da expires_at: usiamo 23h per lasciare margine contro arrotondamenti/latenza
-// (all'utente comunichiamo 24h per semplicità).
+// (all'utente non comunichiamo una scadenza: /pay rigenera la sessione scaduta
+// al click, quindi il link resta valido fino al pagamento).
 const CHECKOUT_TTL_SECONDS = 23 * 60 * 60;
 
 /** Riga di servizio da includere nel pagamento (una per PaymentItem/line_item). */
@@ -234,7 +235,6 @@ export async function createCheckoutPayment(
       items: emailItems,
       currency,
       checkoutUrl: payUrl,
-      expiresAt,
     });
     const sub = await prisma.subscription.findUnique({
       where: { id: subscriptionId },
