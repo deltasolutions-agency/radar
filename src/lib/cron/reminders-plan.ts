@@ -11,6 +11,10 @@ import {
   type ReminderThresholds,
 } from "@/lib/reminder-settings";
 import { addVatToNet } from "@/lib/vat";
+import {
+  renewalChargePriceCents,
+  type RenewalPricingItem,
+} from "@/lib/renewal-price";
 import { getStripe } from "@/lib/stripe";
 import { periodDurationDays } from "@/lib/billing-period";
 import { computeServiceFeeCents } from "@/lib/service-fee";
@@ -191,14 +195,15 @@ export type GroupAmounts = {
  * sul lordo dei servizi — IDENTICO a checkout Stripe e cron auto-charge.
  */
 export function groupAmounts(
-  items: { priceCents: number; quantity: number }[],
+  items: (RenewalPricingItem & { quantity: number })[],
   serviceFeeEnabled: boolean,
 ): GroupAmounts {
   let netCents = 0;
   let vatCents = 0;
   let grossCents = 0;
   for (const it of items) {
-    const r = addVatToNet(it.priceCents * it.quantity);
+    // Prezzo del PROSSIMO rinnovo (aumento ONCE incluso se dovuto).
+    const r = addVatToNet(renewalChargePriceCents(it) * it.quantity);
     netCents += r.netCents;
     vatCents += r.vatCents;
     grossCents += r.grossCents;

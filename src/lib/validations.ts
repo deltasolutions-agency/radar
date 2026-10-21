@@ -250,6 +250,8 @@ export const PAYMENT_STATUS_LABELS: Record<PaymentStatusValue, string> = {
 // come righe (SubscriptionItem) con propria scadenza/prezzo/stato/auto-charge.
 // La creazione di un abbonamento è quindi { clientId, notes?, items: [...] }.
 
+export const RENEWAL_INCREASE_MODES = ["EVERY_RENEWAL", "ONCE"] as const;
+
 /** Lunghezza massima del nome cliente finale (condivisa client/server). */
 export const END_CLIENT_NAME_MAX = 120;
 
@@ -286,6 +288,20 @@ const subscriptionItemObject = z.object({
     z.coerce.date().nullable().optional(),
   ),
   notes: z.preprocess(emptyToUndef, z.string().trim().max(5000).optional()),
+  // Aumento al rinnovo: modalità (default DB EVERY_RENEWAL) e override della %
+  // del servizio (null = usa quella del servizio).
+  renewalIncreaseMode: z
+    .enum(RENEWAL_INCREASE_MODES, {
+      errorMap: () => ({ message: "Modalità di aumento non valida" }),
+    })
+    .optional(),
+  renewalIncreasePercentOverride: z
+    .number({ invalid_type_error: "Percentuale non valida" })
+    .int("La percentuale deve essere un intero")
+    .min(0, "La percentuale non può essere negativa")
+    .max(100, "La percentuale non può superare 100%")
+    .nullable()
+    .optional(),
   // Cliente finale (facoltativo): trim, max 120; stringa vuota → null (svuota).
   endClientName: z.preprocess(
     (v) => (typeof v === "string" && v.trim() === "" ? null : v),

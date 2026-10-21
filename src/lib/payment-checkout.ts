@@ -1,5 +1,12 @@
 import "server-only";
-import type { Payment, BillingPeriod, EmailTrigger } from "@prisma/client";
+import type {
+  Payment,
+  BillingPeriod,
+  EmailTrigger,
+  Service,
+  SubscriptionItem,
+} from "@prisma/client";
+import { renewalChargePriceCents } from "@/lib/renewal-price";
 import { prisma } from "@/lib/prisma";
 import { getStripe } from "@/lib/stripe";
 import { sendEmail } from "@/lib/send-email";
@@ -27,6 +34,27 @@ export type SubscriptionItemForCheckout = {
   /** Cliente finale della riga: aggiunto al nome su Stripe e nell'email. */
   endClientName: string | null;
 };
+
+/**
+ * Riga di checkout da una SubscriptionItem: prezzo = prezzo del PROSSIMO
+ * rinnovo (renewalChargePriceCents: invariato per EVERY_RENEWAL, aumentato per
+ * ONCE non ancora applicato).
+ */
+export function toCheckoutItem(
+  it: Omit<SubscriptionItem, "service"> & { service: Service },
+): SubscriptionItemForCheckout {
+  return {
+    id: it.id,
+    currency: it.currency,
+    priceCents: renewalChargePriceCents(it),
+    quantity: it.quantity,
+    endDate: it.endDate,
+    billingPeriod: it.billingPeriod,
+    customPeriodDays: it.customPeriodDays,
+    service: { name: it.service.name, description: it.service.description },
+    endClientName: it.endClientName,
+  };
+}
 
 /**
  * Richiesta di checkout: l'abbonamento contenitore + le righe (con scadenza

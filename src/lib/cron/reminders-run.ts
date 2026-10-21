@@ -8,7 +8,8 @@ import {
   type ClientRenewalInfo,
   type EmailContent,
 } from "@/lib/email-templates";
-import { createCheckoutPayment } from "@/lib/payment-checkout";
+import { createCheckoutPayment, toCheckoutItem } from "@/lib/payment-checkout";
+import { renewalChargePriceCents } from "@/lib/renewal-price";
 import { sendEmail } from "@/lib/send-email";
 import { purgeOldEmailLogs } from "@/lib/email-log-retention";
 import {
@@ -103,17 +104,7 @@ async function ensurePayUrl(g: PlannedGroup, appUrl: string): Promise<string | n
         subscriptionId: g.subscriptionId,
         clientEmail: g.clientEmail,
         serviceFeeEnabled: g.serviceFeeEnabled,
-        items: g.items.map((it) => ({
-          id: it.id,
-          currency: it.currency,
-          priceCents: it.priceCents,
-          quantity: it.quantity,
-          endDate: it.endDate,
-          billingPeriod: it.billingPeriod,
-          customPeriodDays: it.customPeriodDays,
-          service: { name: it.service.name, description: it.service.description },
-          endClientName: it.endClientName,
-        })),
+        items: g.items.map(toCheckoutItem),
       },
       appUrl,
       { sendToClient: false, trigger: "CRON" },
@@ -164,7 +155,8 @@ async function buildGroupEmail(
   if (!g.autoCharge) {
     const appUrl = process.env.APP_URL;
     clientRenewal = {
-      itemNetCents: g.items.map((it) => it.priceCents * it.quantity),
+      // Netto del PROSSIMO rinnovo (aumento ONCE incluso se dovuto).
+      itemNetCents: g.items.map((it) => renewalChargePriceCents(it) * it.quantity),
       currency: g.currency,
       payUrl: appUrl ? await ensurePayUrl(g, appUrl) : null,
       autoChargeUrl: appUrl && !g.isCessation ? await ensureAutoChargeUrl(g, appUrl) : null,
@@ -308,7 +300,7 @@ export async function runReminders({
 
   const backlogLines = plan.backlog.map(
     (b) =>
-      `${b.item.subscription.client.ragioneSociale?.trim() || b.item.subscription.client.name} · ${withEndClient(serviceLabel(b.item), b.item.endClientName)} · ${milestoneLabel(b)} non inviata da ${b.daysLate} gg · scadenza ${formatDate(b.item.endDate)} · ${formatEur(b.item.priceCents * b.item.quantity, b.item.currency)} netti`,
+      `${b.item.subscription.client.ragioneSociale?.trim() || b.item.subscription.client.name} · ${withEndClient(serviceLabel(b.item), b.item.endClientName)} · ${milestoneLabel(b)} non inviata da ${b.daysLate} gg · scadenza ${formatDate(b.item.endDate)} · ${formatEur(renewalChargePriceCents(b.item) * b.item.quantity, b.item.currency)} netti`,
   );
   details.push(...autoChargeTodayDetails(plan));
   for (const b of plan.backlog) {

@@ -5,6 +5,8 @@ import {
   BILLING_PERIOD_LABELS,
   END_CLIENT_NAME_MAX,
 } from "@/lib/validations";
+import { formatEur } from "@/lib/format";
+import { upcomingRenewalPrices } from "@/lib/renewal-price";
 
 /** Valori di una riga di servizio nel form (stringhe = input controllati). */
 export type ItemValues = {
@@ -19,6 +21,10 @@ export type ItemValues = {
   autoChargeEndDate: string; // YYYY-MM-DD
   notes: string;
   endClientName: string;
+  /** % di aumento al rinnovo (precompilata con quella del servizio). */
+  increasePercent: string;
+  /** true = ONCE: aumento una sola volta, poi prezzo bloccato. */
+  lockAfterFirstIncrease: boolean;
 };
 
 export const EMPTY_ITEM: ItemValues = {
@@ -33,6 +39,8 @@ export const EMPTY_ITEM: ItemValues = {
   autoChargeEndDate: "",
   notes: "",
   endClientName: "",
+  increasePercent: "",
+  lockAfterFirstIncrease: false,
 };
 
 export type ServiceOption = {
@@ -41,7 +49,15 @@ export type ServiceOption = {
   priceCents: number;
   billingPeriod: string;
   customPeriodDays: number | null;
+  renewalIncreasePercent: number;
 };
+
+/** "10" → 10; "" / non valido → null (usa la % del servizio). */
+function parsePercent(input: string): number | null {
+  if (!input.trim()) return null;
+  const n = Number(input.trim().replace(",", "."));
+  return Number.isFinite(n) ? n : null;
+}
 
 /** "12,50" / "12.50" → 1250 centesimi; "" → NaN. */
 export function euroToCents(input: string): number {
@@ -52,7 +68,12 @@ export function euroToCents(input: string): number {
 /**
  * Converte i valori di form di una riga nel payload API (subscriptionItem*).
  */
-export function itemValuesToApi(v: ItemValues) {
+export function itemValuesToApi(
+  v: ItemValues,
+  /** % del servizio scelto: se il campo coincide, nessun override sulla riga. */
+  servicePercent?: number,
+) {
+  const pct = parsePercent(v.increasePercent);
   const isCustom = v.billingPeriod === "PERSONALIZZATA";
   const priceCents = euroToCents(v.priceEuro);
   const quantity = parseInt(v.quantity, 10);
@@ -73,6 +94,9 @@ export function itemValuesToApi(v: ItemValues) {
     notes: v.notes || undefined,
     // Stringa vuota → null lato schema (svuota il cliente finale).
     endClientName: v.endClientName.trim(),
+    renewalIncreaseMode: v.lockAfterFirstIncrease ? "ONCE" : "EVERY_RENEWAL",
+    renewalIncreasePercentOverride:
+      pct == null || pct === servicePercent ? null : pct,
   };
 }
 
@@ -87,6 +111,7 @@ export function ItemFields({
   errors,
   onChange,
   endClientSuggestions = [],
+  renewalState,
 }: {
   idPrefix: string;
   value: ItemValues;
@@ -95,8 +120,44 @@ export function ItemFields({
   onChange: (patch: Partial<ItemValues>) => void;
   /** Clienti finali già usati per lo stesso cliente (autocomplete). */
   endClientSuggestions?: string[];
+  /** Stato attuale della riga (modifica) per l'anteprima dei rinnovi. */
+  renewalState?: {
+    initialMode: "EVERY_RENEWAL" | "ONCE";
+    appliedAt: string | null;
+    hasPastIncrease: boolean;
+  };
 }) {
   const isCustom = value.billingPeriod === "PERSONALIZZATA";
+  const selectedService = services.find((s) => s.id === value.serviceId);
+
+  // Anteprima dei prossimi rinnovi (stessa funzione usata da rinnovi e cron).
+  const renewalPreview = (() => {
+    const unit = euroToCents(value.priceEuro);
+    const qty = parseInt(value.quantity, 10) || 1;
+    if (Number.isNaN(unit)) return null;
+    const pct = parsePercent(value.increasePercent) ?? selectedService?.renewalIncreasePercent ?? 0;
+    const mode = value.lockAfterFirstIncrease ? "ONCE" : "EVERY_RENEWAL";
+    // Passaggio a ONCE di una riga già aumentata: prezzo bloccato subito.
+    const appliedAt =
+      renewalState?.appliedAt ??
+      (mode === "ONCE" &&
+      renewalState?.initialMode !== "ONCE" &&
+      renewalState?.hasPastIncrease
+        ? new Date().toISOString()
+        : null);
+    const [next, second, third] = upcomingRenewalPrices(
+      {
+        priceCents: unit,
+        renewalIncreaseMode: mode,
+        renewalIncreaseAppliedAt: appliedAt,
+        renewalIncreasePercentOverride: pct,
+        service: { renewalIncreasePercent: pct },
+      },
+      3,
+    ).map((p) => formatEur(p * qty));
+    const after = second === third ? second : `${second} → ${third}…`;
+    return `Prossimo rinnovo: ${next} netti · Rinnovi successivi: ${after} netti`;
+  })();
 
   function onServiceChange(serviceId: string) {
     const svc = services.find((s) => s.id === serviceId);
@@ -108,6 +169,10 @@ export function ItemFields({
           ? (svc.priceCents / 100).toFixed(2)
           : value.priceEuro,
       billingPeriod: svc ? svc.billingPeriod : value.billingPeriod,
+      // % di aumento precompilata con quella del servizio.
+      increasePercent: svc
+        ? String(svc.renewalIncreasePercent)
+        : value.increasePercent,
       customPeriodDays:
         svc?.customPeriodDays != null
           ? String(svc.customPeriodDays)
@@ -235,6 +300,54 @@ export function ItemFields({
             </p>
           )}
         </div>
+        <div className="sm:col-span-2 space-y-2 rounded-lg border border-line-soft p-3">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div>
+              <label htmlFor={`${idPrefix}-increasePercent`} className="field-label">
+                Aumento al rinnovo (%)
+              </label>
+              <input
+                id={`${idPrefix}-increasePercent`}
+                type="number"
+                min={0}
+                max={100}
+                step={1}
+                className="field"
+                value={value.increasePercent}
+                placeholder={selectedService ? String(selectedService.renewalIncreasePercent) : "0"}
+                onChange={(e) => onChange({ increasePercent: e.target.value })}
+              />
+              {errors.renewalIncreasePercentOverride ? (
+                <p className="mt-1 text-xs text-red-600">
+                  {errors.renewalIncreasePercentOverride}
+                </p>
+              ) : (
+                <p className="mt-1 text-xs text-slate-500">
+                  Predefinita dal servizio
+                  {selectedService ? ` (${selectedService.renewalIncreasePercent}%)` : ""}.
+                </p>
+              )}
+            </div>
+            <label className="flex items-start gap-2 pt-6 text-sm text-ink">
+              <input
+                type="checkbox"
+                className="mt-0.5"
+                checked={value.lockAfterFirstIncrease}
+                onChange={(e) => onChange({ lockAfterFirstIncrease: e.target.checked })}
+              />
+              <span>
+                Blocca il prezzo dopo il primo aumento
+                <span className="block text-xs text-slate-500">
+                  L&apos;aumento si paga già al prossimo rinnovo, poi il prezzo resta fisso.
+                </span>
+              </span>
+            </label>
+          </div>
+          {renewalPreview ? (
+            <p className="font-mono text-xs text-slate-600">{renewalPreview}</p>
+          ) : null}
+        </div>
+
         <div>
           <label htmlFor={`${idPrefix}-billingPeriod`} className="field-label">
             Periodicità <span className="text-red-600">*</span>

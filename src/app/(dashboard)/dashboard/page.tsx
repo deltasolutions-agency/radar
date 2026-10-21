@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
+import { renewalChargePriceCents } from "@/lib/renewal-price";
 import { formatEur } from "@/lib/format";
 import {
   SUBSCRIPTION_STATUSES,
@@ -61,7 +62,14 @@ export default async function DashboardPage() {
         status: { notIn: ["CESSATO"] },
         endDate: { gte: now, lte: in30 },
       },
-      select: { priceCents: true, quantity: true },
+      select: {
+        priceCents: true,
+        quantity: true,
+        renewalIncreaseMode: true,
+        renewalIncreaseAppliedAt: true,
+        renewalIncreasePercentOverride: true,
+        service: { select: { renewalIncreasePercent: true } },
+      },
     }),
     // Incassi confermati degli ultimi 12 mesi.
     prisma.payment.findMany({
@@ -85,7 +93,7 @@ export default async function DashboardPage() {
   const activeItems = totalItems - cessati;
 
   const dueAmountCents = dueItems.reduce(
-    (s, it) => s + it.priceCents * it.quantity,
+    (s, it) => s + renewalChargePriceCents(it) * it.quantity,
     0,
   );
 

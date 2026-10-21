@@ -1,7 +1,7 @@
 import type { NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { json, error, withApi, requireSession } from "@/lib/api";
-import { createCheckoutPayment } from "@/lib/payment-checkout";
+import { createCheckoutPayment, toCheckoutItem } from "@/lib/payment-checkout";
 
 type Params = { params: { id: string } };
 
@@ -67,20 +67,8 @@ export function POST(req: NextRequest, { params }: Params) {
         subscriptionId: subscription.id,
         clientEmail: subscription.client.email,
         serviceFeeEnabled: subscription.serviceFeeEnabled,
-        items: subscription.items.map((it) => ({
-          id: it.id,
-          currency: it.currency,
-          priceCents: it.priceCents,
-          quantity: it.quantity,
-          endDate: it.endDate,
-          billingPeriod: it.billingPeriod,
-          customPeriodDays: it.customPeriodDays,
-          service: {
-            name: it.service.name,
-            description: it.service.description,
-          },
-          endClientName: it.endClientName,
-        })),
+        // Prezzo del prossimo rinnovo (aumento ONCE incluso se dovuto).
+        items: subscription.items.map(toCheckoutItem),
       },
       appUrl,
       { sendToClient: mode === "send" },

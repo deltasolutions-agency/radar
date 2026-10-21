@@ -193,6 +193,11 @@ export function POST(req: NextRequest, { params }: Params) {
               priceCents: restoredPriceCents,
               lastRenewalAt: restoredLastRenewalAt,
               status: newStatus,
+              // Se questo pagamento aveva applicato l'aumento ONCE, la riga
+              // torna "non bloccata" (indicatore precedente).
+              ...(pi.onceIncreaseApplied
+                ? { renewalIncreaseAppliedAt: pi.previousRenewalIncreaseAppliedAt }
+                : {}),
             },
           });
           itemsReverted++;

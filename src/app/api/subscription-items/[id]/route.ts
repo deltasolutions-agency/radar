@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { json, error, withApi, requireSession } from "@/lib/api";
 import { subscriptionItemUpdateSchema } from "@/lib/validations";
 import { computeItemStatus } from "@/lib/subscription-status";
+import { appliedAtOnModeChange } from "@/lib/renewal-mode";
 
 type Params = { params: { id: string } };
 
@@ -51,6 +52,11 @@ export function PATCH(req: NextRequest, { params }: Params) {
       });
     }
 
+    const lockAt = await appliedAtOnModeChange(
+      existing,
+      data.renewalIncreaseMode,
+    );
+
     const item = await prisma.subscriptionItem.update({
       where: { id: params.id },
       data: {
@@ -67,6 +73,10 @@ export function PATCH(req: NextRequest, { params }: Params) {
         notes: data.notes,
         // undefined = invariato, null = svuotato.
         endClientName: data.endClientName,
+        renewalIncreaseMode: data.renewalIncreaseMode,
+        renewalIncreasePercentOverride: data.renewalIncreasePercentOverride,
+        // Passaggio a ONCE su riga già aumentata → prezzo bloccato subito (Q3).
+        ...(lockAt ? { renewalIncreaseAppliedAt: lockAt } : {}),
         ...(status !== undefined ? { status } : {}),
       },
       include: { service: true },

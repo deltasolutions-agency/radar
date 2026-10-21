@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { ItemForm } from "../../../../item-form";
 import { getEndClientSuggestions } from "@/lib/end-client";
+import { hasPastIncrease } from "@/lib/renewal-mode";
 
 export const dynamic = "force-dynamic";
 
@@ -49,6 +50,11 @@ export default async function ModificaRigaPage({
         mode="edit"
         subscriptionId={params.id}
         itemId={item.id}
+        renewalState={{
+          initialMode: item.renewalIncreaseMode,
+          appliedAt: item.renewalIncreaseAppliedAt?.toISOString() ?? null,
+          hasPastIncrease: await hasPastIncrease(item.id, item.priceCents),
+        }}
         endClientSuggestions={await getEndClientSuggestions(
           item.subscription.clientId,
         )}
@@ -66,6 +72,10 @@ export default async function ModificaRigaPage({
             : "",
           notes: item.notes ?? "",
           endClientName: item.endClientName ?? "",
+          increasePercent: String(
+            item.renewalIncreasePercentOverride ?? item.service.renewalIncreasePercent,
+          ),
+          lockAfterFirstIncrease: item.renewalIncreaseMode === "ONCE",
         }}
       />
     </div>

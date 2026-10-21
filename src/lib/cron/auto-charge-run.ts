@@ -2,7 +2,8 @@ import "server-only";
 import { prisma } from "@/lib/prisma";
 import { getStripe } from "@/lib/stripe";
 import { confirmPaymentAndRenew } from "@/lib/confirm-payment";
-import { createCheckoutPayment } from "@/lib/payment-checkout";
+import { createCheckoutPayment, toCheckoutItem } from "@/lib/payment-checkout";
+import { renewalChargePriceCents } from "@/lib/renewal-price";
 import { sendEmail } from "@/lib/send-email";
 import {
   buildAutoChargeFailedAdminEmail,
@@ -34,7 +35,7 @@ function chargeDetail(c: PlannedCharge, extra: Record<string, unknown> = {}) {
       id: it.id,
       service: serviceLabel(it),
       endClientName: it.endClientName,
-      netCents: it.priceCents * it.quantity,
+      netCents: renewalChargePriceCents(it) * it.quantity,
       grossCents: c.itemGrossCents[i],
     })),
     servicesCents: c.servicesCents,
@@ -250,17 +251,7 @@ export async function runAutoCharge({
                 subscriptionId: c.subscriptionId,
                 clientEmail: c.client.email,
                 serviceFeeEnabled: c.items[0].subscription.serviceFeeEnabled,
-                items: disabledItems.map((it) => ({
-                  id: it.id,
-                  currency: it.currency,
-                  priceCents: it.priceCents,
-                  quantity: it.quantity,
-                  endDate: it.endDate,
-                  billingPeriod: it.billingPeriod,
-                  customPeriodDays: it.customPeriodDays,
-                  service: { name: it.service.name, description: it.service.description },
-                  endClientName: it.endClientName,
-                })),
+                items: disabledItems.map(toCheckoutItem),
               },
               appUrl,
               { sendToClient: true, trigger: "CRON" },

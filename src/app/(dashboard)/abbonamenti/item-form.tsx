@@ -26,12 +26,18 @@ export function ItemForm({
   itemId,
   initial,
   endClientSuggestions = [],
+  renewalState,
 }: {
   mode: "create" | "edit";
   subscriptionId: string;
   itemId?: string;
   initial?: Partial<ItemValues>;
   endClientSuggestions?: string[];
+  renewalState?: {
+    initialMode: "EVERY_RENEWAL" | "ONCE";
+    appliedAt: string | null;
+    hasPastIncrease: boolean;
+  };
 }) {
   const router = useRouter();
   const [value, setValue] = useState<ItemValues>({ ...EMPTY_ITEM, ...initial });
@@ -60,7 +66,10 @@ export function ItemForm({
     setErrors({});
     setFormError(null);
 
-    const payload = itemValuesToApi(value);
+    const payload = itemValuesToApi(
+      value,
+      services.find((s) => s.id === value.serviceId)?.renewalIncreasePercent,
+    );
     const schema =
       mode === "create"
         ? subscriptionItemCreateSchema
@@ -134,6 +143,7 @@ export function ItemForm({
           services={services}
           errors={errors}
           endClientSuggestions={endClientSuggestions}
+          renewalState={renewalState}
           onChange={(patch) => setValue((v) => ({ ...v, ...patch }))}
         />
       </section>

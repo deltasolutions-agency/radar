@@ -101,7 +101,12 @@ export function SubscriptionForm() {
       notes: notes || undefined,
       serviceFeeEnabled,
       requestAutoCharge,
-      items: items.map(itemValuesToApi),
+      items: items.map((it) =>
+        itemValuesToApi(
+          it,
+          services.find((s) => s.id === it.serviceId)?.renewalIncreasePercent,
+        ),
+      ),
     };
 
     const parsed = subscriptionCreateSchema.safeParse(payload);

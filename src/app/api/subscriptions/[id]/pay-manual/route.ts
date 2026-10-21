@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { json, error, withApi, requireSession } from "@/lib/api";
 import { manualPaymentSchema } from "@/lib/validations";
 import { confirmPaymentAndRenew } from "@/lib/confirm-payment";
+import { renewalChargePriceCents } from "@/lib/renewal-price";
 import { MS_PER_DAY, periodDurationDays } from "@/lib/billing-period";
 import { addVatToNet } from "@/lib/vat";
 
@@ -29,7 +30,9 @@ export function POST(req: NextRequest, { params }: Params) {
 
     const subscription = await prisma.subscription.findUnique({
       where: { id: params.id },
-      include: { items: { where: { id: { in: itemIds } } } },
+      include: {
+        items: { where: { id: { in: itemIds } }, include: { service: true } },
+      },
     });
     if (!subscription) return error("Abbonamento non trovato", 404);
     if (subscription.items.length !== itemIds.length) {
@@ -49,8 +52,9 @@ export function POST(req: NextRequest, { params }: Params) {
     const items = subscription.items;
     // Il prezzo inserito è NETTO: l'importo del pagamento è il LORDO (netto +22%)
     // per riga. Nessun costo di servizio sui pagamenti manuali (solo Stripe).
+    // Prezzo del PROSSIMO rinnovo (aumento ONCE incluso se dovuto).
     const itemGrossCents = items.map(
-      (it) => addVatToNet(it.priceCents * it.quantity).grossCents,
+      (it) => addVatToNet(renewalChargePriceCents(it) * it.quantity).grossCents,
     );
     const totalCents = itemGrossCents.reduce((sum, c) => sum + c, 0);
     const currency = items[0].currency;

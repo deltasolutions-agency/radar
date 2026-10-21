@@ -4,6 +4,7 @@ import { periodDurationDays } from "@/lib/billing-period";
 import { computeServiceFeeCents } from "@/lib/service-fee";
 import { addVatToNet } from "@/lib/vat";
 import { withEndClient } from "@/lib/end-client";
+import { renewalChargePriceCents } from "@/lib/renewal-price";
 import { MS_PER_DAY, idsHash, serviceLabel, ymd } from "@/lib/cron/common";
 
 // PIANO del cron auto-charge: SOLA LETTURA. Condiviso da /api/cron/auto-charge
@@ -193,9 +194,13 @@ export async function planAutoCharge(now: Date): Promise<AutoChargePlan> {
   const charges: PlannedCharge[] = [];
   for (const group of groups.values()) {
     const first = group[0];
-    // Il prezzo è NETTO: per ogni riga si addebita il LORDO (netto + 22%);
-    // costo di servizio 1,5% (solo Stripe) sul lordo dei servizi.
-    const itemGrossCents = group.map((it) => addVatToNet(it.priceCents * it.quantity).grossCents);
+    // Il prezzo è NETTO: per ogni riga si addebita il LORDO (netto + 22%) del
+    // prezzo del PROSSIMO rinnovo (renewalChargePriceCents: invariato per
+    // EVERY_RENEWAL, aumentato per ONCE non ancora applicato); costo di
+    // servizio 1,5% (solo Stripe) sul lordo dei servizi.
+    const itemGrossCents = group.map(
+      (it) => addVatToNet(renewalChargePriceCents(it) * it.quantity).grossCents,
+    );
     const servicesCents = itemGrossCents.reduce((sum, c) => sum + c, 0);
     const serviceFeeCents = computeServiceFeeCents(servicesCents, first.subscription.serviceFeeEnabled);
     const attempt = Math.max(...group.map((it) => it.autoChargeFailCount));

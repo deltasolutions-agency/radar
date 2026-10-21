@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { renewalChargePriceCents } from "@/lib/renewal-price";
 import { EndClientLabel } from "@/components/end-client-label";
 import { formatEur } from "@/lib/format";
 import { formatBillingPeriod, type BillingPeriodValue } from "@/lib/validations";
@@ -136,7 +137,8 @@ export default async function AttivaRinnovoPage({
   let totalVat = 0;
   let totalGross = 0;
   for (const it of items) {
-    const v = addVatToNet(it.priceCents * it.quantity);
+    // Importo del prossimo rinnovo (aumento ONCE incluso se dovuto).
+    const v = addVatToNet(renewalChargePriceCents(it) * it.quantity);
     totalNet += v.netCents;
     totalVat += v.vatCents;
     totalGross += v.grossCents;
@@ -196,7 +198,7 @@ export default async function AttivaRinnovoPage({
               </p>
             </div>
             <span className="shrink-0 font-mono text-ink">
-              {formatEur(it.priceCents * it.quantity, it.currency)}
+              {formatEur(renewalChargePriceCents(it) * it.quantity, it.currency)}
             </span>
           </li>
         ))}

@@ -10,6 +10,7 @@ import { createReceiptForPayment } from "@/lib/create-receipt";
 import { buildConfirmationEmail } from "@/lib/email-templates";
 import { sendEmail, type EmailLogMeta } from "@/lib/send-email";
 import { MS_PER_DAY, periodDurationDays } from "@/lib/billing-period";
+import { renewalOutcome } from "@/lib/renewal-price";
 
 /** Esito del rinnovo di una singola riga (SubscriptionItem) del pagamento. */
 export type ConfirmPaymentItemResult = {
@@ -118,12 +119,14 @@ export async function confirmPaymentAndRenew(
           ? new Date(itemOnly.endDate.getTime() + durationDays * MS_PER_DAY)
           : itemOnly.endDate;
 
-      // Incremento composto sul priceCents CORRENTE della riga.
+      // Nuovo prezzo dalla funzione condivisa (src/lib/renewal-price.ts):
+      // EVERY_RENEWAL = incremento composto sul priceCents CORRENTE (storico);
+      // ONCE = il prezzo aumentato già pagato diventa corrente e si blocca.
+      const outcome = renewalOutcome({ ...itemOnly, service }, now);
       const newPriceCents = renewalSkipped
         ? itemOnly.priceCents
-        : Math.round(
-            itemOnly.priceCents * (1 + service.renewalIncreasePercent / 100),
-          );
+        : outcome.newPriceCents;
+      const onceApplied = !renewalSkipped && outcome.onceIncreaseApplied;
 
       // Conferma della riga di pagamento + snapshot pre-rinnovo (per lo storno).
       // periodStart/periodEnd sono già stati impostati alla creazione del
@@ -138,6 +141,8 @@ export async function confirmPaymentAndRenew(
                 previousEndDate: itemOnly.endDate,
                 previousPriceCents: itemOnly.priceCents,
                 previousLastRenewalAt: itemOnly.lastRenewalAt,
+                previousRenewalIncreaseAppliedAt: itemOnly.renewalIncreaseAppliedAt,
+                onceIncreaseApplied: onceApplied,
               }),
         },
       });
@@ -152,6 +157,7 @@ export async function confirmPaymentAndRenew(
             priceCents: newPriceCents,
             lastRenewalAt: now,
             status: "RINNOVATO",
+            ...(onceApplied ? { renewalIncreaseAppliedAt: now } : {}),
           },
         });
       }

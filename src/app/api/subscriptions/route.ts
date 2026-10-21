@@ -1,5 +1,6 @@
 import type { NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { renewalChargePriceCents } from "@/lib/renewal-price";
 import { json, error, withApi, requireSession } from "@/lib/api";
 import {
   subscriptionCreateSchema,
@@ -125,6 +126,8 @@ export function POST(req: NextRequest) {
               autoChargeEndDate: it.autoChargeEndDate ?? null,
               notes: it.notes,
               endClientName: it.endClientName ?? null,
+              renewalIncreaseMode: it.renewalIncreaseMode,
+              renewalIncreasePercentOverride: it.renewalIncreasePercentOverride ?? null,
               status,
             };
           }),
@@ -247,7 +250,11 @@ export function POST(req: NextRequest) {
                 ? `${it.service.name} ×${it.quantity}`
                 : it.service.name,
             endClientName: it.endClientName,
-            amountLabel: formatEur(it.priceCents * it.quantity, it.currency),
+            // Importo del prossimo rinnovo (aumento ONCE incluso se dovuto).
+            amountLabel: formatEur(
+              renewalChargePriceCents(it) * it.quantity,
+              it.currency,
+            ),
             periodicityLabel: formatBillingPeriod(
               it.billingPeriod as BillingPeriodValue,
               it.customPeriodDays,

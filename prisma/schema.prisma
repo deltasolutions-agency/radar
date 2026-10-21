@@ -57,6 +57,11 @@ enum SubscriptionStatus {
 }
 
 /// Modalità con cui viene incassato un pagamento.
+enum RenewalIncreaseMode {
+  EVERY_RENEWAL
+  ONCE
+}
+
 enum PaymentMethod {
   STRIPE
   MANUALE
@@ -338,6 +343,15 @@ model SubscriptionItem {
   // Data dell'ultimo rinnovo confermato per questa riga (null = mai rinnovato).
   lastRenewalAt DateTime?
 
+  // Aumento al rinnovo: % del servizio (Service.renewalIncreasePercent) salvo
+  // override sulla riga; EVERY_RENEWAL = composto a ogni rinnovo (storico),
+  // ONCE = una sola volta (pagato già al primo rinnovo), poi prezzo bloccato.
+  renewalIncreaseMode            RenewalIncreaseMode @default(EVERY_RENEWAL)
+  // Valorizzato quando l'aumento ONCE è stato applicato (prezzo bloccato).
+  renewalIncreaseAppliedAt       DateTime?
+  // Override 0–100 della % del servizio (null = usa quella del servizio).
+  renewalIncreasePercentOverride Int?
+
   // Rinnovo automatico con addebito ricorrente (Setup Intent + off_session).
   autoChargeEnabled       Boolean   @default(false)
   autoChargeEndDate       DateTime?
@@ -446,6 +460,10 @@ model PaymentItem {
   previousEndDate       DateTime?
   previousPriceCents    Int?
   previousLastRenewalAt DateTime?
+  // Snapshot dell'indicatore aumento ONCE prima del rinnovo e flag "questo
+  // pagamento ha applicato l'aumento ONCE": lo storno ripristina entrambi.
+  previousRenewalIncreaseAppliedAt DateTime?
+  onceIncreaseApplied              Boolean   @default(false)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

@@ -26,6 +26,12 @@ import {
   planAutoCharge,
 } from "@/lib/cron/auto-charge-plan";
 import { planActivationReminders } from "@/lib/cron/activation-reminders";
+import {
+  isOnceIncreasePending,
+  renewalChargePriceCents,
+  renewalIncreaseLabel,
+  type RenewalPricingItem,
+} from "@/lib/renewal-price";
 
 // ── Argomenti ───────────────────────────────────────────────────────────────
 const args = process.argv.slice(2);
@@ -51,6 +57,11 @@ const delayLabel = (diffDays: number) =>
     : diffDays === 0
       ? "scade oggi"
       : `in ritardo di ${-diffDays} gg`;
+/** Netto del prossimo rinnovo con la modalità di aumento della riga. */
+const renewalNote = (it: RenewalPricingItem & { quantity: number; currency: string }) =>
+  isOnceIncreasePending(it)
+    ? ` · aumento una tantum: ${money(it.priceCents * it.quantity, it.currency)} → ${money(renewalChargePriceCents(it) * it.quantity, it.currency)}`
+    : ` · ${renewalIncreaseLabel(it)}`;
 const hr = (title: string) => console.log(`\n${"═".repeat(78)}\n${title}\n${"═".repeat(78)}`);
 
 const adminEmail = process.env.ADMIN_EMAIL ?? "(ADMIN_EMAIL non configurata)";
@@ -87,8 +98,8 @@ async function previewReminders() {
       `  ${milestoneLabel(g)}${g.daysLate > 0 ? ` · RECUPERO (dovuta da ${g.daysLate} gg)` : ""} · scadenza ${date(g.endDate)} (${delayLabel(g.diffDays)})`,
     );
     for (const it of g.items) {
-      const net = it.priceCents * it.quantity;
-      console.log(`  - ${withEndClient(serviceLabel(it), it.endClientName)} · netto ${money(net, it.currency)} · stato ${it.status}`);
+      const net = renewalChargePriceCents(it) * it.quantity;
+      console.log(`  - ${withEndClient(serviceLabel(it), it.endClientName)} · netto rinnovo ${money(net, it.currency)}${renewalNote(it)} · stato ${it.status}`);
     }
     const a = g.amounts;
     console.log(
@@ -171,7 +182,7 @@ async function previewAutoCharge() {
       const late = Math.floor((now.getTime() - it.endDate.getTime()) / 86_400_000);
       console.log(
         `  - ${withEndClient(serviceLabel(it), it.endClientName)} · scadenza ${date(it.endDate)} (in ritardo di ${late} gg) · ` +
-          `netto ${money(it.priceCents * it.quantity, c.currency)} · lordo ${money(c.itemGrossCents[idx], c.currency)} · tentativi falliti ${it.autoChargeFailCount}`,
+          `netto ${money(renewalChargePriceCents(it) * it.quantity, c.currency)} · lordo ${money(c.itemGrossCents[idx], c.currency)}${renewalNote(it)} · tentativi falliti ${it.autoChargeFailCount}`,
       );
       if (it.autoChargeFailCount + 1 >= 2) {
         console.log(`    ⚠ se fallisce: rinnovo automatico DISATTIVATO + link di pagamento al cliente + email all'admin`);

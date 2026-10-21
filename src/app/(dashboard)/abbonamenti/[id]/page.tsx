@@ -1,4 +1,8 @@
 import Link from "next/link";
+import {
+  renewalChargePriceCents,
+  renewalIncreaseLabel,
+} from "@/lib/renewal-price";
 import { getAdminSession } from "@/lib/auth";
 import { ReconcileUnlockButton } from "../reconcile-unlock-button";
 import { EndClientLabel } from "@/components/end-client-label";
@@ -87,7 +91,8 @@ export default async function AbbonamentoDettaglioPage({
       serviceName:
         it.quantity > 1 ? `${it.service.name} ×${it.quantity}` : it.service.name,
       endClientName: it.endClientName,
-      priceLabel: formatEur(it.priceCents * it.quantity, it.currency),
+      // Importo del prossimo rinnovo (aumento ONCE incluso se dovuto).
+      priceLabel: formatEur(renewalChargePriceCents(it) * it.quantity, it.currency),
       periodicityLabel: formatBillingPeriod(
         it.billingPeriod as BillingPeriodValue,
         it.customPeriodDays,
@@ -101,7 +106,8 @@ export default async function AbbonamentoDettaglioPage({
       id: it.id,
       serviceName: it.service.name,
       endClientName: it.endClientName,
-      priceCents: it.priceCents,
+      // Prezzo del prossimo rinnovo (aumento ONCE incluso se dovuto).
+      priceCents: renewalChargePriceCents(it),
       quantity: it.quantity,
       currency: it.currency,
       status: it.status,
@@ -305,6 +311,19 @@ export default async function AbbonamentoDettaglioPage({
                       ) : (
                         formatEur(it.priceCents, it.currency)
                       )}
+                    </dd>
+                  </div>
+                  <div className="flex gap-2 text-sm">
+                    <dt className="mono-label w-28 shrink-0">Aumento</dt>
+                    <dd className="text-ink">{renewalIncreaseLabel(it)}</dd>
+                  </div>
+                  <div className="flex gap-2 text-sm">
+                    <dt className="mono-label w-28 shrink-0">Prossimo rinnovo</dt>
+                    <dd className="text-ink">
+                      <span className="font-mono">
+                        {formatEur(renewalChargePriceCents(it) * it.quantity, it.currency)}
+                      </span>{" "}
+                      <span className="text-xs text-slate-500">netti</span>
                     </dd>
                   </div>
                   <div className="flex gap-2 text-sm">
