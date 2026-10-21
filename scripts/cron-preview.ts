@@ -101,7 +101,7 @@ async function previewReminders() {
     console.log(
       `  Email: ${g.kind === "PREAVVISO" ? "preavviso addebito" : "reminder"} → ${g.clientEmail ?? "NON INVIABILE (cliente senza email → log FALLITA)"}`,
     );
-    if (g.kind === "REMINDER" && !g.autoCharge && appUrl) {
+    if (g.kind === "REMINDER" && !g.autoCharge && appUrl && g.clientEmail) {
       if (g.reusablePayToken) console.log(`  Link pagamento: riusa Payment in attesa esistente`);
       else {
         console.log(`  Link pagamento: CREEREBBE Checkout Session Stripe + Payment IN_ATTESA (${money(a.totalCents, g.currency)})`);

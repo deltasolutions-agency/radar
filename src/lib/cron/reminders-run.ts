@@ -63,9 +63,9 @@ function dryRunResult(plan: ReminderPlan): CronResult {
         groupDetail(g, {
           outcome: g.clientEmail ? "WOULD_SEND" : "NO_EMAIL",
           wouldCreatePaymentLink:
-            g.kind === "REMINDER" && !g.autoCharge && !g.reusablePayToken && !!process.env.APP_URL,
+            g.kind === "REMINDER" && !g.autoCharge && !!g.clientEmail && !g.reusablePayToken && !!process.env.APP_URL,
           wouldCreateAutoChargeRequest:
-            g.kind === "REMINDER" && !g.autoCharge && !g.isCessation && !g.reusableAutoChargeToken && !!process.env.APP_URL,
+            g.kind === "REMINDER" && !g.autoCharge && !!g.clientEmail && !g.isCessation && !g.reusableAutoChargeToken && !!process.env.APP_URL,
         }),
       ),
       ...plan.backlog.map((b) => ({

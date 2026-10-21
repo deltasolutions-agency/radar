@@ -337,7 +337,9 @@ export async function planReminders(now: Date): Promise<ReminderPlan> {
     const ids = groupItems.map((it) => it.id);
     const m = due.milestone;
     const autoCharge = first.autoChargeEnabled;
-    const needsLinks = m.kind === "REMINDER" && !autoCharge && !!appUrl;
+    const clientEmail = client.email?.trim() ? client.email : null;
+    // Link/CTA solo se l'email parte davvero (cliente con email, APP_URL).
+    const needsLinks = m.kind === "REMINDER" && !autoCharge && !!appUrl && !!clientEmail;
     groups.push({
       kind: m.kind,
       type: m.type,
@@ -346,7 +348,7 @@ export async function planReminders(now: Date): Promise<ReminderPlan> {
       subscriptionId: first.subscriptionId,
       clientId: client.id,
       clientName: clientDisplayName(client),
-      clientEmail: client.email?.trim() ? client.email : null,
+      clientEmail,
       endDate: first.endDate,
       diffDays: due.diffDays,
       daysLate: due.daysLate,
