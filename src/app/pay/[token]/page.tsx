@@ -145,7 +145,9 @@ export default async function PayPage({
           );
         })}
 
-        {/* Riepilogo: le righe sopra sono al NETTO (imponibile). */}
+        {/* Riepilogo completo PRIMA del pulsante verso Stripe (le email mostrano
+            solo l'imponibile). Totale = Payment.amountCents = Σ line_items del
+            checkout (lordo righe + commissione), quindi coincide al centesimo. */}
         <div className="flex justify-between gap-4 border-t border-line-soft pt-3">
           <dt className="text-slate-500">Imponibile</dt>
           <dd className="text-right font-mono text-xs text-ink">
@@ -161,10 +163,7 @@ export default async function PayPage({
         {payment.serviceFeeCents > 0 ? (
           <div className="flex justify-between gap-4">
             <dt className="text-slate-500">
-              Costi di servizio
-              <span className="block font-mono text-xs text-slate-400">
-                Commissione di gestione (1,5%)
-              </span>
+              Commissione di servizio (1,5%)
             </dt>
             <dd className="text-right font-mono text-xs text-ink">
               {formatEur(payment.serviceFeeCents, payment.currency)}
@@ -172,7 +171,7 @@ export default async function PayPage({
           </div>
         ) : null}
         <div className="flex justify-between gap-4 border-t border-line-soft pt-3">
-          <dt className="font-medium text-ink">Totale</dt>
+          <dt className="font-medium text-ink">Totale con carta</dt>
           <dd className="text-right font-mono text-base font-semibold text-ink">
             {formatEur(payment.amountCents, payment.currency)}
           </dd>

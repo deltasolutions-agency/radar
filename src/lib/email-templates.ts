@@ -454,21 +454,31 @@ export function cardPaymentSummary(info: Pick<ClientRenewalInfo, "itemNetCents" 
   return { netCents, vatCents, grossCents, serviceFeeCents, totalCents: grossCents + serviceFeeCents };
 }
 
+/**
+ * Nelle email con link di pagamento si mostra solo l'imponibile: IVA,
+ * commissione e totale con carta compaiono sulla pagina /pay, prima di Stripe.
+ */
+const NET_ONLY_LABEL = "Imponibile (IVA esclusa)";
+const NET_ONLY_NOTE =
+  "IVA e commissione di servizio sono indicate nella pagina di pagamento.";
+
 /** Coordinate bancarie (alternativa), versione testo. */
 function bankSectionText(itemNetCents: number[], currency: string): string {
-  const { grossCents } = sumVatPerItem(itemNetCents);
+  const { netCents, vatCents, grossCents } = sumVatPerItem(itemNetCents);
   return [
     "In alternativa, puoi pagare con bonifico:",
     `- Intestatario: ${RENEWAL_BANK.beneficiary}`,
     `- IBAN: ${RENEWAL_BANK.iban}`,
     `- SWIFT (o BIC): ${RENEWAL_BANK.swift}`,
+    `- Imponibile: ${formatEur(netCents, currency)}`,
+    `- IVA (22%): ${formatEur(vatCents, currency)}`,
     `- Totale da bonificare (senza commissione): ${formatEur(grossCents, currency)}`,
   ].join("\n");
 }
 
 /** Coordinate bancarie (alternativa), versione HTML. */
 function bankSectionHtml(itemNetCents: number[], currency: string): string {
-  const { grossCents } = sumVatPerItem(itemNetCents);
+  const { netCents, vatCents, grossCents } = sumVatPerItem(itemNetCents);
   const mono = "font-family:'Space Mono','Courier New',monospace";
   return `
     <div style="margin:16px 0;border:1px solid #E2DED6;border-radius:8px;padding:12px 16px">
@@ -477,6 +487,8 @@ function bankSectionHtml(itemNetCents: number[], currency: string): string {
         <tr><td style="padding:2px 8px 2px 0;color:#94a3b8">Intestatario</td><td>${RENEWAL_BANK.beneficiary}</td></tr>
         <tr><td style="padding:2px 8px 2px 0;color:#94a3b8">IBAN</td><td><span style="${mono}">${RENEWAL_BANK.iban}</span></td></tr>
         <tr><td style="padding:2px 8px 2px 0;color:#94a3b8">SWIFT (o BIC)</td><td><span style="${mono}">${RENEWAL_BANK.swift}</span></td></tr>
+        <tr><td style="padding:2px 8px 2px 0;color:#94a3b8">Imponibile</td><td><span style="${mono}">${formatEur(netCents, currency)}</span></td></tr>
+        <tr><td style="padding:2px 8px 2px 0;color:#94a3b8">IVA (22%)</td><td><span style="${mono}">${formatEur(vatCents, currency)}</span></td></tr>
         <tr><td style="padding:2px 8px 2px 0;color:#94a3b8">Totale</td><td><span style="${mono}">${formatEur(grossCents, currency)}</span> <span style="color:#94a3b8">(senza commissione)</span></td></tr>
       </table>
     </div>`;
@@ -491,12 +503,8 @@ function clientRenewalText(info: ClientRenewalInfo, isCessation: boolean): strin
     blocks.push(
       "",
       "Paga online con carta:",
-      `Imponibile: ${formatEur(p.netCents, c)}`,
-      `IVA (22%): ${formatEur(p.vatCents, c)}`,
-      ...(p.serviceFeeCents > 0
-        ? [`Commissione di servizio (1,5%): ${formatEur(p.serviceFeeCents, c)}`]
-        : []),
-      `Totale con carta: ${formatEur(p.totalCents, c)}`,
+      `${NET_ONLY_LABEL}: ${formatEur(p.netCents, c)}`,
+      NET_ONLY_NOTE,
       "",
       `Paga online: ${info.payUrl}`,
     );
@@ -525,11 +533,9 @@ function clientRenewalHtml(info: ClientRenewalInfo, isCessation: boolean): strin
     <div style="margin:16px 0;border:1px solid #E2DED6;border-left:4px solid #2B7FFF;border-radius:8px;background:#FAFAFA;padding:14px 16px">
       <p style="font-size:14px;font-weight:600;margin:0 0 8px;color:#12161F">Paga online con carta</p>
       <table style="border-collapse:collapse;width:100%;font-family:sans-serif;font-size:14px;color:#4A463F">
-        ${row("Imponibile", formatEur(p.netCents, c))}
-        ${row("IVA (22%)", formatEur(p.vatCents, c))}
-        ${p.serviceFeeCents > 0 ? row("Commissione di servizio (1,5%)", formatEur(p.serviceFeeCents, c)) : ""}
-        ${row("Totale con carta", formatEur(p.totalCents, c), true)}
+        ${row(NET_ONLY_LABEL, formatEur(p.netCents, c), true)}
       </table>
+      <p style="font-size:12px;color:#94a3b8;margin:6px 0 0">${NET_ONLY_NOTE}</p>
       <p style="margin:14px 0 0">
         <a href="${h(info.payUrl)}" style="display:inline-block;background:#2B7FFF;color:#ffffff;text-decoration:none;font-family:sans-serif;font-size:15px;font-weight:600;padding:12px 22px;border-radius:8px">Paga online →</a>
       </p>
@@ -1504,13 +1510,17 @@ const PAYMENT_LINK_VALIDITY_NOTE = "Il link resta valido fino al pagamento.";
 
 /**
  * Email al cliente con il link di pagamento Stripe. Rivolta al cliente:
- * elenca i servizi inclusi con il prezzo NETTO (IVA esclusa) e il pulsante
- * "Paga ora". IVA, costo di servizio e totale sono mostrati sulla pagina
+ * elenca i servizi inclusi con il prezzo NETTO (IVA esclusa), l'imponibile
+ * complessivo e il pulsante "Paga ora". IVA, commissione e totale sono mostrati sulla pagina
  * /pay dopo il click. Contiene SOLO il link di pagamento, mai link interni.
  */
 export function buildPaymentLinkEmail(d: PaymentLinkEmailData): EmailContent {
   const currency = d.currency ?? "eur";
   const label = servicesLabel(d.items);
+  const netTotal = formatEur(
+    d.items.reduce((sum, it) => sum + it.amountCents, 0),
+    currency,
+  );
 
   const subject = `Radar — Link di pagamento: ${label}`;
   const intro =
@@ -1527,6 +1537,9 @@ export function buildPaymentLinkEmail(d: PaymentLinkEmailData): EmailContent {
     "Servizi:",
     ...itemLinesText,
     "* Prezzi IVA esclusa.",
+    "",
+    `${NET_ONLY_LABEL}: ${netTotal}`,
+    NET_ONLY_NOTE,
     "",
     `Paga ora: ${d.checkoutUrl}`,
     "",
@@ -1550,8 +1563,15 @@ export function buildPaymentLinkEmail(d: PaymentLinkEmailData): EmailContent {
       <p style="font-size:14px;line-height:1.5">${intro}</p>
       <table style="border-collapse:collapse;width:100%;font-family:sans-serif;font-size:14px;color:#1e293b">
         <tbody>${itemRowsHtml}</tbody>
+        <tfoot>
+          <tr>
+            <td style="padding:8px 12px 0 0;font-weight:600">${NET_ONLY_LABEL}</td>
+            <td style="padding:8px 0 0;text-align:right;white-space:nowrap;font-weight:600">${netTotal}</td>
+          </tr>
+        </tfoot>
       </table>
       <p style="font-size:11px;color:#94a3b8;margin:6px 0 0">* Prezzi IVA esclusa.</p>
+      <p style="font-size:12px;color:#94a3b8;margin:4px 0 0">${NET_ONLY_NOTE}</p>
       <p style="margin:20px 0">
         <a href="${h(d.checkoutUrl)}" style="display:inline-block;background:#4f46e5;color:#ffffff;text-decoration:none;font-family:sans-serif;font-size:14px;font-weight:600;padding:12px 20px;border-radius:8px">Paga ora →</a>
       </p>

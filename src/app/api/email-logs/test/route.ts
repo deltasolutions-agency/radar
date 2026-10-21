@@ -34,7 +34,8 @@ export function POST() {
       {
         audience: "client",
         // Come un reminder reale senza rinnovo automatico: pulsante "Paga
-        // online" (link di esempio) e riepilogo con la commissione 1,5%.
+        // online" (link di esempio) e solo l'imponibile (IVA e commissione
+        // sono sulla pagina /pay).
         clientRenewal: {
           itemNetCents: [12000, 1500],
           currency: "eur",

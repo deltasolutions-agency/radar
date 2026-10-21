@@ -113,6 +113,11 @@ async function previewReminders() {
       `  Importo: netto ${money(a.netCents, g.currency)} · IVA ${money(a.vatCents, g.currency)} · lordo ${money(a.grossCents, g.currency)}` +
         (a.serviceFeeCents > 0 ? ` · con costo servizio (Stripe) ${money(a.totalCents, g.currency)}` : ""),
     );
+    if (g.kind === "PREAVVISO") {
+      console.log(`  In email: totale addebitato ${money(a.totalCents, g.currency)} (imponibile + IVA + commissione)`);
+    } else if (!g.autoCharge) {
+      console.log(`  In email: solo imponibile ${money(a.netCents, g.currency)} (IVA e commissione sulla pagina /pay)`);
+    }
     console.log(
       `  Pagamento: ${g.autoCharge ? `rinnovo automatico (carta ${g.items[0].subscription.client.stripeDefaultPaymentMethodId ?? "NON salvata"})` : "online con carta (pulsante \"Paga online\" → /pay)"}`,
     );
