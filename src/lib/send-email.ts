@@ -42,6 +42,8 @@ export type EmailLogMeta = {
   cc?: string[];
   bcc?: string[];
   replyTo?: string | null;
+  /** Reinvio manuale: EmailLog originale. */
+  resentFromId?: string | null;
 };
 
 /**
@@ -199,11 +201,17 @@ export async function sendEmail(
     text: string;
     html: string;
   },
-  to: string | undefined,
+  /** Uno o più destinatari; assente → ADMIN_EMAIL. */
+  to: string | string[] | undefined,
   log: EmailLogMeta,
   attachments?: EmailAttachment[],
 ): Promise<SendResult> {
-  const recipient = to ?? process.env.ADMIN_EMAIL;
+  const recipients = (
+    Array.isArray(to) ? to : [to ?? process.env.ADMIN_EMAIL ?? ""]
+  )
+    .map((r) => r.trim())
+    .filter(Boolean);
+  const recipient = recipients.length > 0 ? recipients.join(", ") : undefined;
   const from = process.env.EMAIL_FROM ?? "";
   const dedupeKey = log.dedupeKey ?? null;
 
@@ -211,7 +219,7 @@ export async function sendEmail(
     type: log.type,
     trigger: log.trigger,
     from,
-    to: recipient ? [recipient] : [],
+    to: recipients,
     cc: log.cc ?? [],
     bcc: log.bcc ?? [],
     replyTo: log.replyTo ?? null,
@@ -223,6 +231,7 @@ export async function sendEmail(
     subscriptionId: log.subscriptionId ?? null,
     dueDate: log.dueDate ?? null,
     itemIds: log.itemIds ?? [],
+    resentFromId: log.resentFromId ?? null,
   };
 
   // ── Anti-doppio invio su dedupeKey ─────────────────────────────────────────
@@ -299,21 +308,44 @@ export async function sendEmail(
     : { status: "FALLITA", ok: false, skipped: false, error: result.error, logId };
 }
 
+/** Stati reinviabili: le email SKIPPED (duplicati) non si reinviano. */
+export const RESENDABLE_STATUSES = ["SENT", "FAILED"] as const;
+
+const EMAIL_RE = /^[^\s@<>,;]+@[^\s@<>,;]+\.[^\s@<>,;]+$/;
+
+/** Indirizzi non validi tra quelli forniti (formato email). */
+export function invalidEmails(addresses: string[]): string[] {
+  return addresses.filter((a) => !EMAIL_RE.test(a.trim()));
+}
+
+export type ResendOutcome =
+  | { kind: "not_found" }
+  | { kind: "not_resendable"; status: string }
+  | { kind: "invalid"; invalid: string[] }
+  | { kind: "sent"; result: SendResult };
+
 /**
- * Reinvia il contenuto di un EmailLog esistente: nuovo EmailLog con trigger
- * MANUAL e senza dedupeKey. Gli allegati non vengono reinviati (non conservati).
+ * Reinvia lo SNAPSHOT di un EmailLog (stesso oggetto, HTML e testo salvati,
+ * nessun ricalcolo) ai destinatari scelti: nuovo EmailLog con trigger MANUAL,
+ * senza dedupeKey, collegato all'originale (resentFromId). Gli allegati non
+ * vengono reinviati (non conservati). Non modifica l'anagrafica.
  */
-export async function resendEmailLog(id: string): Promise<SendResult | null> {
+export async function resendEmailLog(
+  id: string,
+  recipients: string[],
+): Promise<ResendOutcome> {
   const original = await prisma.emailLog.findUnique({ where: { id } });
-  if (!original) return null;
-  return sendEmail(
-    {
-      subject: original.subject,
-      text: original.text ?? "",
-      html: original.html,
-    },
-    // Stringa vuota (nessun destinatario originale) → errore, mai ADMIN_EMAIL.
-    original.to[0] ?? "",
+  if (!original) return { kind: "not_found" };
+  if (!(RESENDABLE_STATUSES as readonly string[]).includes(original.status)) {
+    return { kind: "not_resendable", status: original.status };
+  }
+  const to = [...new Set(recipients.map((r) => r.trim()).filter(Boolean))];
+  const invalid = to.length === 0 ? ["(nessun destinatario)"] : invalidEmails(to);
+  if (invalid.length > 0) return { kind: "invalid", invalid };
+
+  const result = await sendEmail(
+    { subject: original.subject, text: original.text ?? "", html: original.html },
+    to,
     {
       type: original.type,
       trigger: "MANUAL",
@@ -324,6 +356,8 @@ export async function resendEmailLog(id: string): Promise<SendResult | null> {
       cc: original.cc,
       bcc: original.bcc,
       replyTo: original.replyTo,
+      resentFromId: original.id,
     },
   );
+  return { kind: "sent", result };
 }

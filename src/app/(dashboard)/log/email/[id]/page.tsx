@@ -9,7 +9,17 @@ import {
   formatRomeDateTime,
 } from "@/lib/email-log-labels";
 import { EmailPreview } from "./email-preview";
-import { ResendButton } from "./resend-button";
+import { ResendDialog } from "./resend-dialog";
+
+// Email indirizzate all'ADMIN: il reinvio propone sempre i destinatari originali
+// (mai il cliente, anche se collegate a un cliente).
+const ADMIN_TYPES = new Set([
+  "ADMIN_ESCALATION",
+  "ADMIN_SUMMARY",
+  "AUTOCHARGE_FAILED",
+  "DATA_CHANGE_NOTICE",
+]);
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 export const dynamic = "force-dynamic";
 
@@ -29,8 +39,15 @@ export default async function EmailLogDetailPage({
   const log = await prisma.emailLog.findUnique({
     where: { id: params.id },
     include: {
-      client: { select: { id: true, name: true, ragioneSociale: true } },
+      client: {
+        select: { id: true, name: true, ragioneSociale: true, email: true, pec: true },
+      },
       subscription: { select: { id: true } },
+      resentFrom: { select: { id: true, createdAt: true } },
+      resends: {
+        orderBy: { createdAt: "desc" },
+        select: { id: true, createdAt: true, to: true, status: true },
+      },
     },
   });
   if (!log) notFound();
@@ -40,6 +57,19 @@ export default async function EmailLogDetailPage({
       ? log.client.ragioneSociale
       : log.client.name
     : null;
+
+  // Destinatari proposti per il reinvio.
+  const adminEmail = (process.env.ADMIN_EMAIL ?? "").toLowerCase();
+  const lower = (a: string) => a.trim().toLowerCase();
+  const addressedToClient =
+    !!log.client &&
+    !ADMIN_TYPES.has(log.type) &&
+    !log.to.some((t) => adminEmail && lower(t) === adminEmail);
+  const currentEmail = addressedToClient ? log.client?.email?.trim() || null : null;
+  const addressChanged =
+    !!currentEmail && !log.to.some((t) => lower(t) === lower(currentEmail));
+  const pec = addressedToClient ? log.client?.pec?.trim() || null : null;
+  const canResend = log.status === "SENT" || log.status === "FAILED";
 
   const rows: [string, React.ReactNode][] = [
     ["Data/ora", <span key="d" className="font-mono">{formatRomeDateTime(log.createdAt)}</span>],
@@ -87,6 +117,14 @@ export default async function EmailLogDetailPage({
           ← Log email
         </Link>
         <h1 className="mt-1 text-2xl font-semibold tracking-tight">{log.subject}</h1>
+        {log.resentFrom ? (
+          <p className="mt-1 text-sm text-slate-500">
+            Reinvio di:{" "}
+            <Link href={`/log/email/${log.resentFrom.id}`} className="text-brand hover:underline">
+              email del {formatRomeDateTime(log.resentFrom.createdAt)}
+            </Link>
+          </p>
+        ) : null}
       </div>
 
       {log.errorMessage ? (
@@ -109,8 +147,45 @@ export default async function EmailLogDetailPage({
           ))}
         </dl>
         <div className="mt-6 border-t border-line-soft pt-4">
-          <ResendButton id={log.id} recipient={log.to[0] ?? ""} />
+          {canResend ? (
+            <ResendDialog
+              id={log.id}
+              originalTo={log.to}
+              currentAddresses={currentEmail ? [currentEmail] : []}
+              addressChanged={addressChanged}
+              suggestions={pec && pec !== currentEmail ? [pec] : []}
+              defaultRecipients={currentEmail ? [currentEmail] : log.to}
+              sentAtLabel={log.createdAt.toLocaleDateString("it-IT", {
+                timeZone: "Europe/Rome",
+                day: "2-digit",
+                month: "2-digit",
+                year: "numeric",
+              })}
+              isOld={Date.now() - log.createdAt.getTime() > 7 * DAY_MS}
+            />
+          ) : (
+            <p className="text-sm text-slate-500">
+              Le email saltate (duplicati) non sono reinviabili.
+            </p>
+          )}
         </div>
+
+        {log.resends.length > 0 ? (
+          <div className="mt-6 border-t border-line-soft pt-4">
+            <h2 className="mono-label">Reinvii</h2>
+            <ul className="mt-2 space-y-1 text-sm">
+              {log.resends.map((r) => (
+                <li key={r.id} className="flex flex-wrap items-center gap-2">
+                  <Link href={`/log/email/${r.id}`} className="font-mono text-xs hover:underline">
+                    {formatRomeDateTime(r.createdAt)}
+                  </Link>
+                  <span className="text-slate-600">{r.to.join(", ")}</span>
+                  <EmailStatusBadge status={r.status} />
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
       </section>
 
       <EmailPreview html={log.html} text={log.text} />

@@ -669,6 +669,11 @@ model EmailLog {
   // quella chiave. Un invio con la stessa chiave viene SKIPPED se esiste un SENT.
   dedupeKey String? @unique
 
+  // Reinvio manuale: EmailLog originale da cui è stato reinviato il contenuto.
+  resentFromId String?
+  resentFrom   EmailLog?  @relation("EmailResend", fields: [resentFromId], references: [id], onDelete: SetNull)
+  resends      EmailLog[] @relation("EmailResend")
+
   @@index([createdAt])
   @@index([type])
   @@index([status])
