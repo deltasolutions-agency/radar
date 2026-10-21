@@ -5,7 +5,11 @@ import { prisma } from "@/lib/prisma";
 import { getStripe } from "@/lib/stripe";
 import { CURRENT_CONSENT_VERSION } from "@/lib/legal";
 import { clientIp } from "@/lib/request-ip";
-import { createAutoChargeCheckoutSession } from "@/lib/payment-checkout";
+import {
+  canRegenerateCheckout,
+  createAutoChargeCheckoutSession,
+  regenerateCheckoutSession,
+} from "@/lib/payment-checkout";
 
 /**
  * Registra (se necessario) il consenso e reindirizza alla Checkout Session
@@ -27,16 +31,19 @@ export async function proceedToPayment(formData: FormData): Promise<void> {
     },
   });
 
-  // Pagamento inesistente o non più in attesa → torna alla pagina (mostra stato).
-  if (!payment || payment.status !== "IN_ATTESA") {
+  // Link scaduto: rigenerabile (stesso Payment, stessi importi) oppure no.
+  const expired =
+    !!payment?.checkoutExpiresAt &&
+    payment.checkoutExpiresAt.getTime() < Date.now();
+  const regenerable =
+    !!payment && expired && (await canRegenerateCheckout(payment.id));
+
+  // Pagamento inesistente, non più in attesa o scaduto non rigenerabile →
+  // torna alla pagina (mostra lo stato).
+  if (!payment || (payment.status !== "IN_ATTESA" && !regenerable)) {
     redirect(`/pay/${token}`);
   }
-
-  // Link scaduto localmente.
-  if (
-    payment.checkoutExpiresAt &&
-    payment.checkoutExpiresAt.getTime() < Date.now()
-  ) {
+  if (expired && !regenerable) {
     redirect(`/pay/${token}`);
   }
 
@@ -72,6 +79,13 @@ export async function proceedToPayment(formData: FormData): Promise<void> {
       if (appUrl) {
         const res = await createAutoChargeCheckoutSession(payment.id, appUrl);
         url = res.url;
+        // Link scaduto rigenerato con una nuova sessione: torna in attesa.
+        if (regenerable) {
+          await prisma.payment.update({
+            where: { id: payment.id },
+            data: { status: "IN_ATTESA" },
+          });
+        }
       }
     } catch (e) {
       console.error(
@@ -83,6 +97,21 @@ export async function proceedToPayment(formData: FormData): Promise<void> {
       redirect(`/pay/${token}?error=stripe`);
     }
     redirect(url);
+  }
+
+  // Link scaduto: nuova Checkout Session per lo stesso Payment.
+  if (regenerable) {
+    let regenUrl: string | null = null;
+    try {
+      const appUrl = process.env.APP_URL;
+      if (appUrl) regenUrl = (await regenerateCheckoutSession(payment.id, appUrl)).url;
+    } catch (e) {
+      console.error(`[pay] rigenerazione sessione fallita (payment ${payment.id}):`, e);
+    }
+    if (!regenUrl) {
+      redirect(`/pay/${token}?error=stripe`);
+    }
+    redirect(regenUrl);
   }
 
   if (!payment.stripeCheckoutSessionId) {

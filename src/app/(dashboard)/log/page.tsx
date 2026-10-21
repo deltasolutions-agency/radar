@@ -6,6 +6,8 @@ import {
 } from "@/lib/client-data";
 import { LogTable, type LogRow, type LogChange } from "./log-table";
 import { EmailLogTab } from "./email-tab";
+import { CronStatus } from "./cron-status";
+import { TestEmailButton } from "./test-email-button";
 import Link from "next/link";
 import { getAdminSession } from "@/lib/auth";
 
@@ -62,7 +64,15 @@ export default async function LogPage({
 
       {tab === "email" ? (
         admin ? (
-          <EmailLogTab searchParams={searchParams} />
+          <EmailLogTab
+            searchParams={searchParams}
+            header={
+              <>
+                <CronStatus />
+                <TestEmailButton />
+              </>
+            }
+          />
         ) : (
           <p className="rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-800">
             Sezione riservata agli amministratori.

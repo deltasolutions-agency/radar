@@ -197,6 +197,12 @@ export function ImpostazioniForm({
       <section className="card space-y-5 p-6">
         <div>
           <h2 className="mono-label">Testi email</h2>
+          <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
+            Questi testi personalizzano la versione ADMIN del reminder. Dal
+            nuovo cron l&apos;admin riceve un unico riepilogo per esecuzione,
+            quindi i testi restano salvati ma non vengono inviati; i clienti
+            ricevono i testi predefiniti.
+          </p>
           <p className="mt-1 text-xs text-slate-500">
             Lascia vuoto per usare il testo predefinito (mostrato come
             segnaposto). Segnaposto disponibili:

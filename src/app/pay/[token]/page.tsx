@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { canRegenerateCheckout } from "@/lib/payment-checkout";
 import { EndClientLabel } from "@/components/end-client-label";
 import { formatEur, formatDate } from "@/lib/format";
 import { CURRENT_CONSENT_VERSION } from "@/lib/legal";
@@ -49,7 +50,15 @@ export default async function PayPage({
     },
   });
 
-  if (!payment || payment.status !== "IN_ATTESA") {
+  // Link scaduto ma rigenerabile (stesso pagamento, stessi importi): la pagina
+  // resta utilizzabile e la nuova sessione Stripe viene creata al click.
+  const expired =
+    !!payment?.checkoutExpiresAt &&
+    payment.checkoutExpiresAt.getTime() < Date.now();
+  const regenerable =
+    !!payment && expired && (await canRegenerateCheckout(payment.id));
+
+  if (!payment || (payment.status !== "IN_ATTESA" && !regenerable)) {
     return (
       <Message
         title="Link non valido"
@@ -58,10 +67,7 @@ export default async function PayPage({
     );
   }
 
-  if (
-    payment.checkoutExpiresAt &&
-    payment.checkoutExpiresAt.getTime() < Date.now()
-  ) {
+  if (expired && !regenerable) {
     return (
       <Message
         title="Link scaduto"

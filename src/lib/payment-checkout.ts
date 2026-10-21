@@ -336,3 +336,119 @@ export async function createAutoChargeCheckoutSession(
 
   return { url: session.url, sessionId: session.id };
 }
+
+/**
+ * true se il link di pagamento di questo Payment è SCADUTO ma rigenerabile:
+ * pagamento Stripe da Checkout (non un addebito automatico), sessione scaduta
+ * (IN_ATTESA oltre la scadenza, oppure FALLITO dal webhook di scadenza senza
+ * altre note), righe ancora in attesa, scadenze delle righe non avanzate da un
+ * altro pagamento e nessun altro pagamento attivo per lo stesso periodo.
+ */
+export async function canRegenerateCheckout(paymentId: string): Promise<boolean> {
+  const payment = await prisma.payment.findUnique({
+    where: { id: paymentId },
+    include: { items: { include: { subscriptionItem: { select: { endDate: true } } } } },
+  });
+  if (!payment || payment.method !== "STRIPE" || !payment.stripeCheckoutSessionId) {
+    return false;
+  }
+  const expired =
+    payment.checkoutExpiresAt != null && payment.checkoutExpiresAt.getTime() < Date.now();
+  const statusOk =
+    payment.status === "IN_ATTESA" || (payment.status === "FALLITO" && !payment.note);
+  if (!expired || !statusOk || payment.items.length === 0) return false;
+
+  for (const pi of payment.items) {
+    if (pi.status !== "IN_ATTESA") return false;
+    // La riga è stata rinnovata nel frattempo (da un altro pagamento).
+    if (!pi.periodStart || pi.subscriptionItem.endDate.getTime() !== pi.periodStart.getTime()) {
+      return false;
+    }
+    const other = await prisma.paymentItem.findFirst({
+      where: {
+        subscriptionItemId: pi.subscriptionItemId,
+        periodStart: pi.periodStart,
+        paymentId: { not: payment.id },
+        payment: { status: { in: ["IN_ATTESA", "CONFERMATO"] } },
+      },
+      select: { id: true },
+    });
+    if (other) return false;
+  }
+  return true;
+}
+
+/**
+ * Rigenera la Checkout Session di un Payment con link scaduto: STESSO Payment,
+ * STESSI importi (line item dai PaymentItem memorizzati + eventuale costo di
+ * servizio memorizzato), nuova scadenza ~24h. Il Payment torna IN_ATTESA.
+ * Il chiamante deve aver verificato canRegenerateCheckout().
+ */
+export async function regenerateCheckoutSession(
+  paymentId: string,
+  appUrl: string,
+): Promise<{ url: string | null }> {
+  const payment = await prisma.payment.findUnique({
+    where: { id: paymentId },
+    include: {
+      subscription: { include: { client: true } },
+      items: { include: { subscriptionItem: { include: { service: true } } } },
+    },
+  });
+  if (!payment) throw new Error(`Payment ${paymentId} non trovato`);
+
+  const currency = payment.currency;
+  const lineItems = payment.items.map((pi) => ({
+    quantity: 1,
+    price_data: {
+      currency,
+      unit_amount: pi.amountCents,
+      product_data: {
+        name: withEndClient(
+          pi.subscriptionItem.quantity > 1
+            ? `${pi.subscriptionItem.service.name} ×${pi.subscriptionItem.quantity}`
+            : pi.subscriptionItem.service.name,
+          pi.subscriptionItem.endClientName,
+        ),
+        ...(pi.subscriptionItem.service.description
+          ? { description: pi.subscriptionItem.service.description }
+          : {}),
+      },
+    },
+  }));
+  if (payment.serviceFeeCents > 0) {
+    lineItems.push({
+      quantity: 1,
+      price_data: {
+        currency,
+        unit_amount: payment.serviceFeeCents,
+        product_data: {
+          name: "Costi di servizio Radar",
+          description: "Commissione di gestione pagamento (1,5%)",
+        },
+      },
+    });
+  }
+
+  const expiresAtUnix = Math.floor(Date.now() / 1000) + CHECKOUT_TTL_SECONDS;
+  const clientEmail = payment.subscription.client.email;
+  const session = await getStripe().checkout.sessions.create({
+    mode: "payment",
+    expires_at: expiresAtUnix,
+    line_items: lineItems,
+    success_url: `${appUrl}/pay/grazie`,
+    cancel_url: `${appUrl}/pay/grazie?annullato=1`,
+    ...(clientEmail ? { customer_email: clientEmail } : {}),
+    metadata: { subscriptionId: payment.subscriptionId },
+  });
+
+  await prisma.payment.update({
+    where: { id: payment.id },
+    data: {
+      status: "IN_ATTESA",
+      stripeCheckoutSessionId: session.id,
+      checkoutExpiresAt: new Date((session.expires_at ?? expiresAtUnix) * 1000),
+    },
+  });
+  return { url: session.url };
+}

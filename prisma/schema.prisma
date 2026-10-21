@@ -214,6 +214,11 @@ model AutoChargeActivationReminder {
   autoChargeRequest   AutoChargeRequest @relation(fields: [autoChargeRequestId], references: [id], onDelete: Cascade)
   hoursMark           Int // es. 12 o 24
   sentAt              DateTime          @default(now())
+  // Invio fallito da ritentare alle esecuzioni successive (max 3 tentativi).
+  // false = soglia gestita (inviata, saltata o tentativi esauriti).
+  pendingRetry        Boolean           @default(false)
+  attempts            Int               @default(1)
+  lastError           String?
 
   @@unique([autoChargeRequestId, hoursMark])
   @@map("auto_charge_activation_reminders")
@@ -340,6 +345,10 @@ model SubscriptionItem {
   autoChargeLastAttemptAt DateTime?
   // Token pubblico per la pagina self-service di attivazione (con gate consenso).
   autoChargeSetupToken    String?   @unique
+  // Addebito riuscito ma rinnovo/registrazione fallito: la riga è esclusa
+  // dall'auto-charge finché l'admin non riconcilia (mai riaddebitare il periodo).
+  autoChargeReconcileAt   DateTime?
+  autoChargeReconcileNote String?
 
   notes String?
 
@@ -665,4 +674,21 @@ model EmailLog {
   @@index([status])
   @@index([clientId])
   @@map("email_logs")
+}
+
+// Registro delle esecuzioni REALI dei cron (non dei dry-run).
+model CronRun {
+  id         String    @id @default(cuid())
+  name       String // reminders | auto-charge | autocharge-reminders
+  startedAt  DateTime  @default(now())
+  finishedAt DateTime?
+  candidates Int       @default(0)
+  sent       Int       @default(0)
+  skipped    Int       @default(0)
+  failed     Int       @default(0)
+  error      String?   @db.Text
+  details    Json?
+
+  @@index([name, startedAt])
+  @@map("cron_runs")
 }

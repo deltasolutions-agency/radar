@@ -1083,36 +1083,71 @@ export function buildAutoChargeRequestEmail(d: {
   return { subject, text, html };
 }
 
+/** Una richiesta di attivazione rinnovo automatico (link + servizi coperti). */
+export type ActivationRequestInfo = {
+  activationUrl: string;
+  requestedAt: Date;
+  items: { serviceName: string; endClientName?: string | null }[];
+};
+
+/** Elenco servizi di una richiesta, testo. */
+function activationItemsText(r: ActivationRequestInfo): string[] {
+  return r.items.map((it) => `  - ${serviceLineText(it.serviceName, it.endClientName)}`);
+}
+
+/** Elenco servizi di una richiesta, HTML. */
+function activationItemsHtml(r: ActivationRequestInfo): string {
+  if (r.items.length === 0) return "";
+  return `<ul style="font-size:14px;padding-left:18px;margin:6px 0">${r.items
+    .map((it) => `<li style="margin-bottom:4px">${serviceCellHtml(it.serviceName, it.endClientName)}</li>`)
+    .join("")}</ul>`;
+}
+
 /**
- * Sollecito GENTILE al cliente che ha ricevuto una richiesta di attivazione del
- * rinnovo automatico ma non l'ha ancora completata. Ripropone lo stesso link.
+ * Sollecito GENTILE al cliente che ha ricevuto una o più richieste di
+ * attivazione del rinnovo automatico ma non le ha ancora completate. Un'unica
+ * email per cliente: ripropone il link di ciascuna richiesta con i servizi.
  */
 export function buildAutoChargeReminderEmail(d: {
   clientName: string;
-  activationUrl: string;
+  requests: ActivationRequestInfo[];
 }): EmailContent {
   const subject = "Radar — Completa l'attivazione del rinnovo automatico";
   const intro =
     "ti avevamo proposto l'attivazione del rinnovo automatico, ma non risulta ancora completata. Bastano un paio di minuti: registri la carta una sola volta e non dovrai più pensare alle scadenze.";
+  const single = d.requests.length === 1;
 
   const text = [
     `Ciao ${d.clientName},`,
     "",
     intro,
-    "",
-    `Completa l'attivazione: ${d.activationUrl}`,
+    ...d.requests.flatMap((r) => [
+      "",
+      ...(r.items.length > 0 ? ["Servizi:", ...activationItemsText(r)] : []),
+      `Completa l'attivazione: ${r.activationUrl}`,
+    ]),
     "",
     "Se preferisci non attivarlo o hai domande, scrivici a hello@deltasolutions.agency.",
   ].join("\n");
+
+  const requestsHtml = d.requests
+    .map(
+      (r) => `
+      <div style="margin:16px 0;${single ? "" : "border:1px solid #e2e8f0;border-radius:12px;padding:12px 16px"}">
+        ${activationItemsHtml(r)}
+        <p style="margin:12px 0 0">
+          <a href="${h(r.activationUrl)}" style="display:inline-block;background:#4f46e5;color:#ffffff;text-decoration:none;font-family:sans-serif;font-size:14px;font-weight:600;padding:12px 20px;border-radius:8px">Completa l'attivazione →</a>
+        </p>
+      </div>`,
+    )
+    .join("");
 
   const html = `
     <div style="max-width:560px;margin:0 auto;font-family:sans-serif;color:#1e293b">
       ${emailHeaderHtml()}
       <h2 style="font-size:18px;margin:0 0 8px">Completa l'attivazione del rinnovo automatico</h2>
       <p style="font-size:14px;line-height:1.5">Ciao ${h(d.clientName)}, ${h(intro)}</p>
-      <p style="margin:20px 0">
-        <a href="${h(d.activationUrl)}" style="display:inline-block;background:#4f46e5;color:#ffffff;text-decoration:none;font-family:sans-serif;font-size:14px;font-weight:600;padding:12px 20px;border-radius:8px">Completa l'attivazione →</a>
-      </p>
+      ${requestsHtml}
       <p style="font-size:13px;color:#64748b;line-height:1.5">Se preferisci non attivarlo o hai domande, scrivici a <a href="mailto:hello@deltasolutions.agency" style="color:#4f46e5">hello@deltasolutions.agency</a>.</p>
       <hr style="border:none;border-top:1px solid #e2e8f0;margin:24px 0" />
       <p style="font-size:12px;color:#94a3b8">Radar — Delta Solutions</p>
@@ -1123,23 +1158,38 @@ export function buildAutoChargeReminderEmail(d: {
 
 /**
  * Escalation all'ADMIN: il cliente non ha completato l'attivazione del rinnovo
- * automatico entro l'ultima soglia. NON auto-agisce: informa soltanto, la
- * decisione (reinviare, contattare, pagamento manuale) resta all'admin.
+ * automatico entro l'ultima soglia. Un'unica email per cliente con tutte le
+ * richieste. NON auto-agisce: la decisione resta all'admin.
  */
 export function buildAutoChargeNotConfirmedEmail(d: {
   clientName: string;
-  requestedAt: Date;
+  requests: ActivationRequestInfo[];
 }): EmailContent {
   const subject = `[Radar] Rinnovo automatico non completato: ${d.clientName}`;
-  const intro = `Il cliente ${d.clientName} non ha ancora completato l'attivazione del rinnovo automatico richiesta il ${formatDate(d.requestedAt)}. Valuta se reinviare la richiesta, contattarlo direttamente, o procedere con un pagamento manuale.`;
+  const dates = [...new Set(d.requests.map((r) => formatDate(r.requestedAt)))].join(", ");
+  const intro = `Il cliente ${d.clientName} non ha ancora completato l'attivazione del rinnovo automatico richiesta il ${dates}. Valuta se reinviare la richiesta, contattarlo direttamente, o procedere con un pagamento manuale.`;
 
-  const text = [intro].join("\n");
+  const text = [
+    intro,
+    ...d.requests.flatMap((r) =>
+      r.items.length > 0
+        ? ["", `Richiesta del ${formatDate(r.requestedAt)}:`, ...activationItemsText(r)]
+        : [],
+    ),
+  ].join("\n");
 
   const html = `
     <div style="max-width:560px;margin:0 auto;font-family:sans-serif;color:#1e293b">
       ${emailHeaderHtml()}
       <h2 style="font-size:18px;margin:0 0 8px">Rinnovo automatico non completato</h2>
       <p style="font-size:14px;line-height:1.5">${h(intro)}</p>
+      ${d.requests
+        .map((r) =>
+          r.items.length > 0
+            ? `<p style="font-size:13px;color:#64748b;margin:12px 0 0">Richiesta del ${formatDate(r.requestedAt)}:</p>${activationItemsHtml(r)}`
+            : "",
+        )
+        .join("")}
       <hr style="border:none;border-top:1px solid #e2e8f0;margin:24px 0" />
       <p style="font-size:12px;color:#94a3b8">Radar — Delta Solutions · notifica automatica</p>
     </div>`;
@@ -1646,4 +1696,46 @@ export function buildAutoChargeUpcomingEmail(d: {
     </div>`;
 
   return { subject, text, html };
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// RIEPILOGO ESECUZIONE CRON — email all'admin (una per esecuzione)
+// ──────────────────────────────────────────────────────────────────────────
+
+export type CronSummarySection = {
+  heading: string;
+  /** Righe di testo semplice (vengono escapate nell'HTML). */
+  lines: string[];
+};
+
+/** Riepilogo di un'esecuzione cron: sezioni con elenchi di righe. */
+export function buildCronSummaryEmail(d: {
+  subject: string;
+  title: string;
+  intro: string;
+  sections: CronSummarySection[];
+}): EmailContent {
+  const sections = d.sections.filter((s) => s.lines.length > 0);
+  const text = [
+    d.intro,
+    ...sections.flatMap((s) => ["", `${s.heading}:`, ...s.lines.map((l) => `- ${l}`)]),
+  ].join("\n");
+  const html = `
+    <div style="max-width:640px;margin:0 auto;font-family:sans-serif;color:#1e293b">
+      ${emailHeaderHtml()}
+      <h2 style="font-size:18px;margin:0 0 8px">${h(d.title)}</h2>
+      <p style="font-size:14px;line-height:1.5">${h(d.intro)}</p>
+      ${sections
+        .map(
+          (s) => `
+      <h3 style="font-size:14px;margin:18px 0 6px">${h(s.heading)}</h3>
+      <ul style="font-size:13px;line-height:1.5;padding-left:18px;margin:0">
+        ${s.lines.map((l) => `<li style="margin-bottom:3px">${h(l)}</li>`).join("")}
+      </ul>`,
+        )
+        .join("")}
+      <hr style="border:none;border-top:1px solid #e2e8f0;margin:24px 0" />
+      <p style="font-size:12px;color:#94a3b8">Radar — Delta Solutions · riepilogo automatico</p>
+    </div>`;
+  return { subject: d.subject, text, html };
 }

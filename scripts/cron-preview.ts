@@ -1,41 +1,31 @@
-// Anteprima di SOLA LETTURA dei cron /api/cron/reminders e /api/cron/auto-charge.
+// Anteprima di SOLA LETTURA dei cron /api/cron/reminders, /api/cron/auto-charge
+// e /api/cron/autocharge-reminders.
 //
 //   npx tsx scripts/cron-preview.ts                       # riferimento: adesso
 //   npx tsx scripts/cron-preview.ts --at=2026-10-22T08:00  # simula l'orario del cron
 //   npx tsx scripts/cron-preview.ts --stripe              # + verifica carta (solo GET)
 //
-// Usa la STESSA selezione delle route (src/lib/cron/*-selection.ts) e gli stessi
-// helper di calcolo importi (addVatToNet, computeServiceFeeCents). Non invia
-// email, non scrive sul DB e non crea/modifica nulla su Stripe: con --stripe
-// esegue solo paymentMethods.retrieve.
+// Usa gli STESSI piani delle route (src/lib/cron/*-plan.ts,
+// activation-reminders.ts): è la stessa logica di ?dryRun=1. Non invia email,
+// non scrive sul DB e non crea/modifica nulla su Stripe: con --stripe esegue
+// solo paymentMethods.retrieve.
 import "./script-env";
 import Stripe from "stripe";
 import { prisma } from "@/lib/prisma";
-import { computeItemStatus } from "@/lib/subscription-status";
-import { addVatToNet } from "@/lib/vat";
-import { computeServiceFeeCents } from "@/lib/service-fee";
-import { MS_PER_DAY, periodDurationDays } from "@/lib/billing-period";
+import { withEndClient } from "@/lib/end-client";
+import { clientDisplayName, serviceLabel } from "@/lib/cron/common";
 import {
-  loadAutoChargeReminderHours,
-  loadReminderThresholds,
-} from "@/lib/reminder-settings";
+  REMINDER_RECOVERY_DAYS,
+  groupServicesLabel,
+  milestoneLabel,
+  planReminders,
+} from "@/lib/cron/reminders-plan";
 import {
-  BLOCKING,
-  clientDisplayName,
-  findPendingAutoChargeRequestToken,
-  findReusablePaymentToken,
-  hasNotificationLog,
-  loadReminderItems,
-  reminderDayKey,
-  selectReminderAction,
-  type ReminderItem,
-} from "@/lib/cron/reminder-selection";
-import {
-  classifyAutoChargeCandidate,
-  groupAutoChargeItems,
-  loadAutoChargeCandidates,
-  type EligibleItem,
-} from "@/lib/cron/auto-charge-selection";
+  AUTOCHARGE_MAX_DELAY_DAYS,
+  EXCLUSION_LABELS,
+  planAutoCharge,
+} from "@/lib/cron/auto-charge-plan";
+import { planActivationReminders } from "@/lib/cron/activation-reminders";
 
 // ── Argomenti ───────────────────────────────────────────────────────────────
 const args = process.argv.slice(2);
@@ -53,363 +43,206 @@ const money = (cents: number, currency = "eur") =>
     style: "currency",
     currency: currency.toUpperCase(),
   }).format(cents / 100);
-const date = (d: Date) =>
-  d.toLocaleDateString("it-IT", { timeZone: "Europe/Rome" });
-const dateTime = (d: Date) =>
-  d.toLocaleString("it-IT", { timeZone: "Europe/Rome" });
-const serviceLabel = (it: { quantity: number; service: { name: string } }) =>
-  it.quantity > 1 ? `${it.service.name} ×${it.quantity}` : it.service.name;
+const date = (d: Date) => d.toLocaleDateString("it-IT", { timeZone: "Europe/Rome" });
+const dateTime = (d: Date) => d.toLocaleString("it-IT", { timeZone: "Europe/Rome" });
 const delayLabel = (diffDays: number) =>
   diffDays > 0
     ? `scade tra ${diffDays} gg`
     : diffDays === 0
       ? "scade oggi"
       : `in ritardo di ${-diffDays} gg`;
-const hr = (title: string) =>
-  console.log(`\n${"═".repeat(78)}\n${title}\n${"═".repeat(78)}`);
+const hr = (title: string) => console.log(`\n${"═".repeat(78)}\n${title}\n${"═".repeat(78)}`);
 
 const adminEmail = process.env.ADMIN_EMAIL ?? "(ADMIN_EMAIL non configurata)";
 const appUrl = process.env.APP_URL;
 
 // ═════════════════════════════════════════════════════════════════════════════
-// CRON REMINDER (/api/cron/reminders)
+// CRON REMINDER
 // ═════════════════════════════════════════════════════════════════════════════
 async function previewReminders() {
   hr(`CRON REMINDER — /api/cron/reminders — riferimento ${dateTime(now)}`);
-
-  const settings = await loadReminderThresholds();
-  const activationHours = [...(await loadAutoChargeReminderHours())].sort(
-    (a, b) => a - b,
-  );
+  const plan = await planReminders(now);
+  const s = plan.settings;
   console.log(
-    `Soglie: lunghe ${JSON.stringify(settings.thresholdsLongDays)} · brevi ${JSON.stringify(settings.thresholdsShortDays)} · ` +
-      `post-scadenza ${JSON.stringify(settings.overdueDays)} · cessazione al giorno ${settings.cessationDay}`,
+    `Soglie: lunghe ${JSON.stringify(s.thresholdsLongDays)} · brevi ${JSON.stringify(s.thresholdsShortDays)} · ` +
+      `post-scadenza ${JSON.stringify(s.overdueDays)} · cessazione da ${s.cessationDay} gg · recupero max ${REMINDER_RECOVERY_DAYS} gg`,
   );
   console.log(`Admin: ${adminEmail} · APP_URL: ${appUrl ?? "(non configurato: nessun link/CTA)"}`);
 
-  // ── Step 1 della route: ricalcolo status (scritture DB, nessuna email) ────
-  const toRecalc = await prisma.subscriptionItem.findMany({
-    where: { status: { notIn: [...BLOCKING] } },
-    select: {
-      id: true,
-      status: true,
-      endDate: true,
-      billingPeriod: true,
-      customPeriodDays: true,
-      lastRenewalAt: true,
-    },
-  });
   const transitions = new Map<string, number>();
-  for (const it of toRecalc) {
-    const next = computeItemStatus(it);
-    if (next !== it.status) {
-      const k = `${it.status} → ${next}`;
-      transitions.set(k, (transitions.get(k) ?? 0) + 1);
-    }
+  for (const c of plan.statusChanges) {
+    const k = `${c.from} → ${c.to}`;
+    transitions.set(k, (transitions.get(k) ?? 0) + 1);
   }
-  console.log(
-    `\nRicalcolo status (calcolato sull'ora ATTUALE, aggiorna solo il campo status):`,
-  );
+  console.log(`\nRicalcolo status (aggiorna solo il campo status):`);
   if (transitions.size === 0) console.log("  nessuna modifica");
   for (const [k, n] of transitions) console.log(`  ${k}: ${n} righe`);
 
-  // ── Step 2: reminder / preavvisi / cessazioni ────────────────────────────
-  const dedupeKey = reminderDayKey(now);
-  const items = await loadReminderItems();
-  items.sort((a, b) =>
-    clientDisplayName(a.subscription.client).localeCompare(
-      clientDisplayName(b.subscription.client),
-    ),
-  );
-
-  let emailsToSend = 0;
-  let emailsSkipped = 0;
-  let emailsNoAddress = 0;
-  let newCheckoutSessions = 0;
-  let newAutoChargeRequests = 0;
+  let newLinks = 0;
+  let newRequests = 0;
   let cessations = 0;
-  const overdueUntouched: { item: ReminderItem; diffDays: number }[] = [];
-  let rows = 0;
-
-  for (const item of items) {
-    const client = item.subscription.client;
-    const action = selectReminderAction(item, now, settings);
-    if (!action) {
-      const diff = Math.ceil((item.endDate.getTime() - now.getTime()) / MS_PER_DAY);
-      if (-diff > settings.cessationDay) overdueUntouched.push({ item, diffDays: diff });
-      continue;
+  for (const g of plan.groups) {
+    console.log(`\n▸ ${g.clientName} <${g.clientEmail ?? "senza email"}> · abb. ${g.subscriptionId}`);
+    console.log(
+      `  ${milestoneLabel(g)}${g.daysLate > 0 ? ` · RECUPERO (dovuta da ${g.daysLate} gg)` : ""} · scadenza ${date(g.endDate)} (${delayLabel(g.diffDays)})`,
+    );
+    for (const it of g.items) {
+      const net = it.priceCents * it.quantity;
+      console.log(`  - ${withEndClient(serviceLabel(it), it.endClientName)} · netto ${money(net, it.currency)} · stato ${it.status}`);
     }
-    rows++;
-
-    const netCents = item.priceCents * item.quantity;
-    const { vatCents, grossCents } = addVatToNet(netCents);
-    const feeCents = computeServiceFeeCents(
-      grossCents,
-      item.subscription.serviceFeeEnabled,
-    );
-    const pm = item.autoChargeEnabled
-      ? `rinnovo automatico (carta ${client.stripeDefaultPaymentMethodId ?? "NON salvata"})`
-      : "manuale: bonifico o link Stripe";
-
-    const label =
-      action.kind === "PREAVVISO_ADDEBITO"
-        ? "PREAVVISO_ADDEBITO"
-        : `${action.milestone.type}${action.milestone.isCessationTrigger ? " + CESSAZIONE" : ""}`;
+    const a = g.amounts;
     console.log(
-      `\n▸ ${clientDisplayName(client)} <${client.email || "senza email"}> · abb. ${item.subscriptionId}`,
+      `  Importo: netto ${money(a.netCents, g.currency)} · IVA ${money(a.vatCents, g.currency)} · lordo ${money(a.grossCents, g.currency)}` +
+        (a.serviceFeeCents > 0 ? ` · con costo servizio (Stripe) ${money(a.totalCents, g.currency)}` : ""),
     );
     console.log(
-      `  ${label} · ${serviceLabel(item)} · scadenza ${date(item.endDate)} (${delayLabel(action.diffDays)}) · stato ${item.status}`,
+      `  Pagamento: ${g.autoCharge ? `rinnovo automatico (carta ${g.items[0].subscription.client.stripeDefaultPaymentMethodId ?? "NON salvata"})` : "manuale: bonifico o link Stripe"}`,
     );
     console.log(
-      `  Importo: netto ${money(netCents, item.currency)} · IVA ${money(vatCents, item.currency)} · lordo ${money(grossCents, item.currency)}` +
-        (feeCents > 0
-          ? ` · con costo servizio ${money(grossCents + feeCents, item.currency)}`
-          : ""),
+      `  Email: ${g.kind === "PREAVVISO" ? "preavviso addebito" : "reminder"} → ${g.clientEmail ?? "NON INVIABILE (cliente senza email → log FALLITA)"}`,
     );
-    console.log(`  Pagamento: ${pm}`);
-
-    if (action.kind === "PREAVVISO_ADDEBITO") {
-      if (await hasNotificationLog(item.id, "PREAVVISO_ADDEBITO", dedupeKey)) {
-        console.log(`  Cliente: SALTATO (già inviato oggi)`);
-        emailsSkipped++;
-      } else if (!client.email) {
-        console.log(`  Cliente: NON INVIABILE (cliente senza email → log FALLITA)`);
-        emailsNoAddress++;
-      } else {
-        console.log(`  Cliente: INVIA preavviso addebito a ${client.email}`);
-        emailsToSend++;
+    if (g.kind === "REMINDER" && !g.autoCharge && appUrl) {
+      if (g.reusablePayToken) console.log(`  Link pagamento: riusa Payment in attesa esistente`);
+      else {
+        console.log(`  Link pagamento: CREEREBBE Checkout Session Stripe + Payment IN_ATTESA (${money(a.totalCents, g.currency)})`);
+        newLinks++;
       }
-      continue;
-    }
-
-    const { milestone } = action;
-    if (await hasNotificationLog(item.id, milestone.type, `${dedupeKey}-admin`)) {
-      console.log(`  Admin:   SALTATO (già inviato oggi)`);
-      emailsSkipped++;
-    } else {
-      console.log(`  Admin:   INVIA a ${adminEmail}`);
-      emailsToSend++;
-    }
-
-    if (await hasNotificationLog(item.id, milestone.type, `${dedupeKey}-client`)) {
-      console.log(`  Cliente: SALTATO (già inviato oggi)`);
-      emailsSkipped++;
-    } else if (!client.email) {
-      console.log(`  Cliente: NON INVIABILE (cliente senza email → log FALLITA)`);
-      emailsNoAddress++;
-    } else {
-      console.log(`  Cliente: INVIA a ${client.email}`);
-      emailsToSend++;
-      if (!item.autoChargeEnabled && appUrl) {
-        const reusable = await findReusablePaymentToken(item.id, now);
-        if (reusable) {
-          console.log(`  Link pagamento: riusa Payment IN_ATTESA esistente`);
-        } else {
-          console.log(
-            `  Link pagamento: CREEREBBE Checkout Session Stripe + Payment IN_ATTESA (${money(grossCents + feeCents, item.currency)})`,
-          );
-          newCheckoutSessions++;
-        }
-        if (milestone.type !== "CESSAZIONE_MOROSITA") {
-          const pending = await findPendingAutoChargeRequestToken(client.id, item.id);
-          if (pending) {
-            console.log(`  CTA rinnovo automatico: riusa AutoChargeRequest pendente`);
-          } else {
-            console.log(
-              `  CTA rinnovo automatico: CREEREBBE AutoChargeRequest → il cron orario invierà ` +
-                `sollecito al cliente a ${activationHours.slice(0, -1).join("/") || "-"}h ed escalation admin a ${activationHours.at(-1) ?? "-"}h`,
-            );
-            newAutoChargeRequests++;
-          }
+      if (!g.isCessation) {
+        if (g.reusableAutoChargeToken) console.log(`  CTA rinnovo automatico: riusa richiesta pendente`);
+        else {
+          console.log(`  CTA rinnovo automatico: CREEREBBE AutoChargeRequest (→ solleciti del cron orario)`);
+          newRequests++;
         }
       }
-      if (item.autoChargeEnabled && action.diffDays === 0) {
-        console.log(
-          `  ⚠ Rinnovo automatico attivo: il sollecito parte alle 8:00, PRIMA dell'addebito delle 9:00`,
-        );
-      }
     }
-    if (milestone.isCessationTrigger) {
-      console.log(`  ⚠ La riga passerebbe a CESSATO`);
-      cessations++;
+    if (g.autoCharge && g.kind === "REMINDER" && g.diffDays === 0) {
+      console.log(`  ⚠ Rinnovo automatico attivo: il sollecito parte alle 8:00, prima dell'addebito delle 9:00`);
+    }
+    if (g.isCessation) {
+      console.log(`  ⚠ Le righe passerebbero a CESSATO`);
+      cessations += g.items.length;
     }
   }
-
-  if (rows === 0) console.log("\nNessuna riga su una milestone di reminder.");
+  if (plan.groups.length === 0) console.log("\nNessuna email da inviare.");
 
   console.log(`\nRiepilogo reminder:`);
-  console.log(`  righe coinvolte:                 ${rows}`);
-  console.log(`  email da inviare:                ${emailsToSend}`);
-  console.log(`  email saltate (già inviate oggi): ${emailsSkipped}`);
-  console.log(`  clienti senza email:             ${emailsNoAddress}`);
-  console.log(`  nuove Checkout Session Stripe:   ${newCheckoutSessions}`);
-  console.log(`  nuove AutoChargeRequest:         ${newAutoChargeRequests}`);
-  console.log(`  cessazioni per morosità:         ${cessations}`);
+  console.log(`  righe candidate:                    ${plan.candidates}`);
+  console.log(`  email al cliente:                   ${plan.groups.length}`);
+  console.log(`    di cui senza email:               ${plan.groups.filter((g) => !g.clientEmail).length}`);
+  console.log(`  righe con milestone già inviata:    ${plan.alreadySent}`);
+  console.log(`  nuove Checkout Session Stripe:      ${newLinks}`);
+  console.log(`  nuove AutoChargeRequest:            ${newRequests}`);
+  console.log(`  righe cessate per morosità:         ${cessations}`);
+  console.log(`  riepilogo admin:                    ${plan.groups.length > 0 ? `sì → ${adminEmail}` : "no (nessun invio)"}`);
 
-  if (overdueUntouched.length > 0) {
-    console.log(
-      `\nArretrati oltre il giorno di cessazione (${settings.cessationDay}) che il cron NON toccherà (nessuna email, nessuna cessazione):`,
-    );
-    for (const { item, diffDays } of overdueUntouched) {
+  if (plan.backlog.length > 0) {
+    console.log(`\nArretrati (milestone non inviata da più di ${REMINDER_RECOVERY_DAYS} gg — nessuna email, nessuna cessazione; elencati nel riepilogo admin):`);
+    for (const b of plan.backlog) {
       console.log(
-        `  - ${clientDisplayName(item.subscription.client)} · ${serviceLabel(item)} · scadenza ${date(item.endDate)} ` +
-          `(${delayLabel(diffDays)}) · stato ${item.status}${item.autoChargeEnabled ? " · RINNOVO AUTOMATICO ATTIVO" : ""}`,
+        `  - ${clientDisplayName(b.item.subscription.client)} · ${withEndClient(serviceLabel(b.item), b.item.endClientName)} · ` +
+          `${milestoneLabel(b)} da ${b.daysLate} gg · scadenza ${date(b.item.endDate)} · stato ${b.item.status}` +
+          (b.item.autoChargeEnabled ? " · RINNOVO AUTOMATICO ATTIVO" : ""),
       );
     }
   }
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
-// CRON AUTO-CHARGE (/api/cron/auto-charge)
+// CRON AUTO-CHARGE
 // ═════════════════════════════════════════════════════════════════════════════
 async function previewAutoCharge() {
   hr(`CRON AUTO-CHARGE — /api/cron/auto-charge — riferimento ${dateTime(now)}`);
-
+  const plan = await planAutoCharge(now);
   const stripe =
-    checkStripe && process.env.STRIPE_SECRET_KEY
-      ? new Stripe(process.env.STRIPE_SECRET_KEY)
-      : null;
+    checkStripe && process.env.STRIPE_SECRET_KEY ? new Stripe(process.env.STRIPE_SECRET_KEY) : null;
   if (checkStripe && !stripe) console.log("--stripe ignorato: STRIPE_SECRET_KEY mancante");
 
-  const candidates = await loadAutoChargeCandidates();
-  const eligible: EligibleItem[] = [];
-  const disabled: EligibleItem[] = [];
-  const attemptedToday: EligibleItem[] = [];
-  for (const item of candidates) {
-    const decision = classifyAutoChargeCandidate(item, now);
-    if (decision === "ELIGIBLE") eligible.push(item);
-    else if (decision === "DISABLE_EXPIRED") disabled.push(item);
-    else if (decision === "ALREADY_ATTEMPTED_TODAY") attemptedToday.push(item);
-  }
-
-  // Informativo: righe con rinnovo automatico ma senza carta (escluse dalla query).
-  const noCard = await prisma.subscriptionItem.findMany({
-    where: {
-      autoChargeEnabled: true,
-      status: { notIn: [...BLOCKING] },
-      endDate: { lte: now },
-      subscription: { client: { stripeDefaultPaymentMethodId: null } },
-    },
-    include: { service: true, subscription: { include: { client: true } } },
-  });
-
-  const groups = groupAutoChargeItems(eligible);
-  let totalCharged = 0;
-  let multiCatchUp = 0;
-
-  for (const group of groups.values()) {
-    const first = group[0];
-    const client = first.subscription.client;
-    const currency = first.currency;
-    const itemGrossCents = group.map(
-      (it) => addVatToNet(it.priceCents * it.quantity).grossCents,
-    );
-    const servicesCents = itemGrossCents.reduce((s, c) => s + c, 0);
-    const serviceFeeCents = computeServiceFeeCents(
-      servicesCents,
-      first.subscription.serviceFeeEnabled,
-    );
-    const totalCents = servicesCents + serviceFeeCents;
-    totalCharged += totalCents;
-
-    console.log(
-      `\n▸ ${clientDisplayName(client)} <${client.email || "senza email"}> · abb. ${first.subscriptionId}`,
-    );
-    for (const [idx, it] of group.entries()) {
-      const netCents = it.priceCents * it.quantity;
-      const lateDays = Math.floor((now.getTime() - it.endDate.getTime()) / MS_PER_DAY);
-      const duration = periodDurationDays(it);
-      // Il rinnovo avanza di UN periodo dal vecchio endDate: se servono più
-      // periodi per superare oggi, il cron riaddebiterà nei giorni successivi.
-      const renewalsNeeded =
-        duration != null
-          ? Math.floor((now.getTime() - it.endDate.getTime()) / (duration * MS_PER_DAY)) + 1
-          : null;
+  let total = 0;
+  for (const c of plan.charges) {
+    total += c.totalCents;
+    console.log(`\n▸ ${clientDisplayName(c.client)} <${c.client.email || "senza email"}> · abb. ${c.subscriptionId}`);
+    c.items.forEach((it, idx) => {
+      const late = Math.floor((now.getTime() - it.endDate.getTime()) / 86_400_000);
       console.log(
-        `  - ${serviceLabel(it)} · scadenza ${date(it.endDate)} (in ritardo di ${lateDays} gg) · ` +
-          `netto ${money(netCents, currency)} · lordo ${money(itemGrossCents[idx], currency)} · tentativi falliti ${it.autoChargeFailCount}`,
+        `  - ${withEndClient(serviceLabel(it), it.endClientName)} · scadenza ${date(it.endDate)} (in ritardo di ${late} gg) · ` +
+          `netto ${money(it.priceCents * it.quantity, c.currency)} · lordo ${money(c.itemGrossCents[idx], c.currency)} · tentativi falliti ${it.autoChargeFailCount}`,
       );
-      if (renewalsNeeded != null && renewalsNeeded > 1) {
-        console.log(
-          `    ⚠ servono ${renewalsNeeded} rinnovi per tornare in pari: ${renewalsNeeded} addebiti in ${renewalsNeeded} giorni consecutivi`,
-        );
-        multiCatchUp++;
-      }
-      if (duration == null) {
-        console.log(`    ⚠ PERSONALIZZATA senza durata: addebito senza avanzamento scadenza → riaddebito ogni giorno`);
-        multiCatchUp++;
-      }
       if (it.autoChargeFailCount + 1 >= 2) {
-        console.log(
-          `    ⚠ se fallisce: rinnovo automatico DISATTIVATO + link di pagamento al cliente + email all'admin`,
-        );
+        console.log(`    ⚠ se fallisce: rinnovo automatico DISATTIVATO + link di pagamento al cliente + email all'admin`);
       }
-      const pending = await prisma.paymentItem.findMany({
-        where: { subscriptionItemId: it.id, status: "IN_ATTESA" },
-        include: { payment: true },
-      });
-      for (const p of pending) {
-        console.log(
-          `    ⚠ esiste già un Payment IN_ATTESA (${p.payment.method}, creato ${dateTime(p.payment.createdAt)}` +
-            `${p.payment.checkoutExpiresAt ? `, link scade ${dateTime(p.payment.checkoutExpiresAt)}` : ""}): rischio doppio pagamento`,
-        );
-      }
-    }
+    });
     console.log(
-      `  Addebito: servizi lordo ${money(servicesCents, currency)} + costo servizio ${money(serviceFeeCents, currency)} = TOTALE ${money(totalCents, currency)}`,
+      `  Addebito: servizi lordo ${money(c.servicesCents, c.currency)} + costo servizio ${money(c.serviceFeeCents, c.currency)} = TOTALE ${money(c.totalCents, c.currency)}`,
     );
-    let pmInfo = client.stripeDefaultPaymentMethodId ?? "-";
-    if (stripe && client.stripeDefaultPaymentMethodId) {
+    let pmInfo = c.client.stripeDefaultPaymentMethodId ?? "-";
+    if (stripe && c.client.stripeDefaultPaymentMethodId) {
       try {
-        const pm = await stripe.paymentMethods.retrieve(client.stripeDefaultPaymentMethodId);
+        const pm = await stripe.paymentMethods.retrieve(c.client.stripeDefaultPaymentMethodId);
         if (pm.card) {
           const exp = new Date(pm.card.exp_year, pm.card.exp_month, 0, 23, 59);
           pmInfo += ` (${pm.card.brand} •••• ${pm.card.last4}, scade ${String(pm.card.exp_month).padStart(2, "0")}/${pm.card.exp_year}${exp < now ? " — SCADUTA" : ""})`;
-        } else {
-          pmInfo += ` (${pm.type})`;
-        }
-        if (pm.customer && pm.customer !== client.stripeCustomerId) {
+        } else pmInfo += ` (${pm.type})`;
+        if (pm.customer && pm.customer !== c.client.stripeCustomerId) {
           pmInfo += ` ⚠ collegato a un customer diverso (${String(pm.customer)})`;
         }
       } catch (e) {
         pmInfo += ` ⚠ verifica Stripe fallita: ${e instanceof Error ? e.message : String(e)}`;
       }
     }
-    console.log(`  Metodo: carta salvata ${pmInfo} · customer ${client.stripeCustomerId}`);
-    console.log(
-      `  Email se riesce: conferma + ricevuta a ${adminEmail}${client.email ? ` e ${client.email}` : ""}`,
-    );
+    console.log(`  Metodo: carta salvata ${pmInfo} · customer ${c.client.stripeCustomerId}`);
+    console.log(`  Descrizione Stripe: ${c.description}`);
+    console.log(`  Idempotency key: ${c.idempotencyKey}`);
+    console.log(`  Email se riesce: conferma + ricevuta a ${adminEmail}${c.client.email ? ` e ${c.client.email}` : ""}`);
   }
+  if (plan.charges.length === 0) console.log("\nNessun addebito da eseguire.");
 
-  if (groups.size === 0) console.log("\nNessun addebito da eseguire.");
-
-  if (disabled.length > 0) {
-    console.log(`\nRighe con fine rinnovo automatico superata → verrebbero DISATTIVATE (nessun addebito):`);
-    for (const it of disabled) {
+  if (plan.excluded.length > 0) {
+    console.log(`\nEscluse dall'addebito (segnalate nel riepilogo admin):`);
+    for (const e of plan.excluded) {
       console.log(
-        `  - ${clientDisplayName(it.subscription.client)} · ${serviceLabel(it)} · fine auto-charge ${date(it.autoChargeEndDate!)}`,
+        `  - ${clientDisplayName(e.item.subscription.client)} · ${withEndClient(serviceLabel(e.item), e.item.endClientName)} · ` +
+          `scadenza ${date(e.item.endDate)} (ritardo ${e.lateDays} gg) — ${EXCLUSION_LABELS[e.reason]}`,
       );
     }
   }
-  if (attemptedToday.length > 0) {
-    console.log(`\nRighe già tentate oggi (saltate): ${attemptedToday.length}`);
+  if (plan.toDisable.length > 0) {
+    console.log(`\nRinnovo automatico da DISATTIVARE (data di fine superata, nessun addebito):`);
+    for (const it of plan.toDisable) {
+      console.log(`  - ${clientDisplayName(it.subscription.client)} · ${serviceLabel(it)} · fine ${date(it.autoChargeEndDate!)}`);
+    }
   }
-  if (noCard.length > 0) {
-    console.log(`\nRighe scadute con rinnovo automatico attivo ma SENZA carta salvata (ignorate dal cron):`);
-    for (const it of noCard) {
+  if (plan.attemptedToday.length > 0) console.log(`\nRighe già tentate oggi (saltate): ${plan.attemptedToday.length}`);
+
+  console.log(`\nRiepilogo auto-charge (ritardo massimo ${AUTOCHARGE_MAX_DELAY_DAYS} gg):`);
+  console.log(`  addebiti Stripe (gruppi):  ${plan.charges.length}`);
+  console.log(`  righe addebitate:          ${plan.charges.reduce((n, c) => n + c.items.length, 0)}`);
+  console.log(`  importo totale:            ${money(total)}`);
+  console.log(`  righe escluse:             ${plan.excluded.length}`);
+  console.log(`  righe da disattivare:      ${plan.toDisable.length}`);
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// CRON ORARIO — solleciti di attivazione
+// ═════════════════════════════════════════════════════════════════════════════
+async function previewActivation() {
+  hr(`CRON ORARIO — /api/cron/autocharge-reminders — riferimento ${dateTime(now)}`);
+  const plan = await planActivationReminders(now);
+  console.log(`Soglie: ${JSON.stringify(plan.hours)} h (l'ultima è l'escalation admin) · richieste nelle ultime 48h: ${plan.candidates}`);
+  for (const g of plan.groups) {
+    const to = g.kind === "ADMIN_ESCALATION" ? adminEmail : (g.clientEmail ?? "NON INVIABILE (senza email)");
+    console.log(`\n▸ ${g.kind === "ADMIN_ESCALATION" ? "Escalation admin" : "Sollecito cliente"} · ${g.clientName} → ${to}`);
+    for (const m of g.marks) {
+      const services = m.request.itemIds
+        .map((id) => plan.itemsById.get(id))
+        .filter(Boolean)
+        .map((x) => withEndClient(x!.serviceName, x!.endClientName))
+        .join(", ");
       console.log(
-        `  - ${clientDisplayName(it.subscription.client)} · ${serviceLabel(it)} · scadenza ${date(it.endDate)}`,
+        `  - richiesta del ${dateTime(m.request.createdAt)} · soglia ${m.mark}h${m.attempts > 0 ? ` · ritentativo n. ${m.attempts + 1}` : ""} · ${services || "(servizi non trovati)"}`,
       );
     }
   }
-
-  console.log(`\nRiepilogo auto-charge:`);
-  console.log(`  addebiti Stripe (gruppi):        ${groups.size}`);
-  console.log(`  righe addebitate:                ${eligible.length}`);
-  console.log(`  importo totale:                  ${money(totalCharged)}`);
-  console.log(`  righe con recupero multi-giorno: ${multiCatchUp}`);
-  console.log(`  righe da disattivare:            ${disabled.length}`);
+  if (plan.groups.length === 0) console.log("\nNessun sollecito da inviare.");
 }
 
 async function main() {
@@ -418,6 +251,7 @@ async function main() {
   );
   await previewReminders();
   await previewAutoCharge();
+  await previewActivation();
 }
 
 main()
