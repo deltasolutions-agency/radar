@@ -17,6 +17,7 @@ const OUTCOME: Record<string, { label: string; tone: "ok" | "bad" | "warn" | "mu
   ALREADY_ATTEMPTED_TODAY: { label: "Già tentata oggi", tone: "muted" },
   SKIPPED_AUTOCHARGE_TODAY: { label: "Coperta da addebito", tone: "muted" },
   RECONCILE: { label: "Da riconciliare", tone: "bad" },
+  PAY_LINK_FAILED: { label: "Non inviata: link non creato", tone: "bad" },
   FAILED: { label: "Fallita", tone: "bad" },
   ERROR: { label: "Errore", tone: "bad" },
 };

@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { EXAMPLE_TOKEN } from "@/lib/example-link";
 import { renewalChargePriceCents } from "@/lib/renewal-price";
 import { EndClientLabel } from "@/components/end-client-label";
 import { formatEur } from "@/lib/format";
@@ -44,6 +45,16 @@ export default async function AttivaRinnovoPage({
   params: { token: string };
   searchParams: { done?: string; annullato?: string; error?: string };
 }) {
+  // Link fittizio dell'email di test: nessun pagamento/richiesta reale.
+  if (params.token === EXAMPLE_TOKEN) {
+    return (
+      <Message
+        title="Link di esempio"
+        body="Questo è il link di prova dell'email di test: nei reminder reali porta alla pagina di pagamento del cliente."
+      />
+    );
+  }
+
   const request = await prisma.autoChargeRequest.findUnique({
     where: { token: params.token },
     include: { client: true },

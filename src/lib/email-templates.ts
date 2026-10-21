@@ -4,6 +4,7 @@ import { formatDate, formatEur } from "@/lib/format";
 import { formatBillingPeriod, type BillingPeriodValue } from "@/lib/validations";
 import { splitVatFromGross, addVatToNet } from "@/lib/vat";
 import { escapeHtml as h } from "@/lib/html-escape";
+import { computeServiceFeeCents } from "@/lib/service-fee";
 
 /** Una riga (servizio) di un'email di reminder. */
 export type ReminderEmailItem = {
@@ -79,19 +80,26 @@ function detailUrl(subscriptionId: string): string {
   return `${base}/abbonamenti/${subscriptionId}`;
 }
 
+// Ogni email ha un contenitore con sfondo bianco esplicito: nei client in
+// modalità scura che mantengono i colori dell'autore il testo scuro resta su
+// fondo chiaro (leggibile); quelli che invertono i colori lo invertono tutto.
+
 /**
  * Header brandizzato condiviso da OGNI email inviata da Radar: logo Delta
  * Solutions + payoff "Radar" (Space Mono con fallback di sistema, dato che i
  * client email non caricano font custom) + separatore leggero.
  *
- * Il logo è servito dal dominio Radar (public/logo-delta-solutions.png): le
- * email richiedono un URL assoluto, quindi si usa APP_URL.
+ * Il logo è servito dal dominio Radar (public/logo-delta-solutions-email.png):
+ * le email richiedono un URL assoluto, quindi si usa APP_URL.
  */
 function emailHeaderHtml(): string {
-  const logoUrl = `${process.env.APP_URL ?? ""}/logo-delta-solutions.png`;
+  // Versione email del logo: su "pastiglia" bianca integrata nel PNG, così il
+  // testo resta leggibile anche nei client in modalità scura (le immagini non
+  // vengono invertite). 600×164 px @2x → 161×44 visualizzati.
+  const logoUrl = `${process.env.APP_URL ?? ""}/logo-delta-solutions-email.png`;
   return `
     <div style="margin-bottom:16px">
-      <img src="${logoUrl}" alt="Delta Solutions" style="height:40px;display:block;margin-bottom:4px;" />
+      <img src="${logoUrl}" alt="Delta Solutions" width="161" height="44" style="width:161px;height:44px;display:block;margin-bottom:4px;border:0" />
       <p style="margin:0;font-family:'Space Mono','Courier New',monospace;font-size:11px;letter-spacing:0.18em;text-transform:uppercase;color:#64748b">Radar</p>
     </div>
     <hr style="border:none;border-top:1px solid #e2e8f0;margin:0 0 20px" />`;
@@ -135,7 +143,7 @@ function detailsHtml(d: ReminderEmailData): string {
 
 function wrapHtml(title: string, intro: string, d: ReminderEmailData): string {
   return `
-    <div style="max-width:560px;margin:0 auto;font-family:sans-serif;color:#1e293b">
+    <div style="max-width:560px;margin:0 auto;font-family:sans-serif;color:#1e293b;background-color:#ffffff;padding:24px;border-radius:12px">
       ${emailHeaderHtml()}
       <h2 style="font-size:18px;margin:0 0 8px">${title}</h2>
       <p style="font-size:14px;line-height:1.5">${multilineHtml(intro)}</p>
@@ -340,11 +348,12 @@ function clientDetailsHtml(d: ReminderEmailData): string {
 }
 
 // ──────────────────────────────────────────────────────────────────────────
-// Sezione COORDINATE BANCARIE per il rinnovo (solo reminder CLIENTE su item
-// senza rinnovo automatico). Stile coerente con la card della lettera di
-// benvenuto: bordo sinistro blu, sfondo tenue.
+// Sezione RINNOVO del reminder CLIENTE (righe senza rinnovo automatico):
+// pagamento online con carta (blocco principale) + istruzioni per il bonifico
+// solo se abilitate in Impostazioni (showBankTransferInstructions).
 // ──────────────────────────────────────────────────────────────────────────
 
+// Dati bancari: mostrati solo con l'interruttore attivo in Impostazioni.
 const RENEWAL_BANK = {
   beneficiary: "Andrea Trinca",
   iban: "IT40L0366901600715069802019",
@@ -355,27 +364,31 @@ const RENEWAL_DISCLAIMER_A =
   "Questo importo si riferisce al rinnovo per la prossima annualità. Il prezzo dei rinnovi successivi potrebbe variare, in aumento o in diminuzione, rispetto a quello indicato.";
 
 const RENEWAL_DISCLAIMER_CESSATION =
-  "Il tuo servizio è stato sospeso per mancato rinnovo. Effettuando il pagamento del rinnovo, faremo il possibile per riattivarlo; se la riattivazione non fosse possibile, valuteremo un rimborso. In alcuni casi potrebbero essere necessari ulteriori accordi economici per il ripristino del servizio. Ti invitiamo a contattarci a hello@deltasolutions.agency prima di procedere al bonifico, per verificare la situazione specifica del tuo servizio.";
+  "Il tuo servizio è stato sospeso per mancato rinnovo. Effettuando il pagamento del rinnovo, faremo il possibile per riattivarlo; se la riattivazione non fosse possibile, valuteremo un rimborso. In alcuni casi potrebbero essere necessari ulteriori accordi economici per il ripristino del servizio. Ti invitiamo a contattarci a hello@deltasolutions.agency prima di procedere al pagamento, per verificare la situazione specifica del tuo servizio.";
 
 /**
  * Dati per la sezione rinnovo del reminder CLIENTE. La presenza di questo
- * oggetto indica che l'item NON ha il rinnovo automatico attivo (autoChargeEnabled
- * false): va mostrata la sezione coordinate + disclaimer. `autoChargeUrl` è
- * valorizzato solo nel Caso A (promemoria/sollecito) per la CTA di attivazione;
- * assente per la cessazione (Caso B).
+ * oggetto indica che le righe NON hanno il rinnovo automatico attivo: va
+ * mostrato il pagamento online (link /pay) con il riepilogo importi.
+ * `autoChargeUrl` è valorizzato solo nel Caso A (promemoria/sollecito) per la
+ * CTA di attivazione; assente per la cessazione (Caso B).
  */
 export type ClientRenewalInfo = {
   /**
-   * Netto (priceCents × quantity) di CIASCUNA riga coperta dall'email. IVA e
-   * lordo sono calcolati per riga con addVatToNet e poi sommati — come fanno
-   * il checkout Stripe e l'auto-charge — così il totale coincide con il link.
-   * Con una sola riga il risultato è identico al calcolo precedente.
+   * Netto (prezzo del prossimo rinnovo × quantità) di CIASCUNA riga. IVA e
+   * lordo sono calcolati per riga con addVatToNet e sommati, il costo di
+   * servizio con computeServiceFeeCents sul lordo — come il checkout Stripe,
+   * così il riepilogo coincide con la pagina /pay.
    */
   itemNetCents: number[];
   currency: string;
+  /** Subscription.serviceFeeEnabled: commissione 1,5% sui pagamenti con carta. */
+  serviceFeeEnabled: boolean;
+  /** Link di pagamento online (/pay/{payToken}). */
+  payUrl: string | null;
   autoChargeUrl?: string | null;
-  /** Link pagamento elettronico (/pay/{payToken}) alternativo al bonifico. */
-  payUrl?: string | null;
+  /** Istruzioni per il bonifico come alternativa (Impostazioni, default no). */
+  showBankTransfer?: boolean;
 };
 
 /** Somma per riga di netto/IVA/lordo (addVatToNet su ciascuna riga). */
@@ -397,55 +410,62 @@ function sumVatPerItem(itemNetCents: number[]): {
   );
 }
 
-/** Coordinate bancarie, versione testo. */
+/** Riepilogo del pagamento con carta (stessi importi di /pay e del checkout). */
+export function cardPaymentSummary(info: Pick<ClientRenewalInfo, "itemNetCents" | "serviceFeeEnabled">) {
+  const { netCents, vatCents, grossCents } = sumVatPerItem(info.itemNetCents);
+  const serviceFeeCents = computeServiceFeeCents(grossCents, info.serviceFeeEnabled);
+  return { netCents, vatCents, grossCents, serviceFeeCents, totalCents: grossCents + serviceFeeCents };
+}
+
+/** Coordinate bancarie (alternativa), versione testo. */
 function bankSectionText(itemNetCents: number[], currency: string): string {
-  const { netCents: net, vatCents, grossCents } = sumVatPerItem(itemNetCents);
+  const { grossCents } = sumVatPerItem(itemNetCents);
   return [
-    "Istruzioni per il rinnovo:",
-    `1. Effettuare bonifico a: ${RENEWAL_BANK.beneficiary}`,
-    `2. IBAN: ${RENEWAL_BANK.iban}`,
-    `3. SWIFT (o BIC): ${RENEWAL_BANK.swift}`,
-    "",
-    `Imponibile: ${formatEur(net, currency)}`,
-    `IVA (22%): ${formatEur(vatCents, currency)}`,
-    `Totale da bonificare: ${formatEur(grossCents, currency)}`,
+    "In alternativa, puoi pagare con bonifico:",
+    `- Intestatario: ${RENEWAL_BANK.beneficiary}`,
+    `- IBAN: ${RENEWAL_BANK.iban}`,
+    `- SWIFT (o BIC): ${RENEWAL_BANK.swift}`,
+    `- Totale da bonificare (senza commissione): ${formatEur(grossCents, currency)}`,
   ].join("\n");
 }
 
-/** Coordinate bancarie, versione HTML (card con bordo sinistro blu). */
+/** Coordinate bancarie (alternativa), versione HTML. */
 function bankSectionHtml(itemNetCents: number[], currency: string): string {
-  const { netCents: net, vatCents, grossCents } = sumVatPerItem(itemNetCents);
+  const { grossCents } = sumVatPerItem(itemNetCents);
   const mono = "font-family:'Space Mono','Courier New',monospace";
   return `
-    <div style="margin:16px 0;border:1px solid #E2DED6;border-left:4px solid #2B7FFF;border-radius:8px;background:#FAFAFA;padding:14px 16px">
-      <p style="font-size:14px;font-weight:600;margin:0 0 8px;color:#12161F">Istruzioni per il rinnovo</p>
-      <table style="border-collapse:collapse;font-family:sans-serif;font-size:14px;color:#4A463F">
-        <tr><td style="padding:2px 8px 2px 0;color:#94a3b8">1.</td><td>Effettuare bonifico a: ${RENEWAL_BANK.beneficiary}</td></tr>
-        <tr><td style="padding:2px 8px 2px 0;color:#94a3b8">2.</td><td>IBAN: <span style="${mono}">${RENEWAL_BANK.iban}</span></td></tr>
-        <tr><td style="padding:2px 8px 8px 0;color:#94a3b8">3.</td><td style="padding-bottom:8px">SWIFT (o BIC): <span style="${mono}">${RENEWAL_BANK.swift}</span></td></tr>
-        <tr><td></td><td style="border-top:1px solid #E2DED6;padding-top:8px;color:#64748b">Imponibile: <span style="${mono}">${formatEur(net, currency)}</span></td></tr>
-        <tr><td></td><td style="color:#64748b">IVA (22%): <span style="${mono}">${formatEur(vatCents, currency)}</span></td></tr>
-        <tr><td></td><td style="padding-top:2px"><strong>Totale da bonificare: <span style="${mono}">${formatEur(grossCents, currency)}</span></strong></td></tr>
+    <div style="margin:16px 0;border:1px solid #E2DED6;border-radius:8px;padding:12px 16px">
+      <p style="font-size:13px;font-weight:600;margin:0 0 6px;color:#4A463F">In alternativa, puoi pagare con bonifico</p>
+      <table style="border-collapse:collapse;font-family:sans-serif;font-size:13px;color:#4A463F">
+        <tr><td style="padding:2px 8px 2px 0;color:#94a3b8">Intestatario</td><td>${RENEWAL_BANK.beneficiary}</td></tr>
+        <tr><td style="padding:2px 8px 2px 0;color:#94a3b8">IBAN</td><td><span style="${mono}">${RENEWAL_BANK.iban}</span></td></tr>
+        <tr><td style="padding:2px 8px 2px 0;color:#94a3b8">SWIFT (o BIC)</td><td><span style="${mono}">${RENEWAL_BANK.swift}</span></td></tr>
+        <tr><td style="padding:2px 8px 2px 0;color:#94a3b8">Totale</td><td><span style="${mono}">${formatEur(grossCents, currency)}</span> <span style="color:#94a3b8">(senza commissione)</span></td></tr>
       </table>
     </div>`;
 }
 
-/** Blocchi testo (coordinate + disclaimer + eventuale CTA) per il reminder cliente. */
-function clientRenewalText(
-  info: ClientRenewalInfo,
-  isCessation: boolean,
-): string[] {
-  const blocks = ["", bankSectionText(info.itemNetCents, info.currency)];
+/** Blocchi testo (pagamento online + eventuale bonifico + disclaimer + CTA). */
+function clientRenewalText(info: ClientRenewalInfo, isCessation: boolean): string[] {
+  const p = cardPaymentSummary(info);
+  const c = info.currency;
+  const blocks: string[] = [];
   if (info.payUrl) {
     blocks.push(
       "",
-      `In alternativa al bonifico, puoi pagare online con carta: ${info.payUrl}`,
+      "Paga online con carta:",
+      `Imponibile: ${formatEur(p.netCents, c)}`,
+      `IVA (22%): ${formatEur(p.vatCents, c)}`,
+      ...(p.serviceFeeCents > 0
+        ? [`Commissione di servizio (1,5%): ${formatEur(p.serviceFeeCents, c)}`]
+        : []),
+      `Totale con carta: ${formatEur(p.totalCents, c)}`,
+      "",
+      `Paga online: ${info.payUrl}`,
     );
   }
-  blocks.push(
-    "",
-    isCessation ? RENEWAL_DISCLAIMER_CESSATION : RENEWAL_DISCLAIMER_A,
-  );
+  if (info.showBankTransfer) blocks.push("", bankSectionText(info.itemNetCents, c));
+  blocks.push("", isCessation ? RENEWAL_DISCLAIMER_CESSATION : RENEWAL_DISCLAIMER_A);
   if (!isCessation && info.autoChargeUrl) {
     blocks.push(
       "",
@@ -455,14 +475,29 @@ function clientRenewalText(
   return blocks;
 }
 
-/** Blocco HTML (coordinate + disclaimer + eventuale CTA) per il reminder cliente. */
-function clientRenewalHtml(
-  info: ClientRenewalInfo,
-  isCessation: boolean,
-): string {
-  const disclaimer = isCessation
-    ? RENEWAL_DISCLAIMER_CESSATION
-    : RENEWAL_DISCLAIMER_A;
+/** Blocco HTML (pagamento online + eventuale bonifico + disclaimer + CTA). */
+function clientRenewalHtml(info: ClientRenewalInfo, isCessation: boolean): string {
+  const p = cardPaymentSummary(info);
+  const c = info.currency;
+  const mono = "font-family:'Space Mono','Courier New',monospace";
+  const row = (label: string, value: string, strong = false) =>
+    `<tr><td style="padding:3px 0;color:${strong ? "#12161F" : "#64748b"};${strong ? "font-weight:700;border-top:1px solid #E2DED6;padding-top:8px" : ""}">${label}</td><td style="padding:3px 0;text-align:right;${mono};${strong ? "font-weight:700;color:#12161F;border-top:1px solid #E2DED6;padding-top:8px" : ""}">${value}</td></tr>`;
+  const payBlock = info.payUrl
+    ? `
+    <div style="margin:16px 0;border:1px solid #E2DED6;border-left:4px solid #2B7FFF;border-radius:8px;background:#FAFAFA;padding:14px 16px">
+      <p style="font-size:14px;font-weight:600;margin:0 0 8px;color:#12161F">Paga online con carta</p>
+      <table style="border-collapse:collapse;width:100%;font-family:sans-serif;font-size:14px;color:#4A463F">
+        ${row("Imponibile", formatEur(p.netCents, c))}
+        ${row("IVA (22%)", formatEur(p.vatCents, c))}
+        ${p.serviceFeeCents > 0 ? row("Commissione di servizio (1,5%)", formatEur(p.serviceFeeCents, c)) : ""}
+        ${row("Totale con carta", formatEur(p.totalCents, c), true)}
+      </table>
+      <p style="margin:14px 0 0">
+        <a href="${h(info.payUrl)}" style="display:inline-block;background:#2B7FFF;color:#ffffff;text-decoration:none;font-family:sans-serif;font-size:15px;font-weight:600;padding:12px 22px;border-radius:8px">Paga online →</a>
+      </p>
+    </div>`
+    : "";
+  const disclaimer = isCessation ? RENEWAL_DISCLAIMER_CESSATION : RENEWAL_DISCLAIMER_A;
   const cta =
     !isCessation && info.autoChargeUrl
       ? `
@@ -471,16 +506,9 @@ function clientRenewalHtml(
         <a href="${h(info.autoChargeUrl)}" style="display:inline-block;background:#4f46e5;color:#ffffff;text-decoration:none;font-family:sans-serif;font-size:14px;font-weight:600;padding:12px 20px;border-radius:8px">Attiva il rinnovo automatico →</a>
       </p>`
       : "";
-  const payCta = info.payUrl
-    ? `
-      <p style="font-size:14px;line-height:1.5;margin:14px 0 6px">In alternativa al bonifico, puoi pagare online con carta:</p>
-      <p style="margin:0 0 4px">
-        <a href="${h(info.payUrl)}" style="display:inline-block;background:#2B7FFF;color:#ffffff;text-decoration:none;font-family:sans-serif;font-size:14px;font-weight:600;padding:12px 20px;border-radius:8px">Paga online con carta →</a>
-      </p>`
-    : "";
   return `
-    ${bankSectionHtml(info.itemNetCents, info.currency)}
-    ${payCta}
+    ${payBlock}
+    ${info.showBankTransfer ? bankSectionHtml(info.itemNetCents, c) : ""}
     <p style="font-size:12px;color:#94a3b8;font-style:italic;line-height:1.6;margin:14px 0 0">${disclaimer}</p>
     ${cta}`;
 }
@@ -570,7 +598,7 @@ export function buildReminderEmail(
     ].join("\n");
 
     const html = `
-      <div style="max-width:560px;margin:0 auto;font-family:sans-serif;color:#1e293b">
+      <div style="max-width:560px;margin:0 auto;font-family:sans-serif;color:#1e293b;background-color:#ffffff;padding:24px;border-radius:12px">
         ${emailHeaderHtml()}
         <h2 style="font-size:18px;margin:0 0 8px">${cdef.title}</h2>
         <p style="font-size:14px;line-height:1.5">Ciao ${h(d.clientName)}, ${multilineHtml(intro)}</p>
@@ -740,7 +768,7 @@ export function buildConfirmationEmail(
     : "";
 
   const html = `
-    <div style="max-width:560px;margin:0 auto;font-family:sans-serif;color:#1e293b">
+    <div style="max-width:560px;margin:0 auto;font-family:sans-serif;color:#1e293b;background-color:#ffffff;padding:24px;border-radius:12px">
       ${emailHeaderHtml()}
       <h2 style="font-size:18px;margin:0 0 8px">${isClient ? "Pagamento ricevuto" : "Pagamento confermato"}</h2>
       <p style="font-size:14px;line-height:1.5">${intro}</p>
@@ -964,7 +992,7 @@ export function buildWelcomeEmail(d: WelcomeEmailData): EmailContent {
     .join("");
 
   const html = `
-    <div style="max-width:560px;margin:0 auto;font-family:sans-serif;color:#1e293b">
+    <div style="max-width:560px;margin:0 auto;font-family:sans-serif;color:#1e293b;background-color:#ffffff;padding:24px;border-radius:12px">
       ${emailHeaderHtml()}
       <h2 style="font-size:18px;margin:0 0 8px">Benvenuto in Delta Solutions Agency</h2>
       <p style="font-size:14px;line-height:1.5">Ciao ${h(d.clientName)},</p>
@@ -1067,7 +1095,7 @@ export function buildAutoChargeRequestEmail(d: {
     .join("");
 
   const html = `
-    <div style="max-width:560px;margin:0 auto;font-family:sans-serif;color:#1e293b">
+    <div style="max-width:560px;margin:0 auto;font-family:sans-serif;color:#1e293b;background-color:#ffffff;padding:24px;border-radius:12px">
       ${emailHeaderHtml()}
       <h2 style="font-size:18px;margin:0 0 8px">Attiva il rinnovo automatico</h2>
       <p style="font-size:14px;line-height:1.5">${intro}</p>
@@ -1152,7 +1180,7 @@ export function buildAutoChargeReminderEmail(d: {
     .join("");
 
   const html = `
-    <div style="max-width:560px;margin:0 auto;font-family:sans-serif;color:#1e293b">
+    <div style="max-width:560px;margin:0 auto;font-family:sans-serif;color:#1e293b;background-color:#ffffff;padding:24px;border-radius:12px">
       ${emailHeaderHtml()}
       <h2 style="font-size:18px;margin:0 0 8px">Completa l'attivazione del rinnovo automatico</h2>
       <p style="font-size:14px;line-height:1.5">Ciao ${h(d.clientName)}, ${h(intro)}</p>
@@ -1188,7 +1216,7 @@ export function buildAutoChargeNotConfirmedEmail(d: {
   ].join("\n");
 
   const html = `
-    <div style="max-width:560px;margin:0 auto;font-family:sans-serif;color:#1e293b">
+    <div style="max-width:560px;margin:0 auto;font-family:sans-serif;color:#1e293b;background-color:#ffffff;padding:24px;border-radius:12px">
       ${emailHeaderHtml()}
       <h2 style="font-size:18px;margin:0 0 8px">Rinnovo automatico non completato</h2>
       <p style="font-size:14px;line-height:1.5">${h(intro)}</p>
@@ -1311,7 +1339,7 @@ export function buildRefundConfirmationEmail(
       : "";
 
   const html = `
-    <div style="max-width:560px;margin:0 auto;font-family:sans-serif;color:#1e293b">
+    <div style="max-width:560px;margin:0 auto;font-family:sans-serif;color:#1e293b;background-color:#ffffff;padding:24px;border-radius:12px">
       ${emailHeaderHtml()}
       <h2 style="font-size:18px;margin:0 0 8px">Rimborso effettuato</h2>
       <p style="font-size:14px;line-height:1.5">Ciao ${h(d.clientName)},</p>
@@ -1393,7 +1421,7 @@ export function buildAutoChargeFailedAdminEmail(d: {
     .join("");
 
   const html = `
-    <div style="max-width:560px;margin:0 auto;font-family:sans-serif;color:#1e293b">
+    <div style="max-width:560px;margin:0 auto;font-family:sans-serif;color:#1e293b;background-color:#ffffff;padding:24px;border-radius:12px">
       ${emailHeaderHtml()}
       <h2 style="font-size:18px;margin:0 0 8px">Addebito automatico fallito</h2>
       <p style="font-size:14px;line-height:1.5">${h(intro)}</p>
@@ -1474,7 +1502,7 @@ export function buildPaymentLinkEmail(d: PaymentLinkEmailData): EmailContent {
     .join("");
 
   const html = `
-    <div style="max-width:560px;margin:0 auto;font-family:sans-serif;color:#1e293b">
+    <div style="max-width:560px;margin:0 auto;font-family:sans-serif;color:#1e293b;background-color:#ffffff;padding:24px;border-radius:12px">
       ${emailHeaderHtml()}
       <h2 style="font-size:18px;margin:0 0 8px">Link di pagamento</h2>
       <p style="font-size:14px;line-height:1.5">${intro}</p>
@@ -1544,7 +1572,7 @@ export function buildClientDataChangeEmail(
     .join("");
 
   const html = `
-    <div style="max-width:560px;margin:0 auto;font-family:sans-serif;color:#1e293b">
+    <div style="max-width:560px;margin:0 auto;font-family:sans-serif;color:#1e293b;background-color:#ffffff;padding:24px;border-radius:12px">
       ${emailHeaderHtml()}
       <h2 style="font-size:18px;margin:0 0 8px">Dati di fatturazione aggiornati</h2>
       <p style="font-size:14px;line-height:1.5">Il cliente <strong>${h(d.clientName)}</strong> ha aggiornato i propri dati di fatturazione dalla pagina pubblica.</p>
@@ -1604,7 +1632,7 @@ export function buildDataUpdateRequestEmail(
   ].join("\n");
 
   const html = `
-    <div style="max-width:560px;margin:0 auto;font-family:sans-serif;color:#1e293b">
+    <div style="max-width:560px;margin:0 auto;font-family:sans-serif;color:#1e293b;background-color:#ffffff;padding:24px;border-radius:12px">
       ${emailHeaderHtml()}
       <h2 style="font-size:18px;margin:0 0 8px">Verifica i tuoi dati di fatturazione</h2>
       <p style="font-size:14px;line-height:1.5">Ciao ${h(d.clientName)},</p>
@@ -1687,7 +1715,7 @@ export function buildAutoChargeUpcomingEmail(d: {
       : "";
 
   const html = `
-    <div style="max-width:560px;margin:0 auto;font-family:sans-serif;color:#1e293b">
+    <div style="max-width:560px;margin:0 auto;font-family:sans-serif;color:#1e293b;background-color:#ffffff;padding:24px;border-radius:12px">
       ${emailHeaderHtml()}
       <h2 style="font-size:18px;margin:0 0 8px">Prossimo addebito automatico</h2>
       <p style="font-size:14px;line-height:1.5">${h(intro)}</p>
@@ -1731,7 +1759,7 @@ export function buildCronSummaryEmail(d: {
     ...sections.flatMap((s) => ["", `${s.heading}:`, ...s.lines.map((l) => `- ${l}`)]),
   ].join("\n");
   const html = `
-    <div style="max-width:640px;margin:0 auto;font-family:sans-serif;color:#1e293b">
+    <div style="max-width:640px;margin:0 auto;font-family:sans-serif;color:#1e293b;background-color:#ffffff;padding:24px;border-radius:12px">
       ${emailHeaderHtml()}
       <h2 style="font-size:18px;margin:0 0 8px">${h(d.title)}</h2>
       <p style="font-size:14px;line-height:1.5">${h(d.intro)}</p>

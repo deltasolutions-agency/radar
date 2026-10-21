@@ -114,7 +114,7 @@ async function previewReminders() {
         (a.serviceFeeCents > 0 ? ` · con costo servizio (Stripe) ${money(a.totalCents, g.currency)}` : ""),
     );
     console.log(
-      `  Pagamento: ${g.autoCharge ? `rinnovo automatico (carta ${g.items[0].subscription.client.stripeDefaultPaymentMethodId ?? "NON salvata"})` : "manuale: bonifico o link Stripe"}`,
+      `  Pagamento: ${g.autoCharge ? `rinnovo automatico (carta ${g.items[0].subscription.client.stripeDefaultPaymentMethodId ?? "NON salvata"})` : "online con carta (pulsante \"Paga online\" → /pay)"}`,
     );
     console.log(
       `  Email: ${g.kind === "PREAVVISO" ? "preavviso addebito" : "reminder"} → ${g.clientEmail ?? "NON INVIABILE (cliente senza email → log FALLITA)"}`,
@@ -122,7 +122,7 @@ async function previewReminders() {
     if (g.kind === "REMINDER" && !g.autoCharge && appUrl && g.clientEmail) {
       if (g.reusablePayToken) console.log(`  Link pagamento: riusa Payment in attesa esistente`);
       else {
-        console.log(`  Link pagamento: CREEREBBE Checkout Session Stripe + Payment IN_ATTESA (${money(a.totalCents, g.currency)})`);
+        console.log(`  Link pagamento: CREEREBBE Checkout Session Stripe + Payment IN_ATTESA (${money(a.totalCents, g.currency)}) — se fallisce, l'email NON parte`);
         newLinks++;
       }
       if (!g.isCessation) {

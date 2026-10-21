@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { EXAMPLE_TOKEN } from "@/lib/example-link";
 import { canRegenerateCheckout } from "@/lib/payment-checkout";
 import { EndClientLabel } from "@/components/end-client-label";
 import { formatEur, formatDate } from "@/lib/format";
@@ -40,6 +41,16 @@ export default async function PayPage({
   params: { token: string };
   searchParams: { error?: string };
 }) {
+  // Link fittizio dell'email di test: nessun pagamento/richiesta reale.
+  if (params.token === EXAMPLE_TOKEN) {
+    return (
+      <Message
+        title="Link di esempio"
+        body="Questo è il link di prova dell'email di test: nei reminder reali porta alla pagina di pagamento del cliente."
+      />
+    );
+  }
+
   const payment = await prisma.payment.findUnique({
     where: { payToken: params.token },
     include: {

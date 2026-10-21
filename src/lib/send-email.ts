@@ -308,6 +308,38 @@ export async function sendEmail(
     : { status: "FALLITA", ok: false, skipped: false, error: result.error, logId };
 }
 
+/**
+ * Registra come FAILED un'email che NON è stata inviata per un motivo a monte
+ * (es. link di pagamento non creato): resta visibile nel Log email con il
+ * contenuto che sarebbe partito e l'errore. Nessun invio, nessuna dedupeKey.
+ */
+export async function logUnsentEmail(
+  content: { subject: string; text: string; html: string },
+  to: string,
+  log: EmailLogMeta,
+  error: string,
+): Promise<string | null> {
+  return writeLog({
+    type: log.type,
+    trigger: log.trigger,
+    status: "FAILED",
+    from: process.env.EMAIL_FROM ?? "",
+    to: [to],
+    cc: [],
+    bcc: [],
+    replyTo: null,
+    subject: content.subject,
+    html: content.html,
+    text: content.text,
+    attachmentNames: [],
+    clientId: log.clientId ?? null,
+    subscriptionId: log.subscriptionId ?? null,
+    dueDate: log.dueDate ?? null,
+    itemIds: log.itemIds ?? [],
+    errorMessage: `Non inviata: ${error}`,
+  });
+}
+
 /** Stati reinviabili: le email SKIPPED (duplicati) non si reinviano. */
 export const RESENDABLE_STATUSES = ["SENT", "FAILED"] as const;
 

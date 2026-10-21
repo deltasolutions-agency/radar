@@ -1,6 +1,11 @@
 import { json, error, withApi, requireAdmin } from "@/lib/api";
 import { sendEmail } from "@/lib/send-email";
 import { buildReminderEmail } from "@/lib/email-templates";
+import {
+  loadReminderTemplates,
+  loadShowBankTransferInstructions,
+} from "@/lib/reminder-settings";
+import { EXAMPLE_TOKEN } from "@/lib/example-link";
 
 // POST /api/email-logs/test — invia all'admin collegato un reminder DI ESEMPIO
 // (dati fittizi, cliente finale valorizzato) tramite sendEmail, tipo OTHER.
@@ -10,6 +15,7 @@ export function POST() {
     const recipient = session.email || process.env.ADMIN_EMAIL;
     if (!recipient) return error("Nessun destinatario configurato", 400);
 
+    const appUrl = process.env.APP_URL ?? "";
     const endDate = new Date();
     endDate.setUTCDate(endDate.getUTCDate() + 7);
     endDate.setUTCHours(0, 0, 0, 0);
@@ -27,7 +33,17 @@ export function POST() {
       },
       {
         audience: "client",
-        clientRenewal: { itemNetCents: [12000, 1500], currency: "eur" },
+        // Come un reminder reale senza rinnovo automatico: pulsante "Paga
+        // online" (link di esempio) e riepilogo con la commissione 1,5%.
+        clientRenewal: {
+          itemNetCents: [12000, 1500],
+          currency: "eur",
+          serviceFeeEnabled: true,
+          payUrl: `${appUrl}/pay/${EXAMPLE_TOKEN}`,
+          autoChargeUrl: `${appUrl}/attiva-rinnovo/${EXAMPLE_TOKEN}`,
+          showBankTransfer: await loadShowBankTransferInstructions(),
+        },
+        override: (await loadReminderTemplates()).PROMEMORIA_7,
       },
     );
     const res = await sendEmail(

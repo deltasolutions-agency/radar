@@ -10,10 +10,11 @@ import {
 } from "@/lib/email-templates";
 import { createCheckoutPayment, toCheckoutItem } from "@/lib/payment-checkout";
 import { renewalChargePriceCents } from "@/lib/renewal-price";
-import { sendEmail } from "@/lib/send-email";
+import { logUnsentEmail, sendEmail } from "@/lib/send-email";
 import { purgeOldEmailLogs } from "@/lib/email-log-retention";
 import {
   loadReminderTemplates,
+  loadShowBankTransferInstructions,
   type ReminderTemplateMap,
 } from "@/lib/reminder-settings";
 import { formatDate, formatEur } from "@/lib/format";
@@ -103,8 +104,11 @@ function dryRunResult(plan: ReminderPlan): CronResult {
 }
 
 /** Link di pagamento (riuso o nuovo Payment) per le righe del gruppo. */
-async function ensurePayUrl(g: PlannedGroup, appUrl: string): Promise<string | null> {
-  if (g.reusablePayToken) return `${appUrl}/pay/${g.reusablePayToken}`;
+async function ensurePayUrl(
+  g: PlannedGroup,
+  appUrl: string,
+): Promise<{ url: string } | { error: string }> {
+  if (g.reusablePayToken) return { url: `${appUrl}/pay/${g.reusablePayToken}` };
   try {
     const result = await createCheckoutPayment(
       {
@@ -116,11 +120,11 @@ async function ensurePayUrl(g: PlannedGroup, appUrl: string): Promise<string | n
       appUrl,
       { sendToClient: false, trigger: "CRON" },
     );
-    return `${appUrl}/pay/${result.payment.payToken}`;
+    return { url: `${appUrl}/pay/${result.payment.payToken}` };
   } catch (e) {
-    // Non deve bloccare l'invio del reminder: si invia senza CTA di pagamento.
+    // Senza link il cliente non potrebbe pagare: l'email NON parte (vedi run).
     console.error(`[cron reminders] link pagamento fallito (sub ${g.subscriptionId}):`, e);
-    return null;
+    return { error: e instanceof Error ? e.message : String(e) };
   }
 }
 
@@ -137,39 +141,53 @@ async function ensureAutoChargeUrl(g: PlannedGroup, appUrl: string): Promise<str
   return `${appUrl}/attiva-rinnovo/${token}`;
 }
 
-/** Contenuto dell'email al cliente per il gruppo. */
+/**
+ * Contenuto dell'email al cliente per il gruppo. Per le righe senza rinnovo
+ * automatico serve il link di pagamento: se non è disponibile (APP_URL assente
+ * o errore Stripe) viene restituito `payLinkError` e l'email NON va inviata.
+ */
 async function buildGroupEmail(
   g: PlannedGroup,
   templates: ReminderTemplateMap,
-): Promise<EmailContent> {
+  showBankTransfer: boolean,
+): Promise<{ content: EmailContent; payLinkError?: string }> {
   const items = g.items.map((it) => ({
     serviceName: it.service.name,
     endClientName: it.endClientName,
   }));
   if (g.kind === "PREAVVISO") {
     // Importi calcolati come il cron auto-charge (groupAmounts).
-    return buildAutoChargeUpcomingEmail({
-      items,
-      endDate: g.endDate,
-      netCents: g.amounts.netCents,
-      vatCents: g.amounts.vatCents,
-      serviceFeeCents: g.amounts.serviceFeeCents,
-      totalCents: g.amounts.totalCents,
-      currency: g.currency,
-    });
+    return {
+      content: buildAutoChargeUpcomingEmail({
+        items,
+        endDate: g.endDate,
+        netCents: g.amounts.netCents,
+        vatCents: g.amounts.vatCents,
+        serviceFeeCents: g.amounts.serviceFeeCents,
+        totalCents: g.amounts.totalCents,
+        currency: g.currency,
+      }),
+    };
   }
   let clientRenewal: ClientRenewalInfo | undefined;
+  let payLinkError: string | undefined;
   if (!g.autoCharge) {
     const appUrl = process.env.APP_URL;
+    const pay = appUrl ? await ensurePayUrl(g, appUrl) : { error: "APP_URL non configurato" };
+    if ("error" in pay) payLinkError = pay.error;
     clientRenewal = {
       // Netto del PROSSIMO rinnovo (aumento ONCE incluso se dovuto).
       itemNetCents: g.items.map((it) => renewalChargePriceCents(it) * it.quantity),
       currency: g.currency,
-      payUrl: appUrl ? await ensurePayUrl(g, appUrl) : null,
-      autoChargeUrl: appUrl && !g.isCessation ? await ensureAutoChargeUrl(g, appUrl) : null,
+      serviceFeeEnabled: g.serviceFeeEnabled,
+      payUrl: "url" in pay ? pay.url : null,
+      // Richiesta di attivazione creata solo se l'email partirà davvero.
+      autoChargeUrl:
+        appUrl && !g.isCessation && !payLinkError ? await ensureAutoChargeUrl(g, appUrl) : null,
+      showBankTransfer,
     };
   }
-  return buildReminderEmail(
+  const content = buildReminderEmail(
     g.type,
     {
       subscriptionId: g.subscriptionId,
@@ -180,6 +198,7 @@ async function buildGroupEmail(
     },
     { audience: "client", clientRenewal, override: templates[g.type] },
   );
+  return { content, payLinkError };
 }
 
 /** Registra l'esito per ogni riga del gruppo (NotificationLog per milestone). */
@@ -240,7 +259,10 @@ export async function runReminders({
   }
 
   // ── 2. Invii per gruppo + cessazioni ───────────────────────────────────────
-  const templates = await loadReminderTemplates();
+  const [templates, showBankTransfer] = await Promise.all([
+    loadReminderTemplates(),
+    loadShowBankTransferInstructions(),
+  ]);
   let sent = 0;
   let skipped = plan.alreadySent + plan.autoChargeToday.length;
   let failed = 0;
@@ -259,28 +281,43 @@ export async function runReminders({
         summaryErrors.push(`${line} → cliente senza email`);
         details.push(groupDetail(g, { outcome: "NO_EMAIL" }));
       } else {
-        const content = await buildGroupEmail(g, templates);
-        const res = await sendEmail(content, g.clientEmail, {
-          type: g.kind === "PREAVVISO" ? "AUTOCHARGE_NOTICE" : "REMINDER",
-          trigger: "CRON",
+        const { content, payLinkError } = await buildGroupEmail(g, templates, showBankTransfer);
+        const logMeta = {
+          type: g.kind === "PREAVVISO" ? ("AUTOCHARGE_NOTICE" as const) : ("REMINDER" as const),
+          trigger: "CRON" as const,
           clientId: g.clientId,
           subscriptionId: g.subscriptionId,
           dueDate: g.endDate,
           itemIds: g.items.map((it) => it.id),
-          dedupeKey: g.emailDedupeKey,
-        });
-        await logGroupOutcome(g, res.status, g.clientEmail, res.resendId, res.error);
-        if (res.skipped) {
-          skipped++;
-          details.push(groupDetail(g, { outcome: "SKIPPED", emailLogId: res.logId }));
-        } else if (res.ok) {
-          sent++;
-          summarySent.push(`${line} → ${g.clientEmail}`);
-          details.push(groupDetail(g, { outcome: "SENT", emailLogId: res.logId }));
-        } else {
+        };
+        if (payLinkError) {
+          // Nessun modo di pagare → l'email non parte. Registrata come FAILED
+          // (Log email + CronRun + riepilogo admin); la milestone resta da
+          // inviare e viene ritentata alla prossima esecuzione.
+          const error = `link di pagamento non creato: ${payLinkError}`;
+          const logId = await logUnsentEmail(content, g.clientEmail, logMeta, error);
+          await logGroupOutcome(g, "FALLITA", g.clientEmail, undefined, error);
           failed++;
-          summaryErrors.push(`${line} → ${g.clientEmail}: ${res.error ?? "errore"}`);
-          details.push(groupDetail(g, { outcome: "FAILED", error: res.error, emailLogId: res.logId }));
+          summaryErrors.push(`${line} → ${g.clientEmail}: email NON inviata, ${error}`);
+          details.push(groupDetail(g, { outcome: "PAY_LINK_FAILED", error, emailLogId: logId }));
+        } else {
+          const res = await sendEmail(content, g.clientEmail, {
+            ...logMeta,
+            dedupeKey: g.emailDedupeKey,
+          });
+          await logGroupOutcome(g, res.status, g.clientEmail, res.resendId, res.error);
+          if (res.skipped) {
+            skipped++;
+            details.push(groupDetail(g, { outcome: "SKIPPED", emailLogId: res.logId }));
+          } else if (res.ok) {
+            sent++;
+            summarySent.push(`${line} → ${g.clientEmail}`);
+            details.push(groupDetail(g, { outcome: "SENT", emailLogId: res.logId }));
+          } else {
+            failed++;
+            summaryErrors.push(`${line} → ${g.clientEmail}: ${res.error ?? "errore"}`);
+            details.push(groupDetail(g, { outcome: "FAILED", error: res.error, emailLogId: res.logId }));
+          }
         }
       }
 
