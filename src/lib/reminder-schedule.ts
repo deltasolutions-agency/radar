@@ -63,8 +63,8 @@ export function getReminderMilestone(
     customPeriodDays: number | null;
   },
   settings: ReminderThresholds = DEFAULT_REMINDER_THRESHOLDS,
+  now: Date = new Date(),
 ): ReminderMilestone | null {
-  const now = new Date();
   const diffDays = Math.ceil(
     (item.endDate.getTime() - now.getTime()) / MS_PER_DAY,
   );

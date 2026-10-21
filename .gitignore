@@ -34,3 +34,6 @@ next-env.d.ts
 # docker
 docker-data/
 .env.bak
+
+# log dei cron (curl da crontab)
+logs/

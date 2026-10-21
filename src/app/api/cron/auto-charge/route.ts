@@ -1,5 +1,4 @@
 import { NextResponse, type NextRequest } from "next/server";
-import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getStripe } from "@/lib/stripe";
 import { confirmPaymentAndRenew } from "@/lib/confirm-payment";
@@ -9,29 +8,15 @@ import { buildAutoChargeFailedAdminEmail } from "@/lib/email-templates";
 import { MS_PER_DAY, periodDurationDays } from "@/lib/billing-period";
 import { computeServiceFeeCents } from "@/lib/service-fee";
 import { addVatToNet } from "@/lib/vat";
+import {
+  classifyAutoChargeCandidate,
+  groupAutoChargeItems,
+  loadAutoChargeCandidates,
+  type EligibleItem,
+} from "@/lib/cron/auto-charge-selection";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-const BLOCKING = ["CESSATO", "SOSPESO"] as const;
-
-function isSameDay(a: Date, b: Date): boolean {
-  return (
-    a.getFullYear() === b.getFullYear() &&
-    a.getMonth() === b.getMonth() &&
-    a.getDate() === b.getDate()
-  );
-}
-
-/** Chiave-giorno locale di una data (per raggruppare le righe con pari scadenza). */
-function dayKey(d: Date): string {
-  return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
-}
-
-// Riga idonea all'addebito, con relazioni caricate.
-type EligibleItem = Prisma.SubscriptionItemGetPayload<{
-  include: { service: true; subscription: { include: { client: true } } };
-}>;
 
 // GET /api/cron/auto-charge — addebito automatico ricorrente (off_session).
 //
@@ -57,31 +42,17 @@ export async function GET(request: NextRequest) {
   let failed = 0; // righe fallite
   let disabledAfterRetries = 0; // righe disattivate dopo 2 fallimenti
 
-  const candidates = await prisma.subscriptionItem.findMany({
-    where: {
-      autoChargeEnabled: true,
-      status: { notIn: [...BLOCKING] },
-      subscription: {
-        client: { stripeDefaultPaymentMethodId: { not: null } },
-      },
-    },
-    include: {
-      service: true,
-      subscription: { include: { client: true } },
-    },
-  });
+  // Selezione condivisa con scripts/cron-preview.ts (src/lib/cron/auto-charge-selection.ts).
+  const candidates = await loadAutoChargeCandidates();
 
   // ── 1. Pre-filtro per riga → righe realmente addebitabili ─────────────────
   const eligible: EligibleItem[] = [];
   for (const item of candidates) {
     try {
-      const client = item.subscription.client;
+      const decision = classifyAutoChargeCandidate(item, now);
 
       // Auto-charge scaduto → torna a gestione manuale, nient'altro in questo run.
-      if (
-        item.autoChargeEndDate &&
-        item.autoChargeEndDate.getTime() < now.getTime()
-      ) {
+      if (decision === "DISABLE_EXPIRED") {
         await prisma.subscriptionItem.update({
           where: { id: item.id },
           data: { autoChargeEnabled: false },
@@ -89,38 +60,14 @@ export async function GET(request: NextRequest) {
         continue;
       }
 
-      // Non ancora scaduto → non è il momento di addebitare.
-      if (item.endDate.getTime() > now.getTime()) continue;
-
-      // Già tentato oggi → evita doppio tentativo (anche doppio addebito).
-      if (
-        item.autoChargeLastAttemptAt &&
-        isSameDay(item.autoChargeLastAttemptAt, now)
-      ) {
-        continue;
-      }
-
-      // Servono customer + metodo di pagamento salvati (sul Client).
-      if (!client.stripeCustomerId || !client.stripeDefaultPaymentMethodId) {
-        continue;
-      }
-
-      eligible.push(item);
+      if (decision === "ELIGIBLE") eligible.push(item);
     } catch (e) {
       console.error(`[cron auto-charge] pre-filtro item ${item.id}:`, e);
     }
   }
 
   // ── 2. Raggruppa per (abbonamento, valuta, giorno di scadenza) ────────────
-  // Payment.subscriptionId lega un pagamento a un solo abbonamento: il gruppo
-  // massimo è quindi per-abbonamento. Una PaymentIntent ha una sola valuta.
-  const groups = new Map<string, EligibleItem[]>();
-  for (const item of eligible) {
-    const key = `${item.subscriptionId}|${item.currency}|${dayKey(item.endDate)}`;
-    const bucket = groups.get(key);
-    if (bucket) bucket.push(item);
-    else groups.set(key, [item]);
-  }
+  const groups = groupAutoChargeItems(eligible);
 
   // ── 3. Un addebito per gruppo ─────────────────────────────────────────────
   for (const group of groups.values()) {

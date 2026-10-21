@@ -1,8 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
-import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { computeItemStatus } from "@/lib/subscription-status";
-import { getReminderMilestone } from "@/lib/reminder-schedule";
 import {
   buildReminderEmail,
   buildAutoChargeUpcomingEmail,
@@ -15,15 +13,21 @@ import {
   loadReminderThresholds,
   loadReminderTemplates,
 } from "@/lib/reminder-settings";
+import {
+  BLOCKING,
+  clientDisplayName,
+  findPendingAutoChargeRequestToken,
+  findReusablePaymentToken,
+  hasNotificationLog,
+  loadReminderItems,
+  reminderDayKey,
+  selectReminderAction,
+  type ReminderItem,
+} from "@/lib/cron/reminder-selection";
 
 // Chiamato da crontab via curl con Bearer CRON_SECRET: nessuna sessione utente.
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-const MS_PER_DAY = 1000 * 60 * 60 * 24;
-
-// Stati manuali bloccanti: mai toccati dal cron.
-const BLOCKING = ["CESSATO", "SOSPESO"] as const;
 
 /**
  * Restituisce il token di una AutoChargeRequest pendente (non usata) che copre
@@ -34,23 +38,14 @@ async function ensureAutoChargeRequestToken(
   clientId: string,
   itemId: string,
 ): Promise<string> {
-  const existing = await prisma.autoChargeRequest.findFirst({
-    where: { clientId, usedAt: null, itemIds: { has: itemId } },
-    orderBy: { createdAt: "desc" },
-    select: { token: true },
-  });
-  if (existing) return existing.token;
+  const existing = await findPendingAutoChargeRequestToken(clientId, itemId);
+  if (existing) return existing;
   const created = await prisma.autoChargeRequest.create({
     data: { clientId, itemIds: [itemId] },
     select: { token: true },
   });
   return created.token;
 }
-
-// Item con relazioni caricate nel loop dei reminder.
-type ReminderItem = Prisma.SubscriptionItemGetPayload<{
-  include: { service: true; subscription: { include: { client: true } } };
-}>;
 
 /**
  * Restituisce il payToken di un link di pagamento Stripe per questo item:
@@ -63,17 +58,8 @@ async function ensurePaymentLinkToken(
   item: ReminderItem,
   appUrl: string,
 ): Promise<string | null> {
-  const existing = await prisma.payment.findFirst({
-    where: {
-      status: "IN_ATTESA",
-      method: "STRIPE",
-      checkoutExpiresAt: { gt: new Date() },
-      items: { some: { subscriptionItemId: item.id, status: "IN_ATTESA" } },
-    },
-    orderBy: { createdAt: "desc" },
-    select: { payToken: true },
-  });
-  if (existing) return existing.payToken;
+  const existing = await findReusablePaymentToken(item.id);
+  if (existing) return existing;
 
   try {
     const result = await createCheckoutPayment(
@@ -153,7 +139,7 @@ export async function GET(request: NextRequest) {
   let cessations = 0;
 
   const now = new Date();
-  const dedupeKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+  const dedupeKey = reminderDayKey(now);
 
   // Soglie + override testuali configurabili (con fallback ai default).
   const [settings, templates] = await Promise.all([
@@ -161,41 +147,28 @@ export async function GET(request: NextRequest) {
     loadReminderTemplates(),
   ]);
 
-  const items = await prisma.subscriptionItem.findMany({
-    where: { status: { notIn: [...BLOCKING] } },
-    include: {
-      service: true,
-      subscription: { include: { client: true } },
-    },
-  });
+  // Selezione condivisa con scripts/cron-preview.ts (src/lib/cron/reminder-selection.ts).
+  const items = await loadReminderItems();
 
   const adminRecipient = process.env.ADMIN_EMAIL ?? "(non configurato)";
 
   for (const item of items) {
     try {
-      const diffDays = Math.ceil(
-        (item.endDate.getTime() - now.getTime()) / MS_PER_DAY,
-      );
+      const action = selectReminderAction(item, now, settings);
+      if (!action) continue;
+      const diffDays = action.diffDays;
       const client = item.subscription.client;
-      const clientName = client.ragioneSociale?.trim()
-        ? client.ragioneSociale
-        : client.name;
+      const clientName = clientDisplayName(client);
 
       // ── PREAVVISO ADDEBITO AUTOMATICO ────────────────────────────────────
       // Item con rinnovo automatico attivo, a 7 giorni ESATTI dalla scadenza
       // (fisso, indipendente dalle soglie dinamiche). Sostituisce del tutto il
       // generico avviso per questi item a diffDays=7: si esce dopo l'invio
       // (continue) così non parte anche l'avviso generico lo stesso giorno.
-      if (item.autoChargeEnabled && diffDays === 7) {
-        const existing = await prisma.notificationLog.findFirst({
-          where: {
-            subscriptionItemId: item.id,
-            type: "PREAVVISO_ADDEBITO",
-            dedupeKey,
-          },
-          select: { id: true },
-        });
-        if (existing) {
+      if (action.kind === "PREAVVISO_ADDEBITO") {
+        if (
+          await hasNotificationLog(item.id, "PREAVVISO_ADDEBITO", dedupeKey)
+        ) {
           remindersSkipped++;
         } else if (!client.email) {
           await prisma.notificationLog.create({
@@ -248,15 +221,7 @@ export async function GET(request: NextRequest) {
         continue;
       }
 
-      const milestone = getReminderMilestone(
-        {
-          endDate: item.endDate,
-          billingPeriod: item.billingPeriod,
-          customPeriodDays: item.customPeriodDays,
-        },
-        settings,
-      );
-      if (!milestone) continue;
+      const milestone = action.milestone;
 
       const emailData = {
         subscriptionId: item.subscriptionId,
@@ -272,15 +237,7 @@ export async function GET(request: NextRequest) {
       const clientKey = `${dedupeKey}-client`;
 
       // ── Invio ADMIN (invariato nel contenuto) ────────────────────────────
-      const adminExisting = await prisma.notificationLog.findFirst({
-        where: {
-          subscriptionItemId: item.id,
-          type: milestone.type,
-          dedupeKey: adminKey,
-        },
-        select: { id: true },
-      });
-      if (adminExisting) {
+      if (await hasNotificationLog(item.id, milestone.type, adminKey)) {
         remindersSkipped++;
       } else {
         const adminContent = buildReminderEmail(milestone.type, emailData, {
@@ -304,15 +261,7 @@ export async function GET(request: NextRequest) {
       }
 
       // ── Invio CLIENTE (tono diretto, nessun link admin) ──────────────────
-      const clientExisting = await prisma.notificationLog.findFirst({
-        where: {
-          subscriptionItemId: item.id,
-          type: milestone.type,
-          dedupeKey: clientKey,
-        },
-        select: { id: true },
-      });
-      if (clientExisting) {
+      if (await hasNotificationLog(item.id, milestone.type, clientKey)) {
         remindersSkipped++;
       } else if (!client.email) {
         // Email cliente assente: salta SOLO l'invio cliente, loggandolo come
