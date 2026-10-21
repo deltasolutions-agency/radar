@@ -360,8 +360,43 @@ const RENEWAL_BANK = {
   swift: "REVOITM2",
 } as const;
 
-const RENEWAL_DISCLAIMER_A =
-  "Questo importo si riferisce al rinnovo per la prossima annualità. Il prezzo dei rinnovi successivi potrebbe variare, in aumento o in diminuzione, rispetto a quello indicato.";
+const RENEWAL_PRICE_MAY_VARY =
+  "Il prezzo dei rinnovi successivi potrebbe variare, in aumento o in diminuzione, rispetto a quello indicato.";
+const RENEWAL_PRICE_LOCKED = "Dal rinnovo successivo il prezzo resterà invariato.";
+
+/** Riga coperta dal reminder, per il disclaimer sul periodo e sul prezzo. */
+export type RenewalTermsItem = {
+  serviceName: string;
+  billingPeriod: BillingPeriodValue;
+  /** true = aumento "una sola volta" (ONCE): dopo questo rinnovo il prezzo non cambia. */
+  priceLocked: boolean;
+};
+
+/** "il prossimo anno" / "il prossimo mese" / "il prossimo periodo (di ciascun servizio)". */
+function renewalPeriodPhrase(items: RenewalTermsItem[]): string {
+  const periods = new Set(items.map((it) => it.billingPeriod));
+  if (periods.size > 1) return "il prossimo periodo di ciascun servizio";
+  const [p] = [...periods];
+  return p === "ANNUALE" ? "il prossimo anno" : p === "MENSILE" ? "il prossimo mese" : "il prossimo periodo";
+}
+
+/**
+ * Disclaimer sotto il riepilogo (Caso A): periodo reale coperto e, per il
+ * prezzo, "potrebbe variare" (EVERY_RENEWAL) o "resterà invariato" (ONCE).
+ * Con righe miste: variazione + elenco dei servizi a prezzo bloccato.
+ */
+function renewalDisclaimerLines(items: RenewalTermsItem[]): string[] {
+  const first = `Questo importo si riferisce al rinnovo per ${renewalPeriodPhrase(items)}.`;
+  const locked = items.filter((it) => it.priceLocked);
+  if (items.length > 0 && locked.length === items.length) {
+    return [first, RENEWAL_PRICE_LOCKED];
+  }
+  if (locked.length === 0) return [`${first} ${RENEWAL_PRICE_MAY_VARY}`];
+  return [
+    `${first} ${RENEWAL_PRICE_MAY_VARY}`,
+    `${locked.map((it) => it.serviceName).join(", ")}: ${RENEWAL_PRICE_LOCKED.charAt(0).toLowerCase()}${RENEWAL_PRICE_LOCKED.slice(1)}`,
+  ];
+}
 
 const RENEWAL_DISCLAIMER_CESSATION =
   "Il tuo servizio è stato sospeso per mancato rinnovo. Effettuando il pagamento del rinnovo, faremo il possibile per riattivarlo; se la riattivazione non fosse possibile, valuteremo un rimborso. In alcuni casi potrebbero essere necessari ulteriori accordi economici per il ripristino del servizio. Ti invitiamo a contattarci a hello@deltasolutions.agency prima di procedere al pagamento, per verificare la situazione specifica del tuo servizio.";
@@ -389,6 +424,8 @@ export type ClientRenewalInfo = {
   autoChargeUrl?: string | null;
   /** Istruzioni per il bonifico come alternativa (Impostazioni, default no). */
   showBankTransfer?: boolean;
+  /** Righe coperte: periodo reale e modalità prezzo per il disclaimer. */
+  terms: RenewalTermsItem[];
 };
 
 /** Somma per riga di netto/IVA/lordo (addVatToNet su ciascuna riga). */
@@ -465,7 +502,8 @@ function clientRenewalText(info: ClientRenewalInfo, isCessation: boolean): strin
     );
   }
   if (info.showBankTransfer) blocks.push("", bankSectionText(info.itemNetCents, c));
-  blocks.push("", isCessation ? RENEWAL_DISCLAIMER_CESSATION : RENEWAL_DISCLAIMER_A);
+  if (isCessation) blocks.push("", RENEWAL_DISCLAIMER_CESSATION);
+  else for (const line of renewalDisclaimerLines(info.terms)) blocks.push("", line);
   if (!isCessation && info.autoChargeUrl) {
     blocks.push(
       "",
@@ -497,7 +535,11 @@ function clientRenewalHtml(info: ClientRenewalInfo, isCessation: boolean): strin
       </p>
     </div>`
     : "";
-  const disclaimer = isCessation ? RENEWAL_DISCLAIMER_CESSATION : RENEWAL_DISCLAIMER_A;
+  const disclaimer = (
+    isCessation ? [RENEWAL_DISCLAIMER_CESSATION] : renewalDisclaimerLines(info.terms)
+  )
+    .map((l) => h(l))
+    .join("<br/>");
   const cta =
     !isCessation && info.autoChargeUrl
       ? `

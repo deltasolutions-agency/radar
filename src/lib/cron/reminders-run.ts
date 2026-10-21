@@ -180,6 +180,11 @@ async function buildGroupEmail(
       itemNetCents: g.items.map((it) => renewalChargePriceCents(it) * it.quantity),
       currency: g.currency,
       serviceFeeEnabled: g.serviceFeeEnabled,
+      terms: g.items.map((it) => ({
+        serviceName: it.service.name,
+        billingPeriod: it.billingPeriod,
+        priceLocked: it.renewalIncreaseMode === "ONCE",
+      })),
       payUrl: "url" in pay ? pay.url : null,
       // Richiesta di attivazione creata solo se l'email partirà davvero.
       autoChargeUrl:

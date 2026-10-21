@@ -39,6 +39,10 @@ export function POST() {
           itemNetCents: [12000, 1500],
           currency: "eur",
           serviceFeeEnabled: true,
+          terms: [
+            { serviceName: "Hosting WordPress", billingPeriod: "ANNUALE", priceLocked: false },
+            { serviceName: "Dominio .it", billingPeriod: "ANNUALE", priceLocked: false },
+          ],
           payUrl: `${appUrl}/pay/${EXAMPLE_TOKEN}`,
           autoChargeUrl: `${appUrl}/attiva-rinnovo/${EXAMPLE_TOKEN}`,
           showBankTransfer: await loadShowBankTransferInstructions(),
