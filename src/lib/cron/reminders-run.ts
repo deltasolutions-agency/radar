@@ -174,7 +174,7 @@ async function buildGroupEmail(
     const pay = appUrl ? await ensurePayUrl(g, appUrl) : { error: "APP_URL non configurato" };
     if ("error" in pay) payLinkError = pay.error;
     clientRenewal = {
-      // Netto del PROSSIMO rinnovo (aumento ONCE incluso se dovuto).
+      // Netto del PROSSIMO rinnovo (aumento incluso se dovuto).
       itemNetCents: g.items.map((it) => renewalChargePriceCents(it) * it.quantity),
       currency: g.currency,
       serviceFeeEnabled: g.serviceFeeEnabled,

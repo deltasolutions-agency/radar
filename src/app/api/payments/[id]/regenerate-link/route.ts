@@ -62,7 +62,7 @@ export function POST(_req: NextRequest, { params }: Params) {
         subscriptionId: payment.subscriptionId,
         clientEmail: subscription.client.email,
         serviceFeeEnabled: subscription.serviceFeeEnabled,
-        // Prezzo del prossimo rinnovo (aumento ONCE incluso se dovuto).
+        // Prezzo del prossimo rinnovo (aumento incluso se dovuto).
         items: payment.items.map((pi) => toCheckoutItem(pi.subscriptionItem)),
       },
       appUrl,

@@ -202,7 +202,7 @@ export function groupAmounts(
   let vatCents = 0;
   let grossCents = 0;
   for (const it of items) {
-    // Prezzo del PROSSIMO rinnovo (aumento ONCE incluso se dovuto).
+    // Prezzo del PROSSIMO rinnovo (aumento incluso se dovuto).
     const r = addVatToNet(renewalChargePriceCents(it) * it.quantity);
     netCents += r.netCents;
     vatCents += r.vatCents;

@@ -344,8 +344,8 @@ model SubscriptionItem {
   lastRenewalAt DateTime?
 
   // Aumento al rinnovo: % del servizio (Service.renewalIncreasePercent) salvo
-  // override sulla riga; EVERY_RENEWAL = composto a ogni rinnovo (storico),
-  // ONCE = una sola volta (pagato già al primo rinnovo), poi prezzo bloccato.
+  // override sulla riga; l'aumento si paga già al rinnovo. EVERY_RENEWAL = a ogni
+  // rinnovo (composto), ONCE = una sola volta, poi prezzo bloccato.
   renewalIncreaseMode            RenewalIncreaseMode @default(EVERY_RENEWAL)
   // Valorizzato quando l'aumento ONCE è stato applicato (prezzo bloccato).
   renewalIncreaseAppliedAt       DateTime?

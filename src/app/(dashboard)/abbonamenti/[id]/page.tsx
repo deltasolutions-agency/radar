@@ -91,7 +91,7 @@ export default async function AbbonamentoDettaglioPage({
       serviceName:
         it.quantity > 1 ? `${it.service.name} ×${it.quantity}` : it.service.name,
       endClientName: it.endClientName,
-      // Importo del prossimo rinnovo (aumento ONCE incluso se dovuto).
+      // Importo del prossimo rinnovo (aumento incluso se dovuto).
       priceLabel: formatEur(renewalChargePriceCents(it) * it.quantity, it.currency),
       periodicityLabel: formatBillingPeriod(
         it.billingPeriod as BillingPeriodValue,
@@ -106,7 +106,7 @@ export default async function AbbonamentoDettaglioPage({
       id: it.id,
       serviceName: it.service.name,
       endClientName: it.endClientName,
-      // Prezzo del prossimo rinnovo (aumento ONCE incluso se dovuto).
+      // Prezzo del prossimo rinnovo (aumento incluso se dovuto).
       priceCents: renewalChargePriceCents(it),
       quantity: it.quantity,
       currency: it.currency,

@@ -52,7 +52,7 @@ export function POST(req: NextRequest, { params }: Params) {
     const items = subscription.items;
     // Il prezzo inserito è NETTO: l'importo del pagamento è il LORDO (netto +22%)
     // per riga. Nessun costo di servizio sui pagamenti manuali (solo Stripe).
-    // Prezzo del PROSSIMO rinnovo (aumento ONCE incluso se dovuto).
+    // Prezzo del PROSSIMO rinnovo (aumento incluso se dovuto).
     const itemGrossCents = items.map(
       (it) => addVatToNet(renewalChargePriceCents(it) * it.quantity).grossCents,
     );

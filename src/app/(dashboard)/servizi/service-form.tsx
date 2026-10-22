@@ -297,7 +297,7 @@ export function ServiceForm({
               onChange={(e) => setV("renewalIncreasePercent", e.target.value)}
             />
             <p className="mt-1 text-xs text-slate-500">
-              Percentuale applicata al prezzo a ogni rinnovo successivo.
+              Percentuale di aumento pagata a ogni rinnovo, già dal prossimo.
             </p>
             {errors.renewalIncreasePercent ? (
               <p className="mt-1 text-xs text-red-600">

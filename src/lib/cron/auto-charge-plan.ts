@@ -198,8 +198,8 @@ export async function planAutoCharge(now: Date): Promise<AutoChargePlan> {
   for (const group of groups.values()) {
     const first = group[0];
     // Il prezzo è NETTO: per ogni riga si addebita il LORDO (netto + 22%) del
-    // prezzo del PROSSIMO rinnovo (renewalChargePriceCents: invariato per
-    // EVERY_RENEWAL, aumentato per ONCE non ancora applicato); costo di
+    // prezzo del PROSSIMO rinnovo (renewalChargePriceCents: aumentato per
+    // EVERY_RENEWAL e per ONCE non ancora applicato); costo di
     // servizio 1,5% (solo Stripe) sul lordo dei servizi.
     const itemGrossCents = group.map(
       (it) => addVatToNet(renewalChargePriceCents(it) * it.quantity).grossCents,

@@ -16,7 +16,6 @@ import { clientDisplayName, serviceLabel } from "@/lib/cron/common";
 import {
   applyIncrease,
   effectiveIncreasePercent,
-  renewalChargePriceCents,
 } from "@/lib/renewal-price";
 
 const args = process.argv.slice(2);
@@ -64,7 +63,8 @@ async function main() {
   const rows = items
     .map((it) => {
       const pct = effectiveIncreasePercent(it);
-      const todayUnit = renewalChargePriceCents(it); // EVERY_RENEWAL: prezzo corrente
+      // Logica precedente all'allineamento: EVERY_RENEWAL pagava il prezzo corrente.
+      const todayUnit = it.priceCents;
       const afterUnit = applyIncrease(it.priceCents, pct);
       const confirmed = it.paymentItems.filter((p) => p.status === "CONFERMATO");
       // Rinnovo confermato che ha già alzato il prezzo con la logica attuale:

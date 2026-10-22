@@ -120,8 +120,8 @@ export async function confirmPaymentAndRenew(
           : itemOnly.endDate;
 
       // Nuovo prezzo dalla funzione condivisa (src/lib/renewal-price.ts):
-      // EVERY_RENEWAL = incremento composto sul priceCents CORRENTE (storico);
-      // ONCE = il prezzo aumentato già pagato diventa corrente e si blocca.
+      // il prezzo pagato al rinnovo (aumento incluso se dovuto) diventa il
+      // corrente; ONCE segna anche l'indicatore e da lì il prezzo è bloccato.
       const outcome = renewalOutcome({ ...itemOnly, service }, now);
       const newPriceCents = renewalSkipped
         ? itemOnly.priceCents

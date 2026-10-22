@@ -38,8 +38,8 @@ export type SubscriptionItemForCheckout = {
 
 /**
  * Riga di checkout da una SubscriptionItem: prezzo = prezzo del PROSSIMO
- * rinnovo (renewalChargePriceCents: invariato per EVERY_RENEWAL, aumentato per
- * ONCE non ancora applicato).
+ * rinnovo (renewalChargePriceCents: aumentato per EVERY_RENEWAL e per ONCE non
+ * ancora applicato).
  */
 export function toCheckoutItem(
   it: Omit<SubscriptionItem, "service"> & { service: Service },

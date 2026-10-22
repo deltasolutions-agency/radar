@@ -6,12 +6,11 @@ import type { RenewalIncreaseMode } from "@prisma/client";
 // client). Tutti i prezzi sono NETTI unitari: IVA e costo di servizio restano
 // calcolati al momento dell'addebito come sempre.
 //
-// EVERY_RENEWAL (comportamento storico, invariato): il rinnovo si paga al
-//   prezzo corrente; alla conferma il prezzo diventa round(p × (1 + %/100)).
-//   100 → paga 100, poi 110 → paga 110, poi 121 → …
-// ONCE: l'aumento si paga GIÀ al primo rinnovo (100 → paga 110), alla
-//   conferma il prezzo diventa 110 e si segna renewalIncreaseAppliedAt; da lì
-//   il prezzo resta bloccato (paga 110, 110, …).
+// In entrambe le modalità l'aumento si paga GIÀ al rinnovo: si paga
+// round(p × (1 + %/100)) e alla conferma quel prezzo diventa il corrente.
+// EVERY_RENEWAL: ogni rinnovo riapplica la % (100 → paga 110, 121, 133,10 …).
+// ONCE: solo il primo rinnovo (100 → paga 110), alla conferma si segna
+//   renewalIncreaseAppliedAt e da lì il prezzo resta bloccato (110, 110, …).
 
 export type RenewalPricingItem = {
   priceCents: number;
@@ -40,18 +39,27 @@ export function isOnceIncreasePending(it: RenewalPricingItem): boolean {
   );
 }
 
+/** true se il PROSSIMO rinnovo paga un aumento (EVERY_RENEWAL sempre, ONCE se non applicato). */
+export function isIncreaseDueAtRenewal(it: RenewalPricingItem): boolean {
+  if (effectiveIncreasePercent(it) <= 0) return false;
+  return it.renewalIncreaseMode === "EVERY_RENEWAL" || isOnceIncreasePending(it);
+}
+
 /**
- * Prezzo NETTO unitario che si paga al PROSSIMO rinnovo. EVERY_RENEWAL: il
- * prezzo corrente (invariato rispetto a prima). ONCE non ancora applicato: il
- * prezzo aumentato.
+ * Prezzo NETTO unitario che si paga al PROSSIMO rinnovo: prezzo corrente
+ * aumentato se l'aumento è dovuto, altrimenti il prezzo corrente.
  */
 export function renewalChargePriceCents(it: RenewalPricingItem): number {
-  return isOnceIncreasePending(it)
+  return isIncreaseDueAtRenewal(it)
     ? applyIncrease(it.priceCents, effectiveIncreasePercent(it))
     : it.priceCents;
 }
 
-/** Nuovo stato della riga alla CONFERMA del rinnovo. */
+/**
+ * Nuovo stato della riga alla CONFERMA del rinnovo: il prezzo pagato
+ * (renewalChargePriceCents) diventa il prezzo corrente. Va chiamata UNA volta
+ * per rinnovo (confirmPaymentAndRenew è idempotente sul Payment).
+ */
 export function renewalOutcome(
   it: RenewalPricingItem,
   now: Date,
@@ -61,26 +69,11 @@ export function renewalOutcome(
   renewalIncreaseAppliedAt: Date | undefined;
   onceIncreaseApplied: boolean;
 } {
-  const pct = effectiveIncreasePercent(it);
-  if (it.renewalIncreaseMode === "EVERY_RENEWAL") {
-    return {
-      newPriceCents: applyIncrease(it.priceCents, pct),
-      renewalIncreaseAppliedAt: undefined,
-      onceIncreaseApplied: false,
-    };
-  }
-  if (isOnceIncreasePending(it)) {
-    // Il rinnovo è stato pagato al prezzo aumentato: diventa il prezzo corrente.
-    return {
-      newPriceCents: applyIncrease(it.priceCents, pct),
-      renewalIncreaseAppliedAt: now,
-      onceIncreaseApplied: true,
-    };
-  }
+  const onceIncreaseApplied = isOnceIncreasePending(it);
   return {
-    newPriceCents: it.priceCents,
-    renewalIncreaseAppliedAt: undefined,
-    onceIncreaseApplied: false,
+    newPriceCents: renewalChargePriceCents(it),
+    renewalIncreaseAppliedAt: onceIncreaseApplied ? now : undefined,
+    onceIncreaseApplied,
   };
 }
 
@@ -104,7 +97,7 @@ export function upcomingRenewalPrices(it: RenewalPricingItem, count: number): nu
 export function renewalIncreaseLabel(it: RenewalPricingItem): string {
   const pct = effectiveIncreasePercent(it);
   if (pct <= 0) return "nessun aumento";
-  if (it.renewalIncreaseMode === "EVERY_RENEWAL") return `+${pct}% a ogni rinnovo`;
+  if (it.renewalIncreaseMode === "EVERY_RENEWAL") return `+${pct}% a ogni rinnovo (già dal prossimo)`;
   return it.renewalIncreaseAppliedAt
     ? `+${pct}% una sola volta — già applicato, prezzo bloccato`
     : `+${pct}% una sola volta — al prossimo rinnovo, poi prezzo bloccato`;

@@ -148,7 +148,7 @@ export default async function AttivaRinnovoPage({
   let totalVat = 0;
   let totalGross = 0;
   for (const it of items) {
-    // Importo del prossimo rinnovo (aumento ONCE incluso se dovuto).
+    // Importo del prossimo rinnovo (aumento incluso se dovuto).
     const v = addVatToNet(renewalChargePriceCents(it) * it.quantity);
     totalNet += v.netCents;
     totalVat += v.vatCents;

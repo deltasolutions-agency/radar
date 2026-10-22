@@ -26,6 +26,7 @@ import {
 } from "@/lib/cron/auto-charge-plan";
 import { planActivationReminders } from "@/lib/cron/activation-reminders";
 import {
+  isIncreaseDueAtRenewal,
   isOnceIncreasePending,
   renewalChargePriceCents,
   renewalIncreaseLabel,
@@ -58,8 +59,8 @@ const delayLabel = (diffDays: number) =>
       : `in ritardo di ${-diffDays} gg`;
 /** Netto del prossimo rinnovo con la modalità di aumento della riga. */
 const renewalNote = (it: RenewalPricingItem & { quantity: number; currency: string }) =>
-  isOnceIncreasePending(it)
-    ? ` · aumento una tantum: ${money(it.priceCents * it.quantity, it.currency)} → ${money(renewalChargePriceCents(it) * it.quantity, it.currency)}`
+  isIncreaseDueAtRenewal(it)
+    ? ` · ${isOnceIncreasePending(it) ? "aumento una tantum" : `aumento al rinnovo (${renewalIncreaseLabel(it)})`}: ${money(it.priceCents * it.quantity, it.currency)} → ${money(renewalChargePriceCents(it) * it.quantity, it.currency)}`
     : ` · ${renewalIncreaseLabel(it)}`;
 const hr = (title: string) => console.log(`\n${"═".repeat(78)}\n${title}\n${"═".repeat(78)}`);
 /** Stato dell'interruttore in dashboard (Log → Cron). */
