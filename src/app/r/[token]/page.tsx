@@ -1,32 +1,38 @@
 import { notFound } from "next/navigation";
-import { EndClientLabel } from "@/components/end-client-label";
 import { prisma } from "@/lib/prisma";
 import { formatEur, formatDate } from "@/lib/format";
 import { isReceiptPubliclyAccessible } from "@/lib/receipt-access";
 import { GoogleReviewCta } from "@/components/google-review-cta";
-import { PrintButton } from "./print-button";
+import { ReceiptControls } from "./receipt-controls";
+import "./receipt.css";
 
 export const dynamic = "force-dynamic";
+
+const LOGO_URL = "/logo-delta-solutions.png";
+
+// Imposta lo stato "carta nella stampante" solo se JS è attivo: senza JS lo
+// scontrino resta visibile (vedi receipt.css).
+const JS_FLAG_SCRIPT =
+  "document.currentScript.parentElement.classList.add('rcpt-js')";
 
 function methodLabel(method: string): string {
   return method === "STRIPE" ? "Carta di credito" : "Pagamento manuale";
 }
 
-function Field({
-  label,
-  value,
-}: {
-  label: string;
-  value: React.ReactNode;
-}) {
-  return (
-    <div className="flex flex-col gap-0.5 py-1.5 sm:flex-row sm:gap-4">
-      <dt className="w-44 shrink-0 font-mono text-xs uppercase tracking-wide text-slate-500">
-        {label}
-      </dt>
-      <dd className="text-sm text-ink">{value}</dd>
-    </div>
-  );
+/** Timbro dallo stato del pagamento: storno totale, parziale o pagato. */
+function stampFor(payment: {
+  status: string;
+  items: { status: string }[];
+}): { label: string; refunded: boolean } {
+  const refundedItems = payment.items.filter((i) => i.status === "RIMBORSATO").length;
+  if (
+    payment.status === "RIMBORSATO" ||
+    (payment.items.length > 0 && refundedItems === payment.items.length)
+  ) {
+    return { label: "STORNATO", refunded: true };
+  }
+  if (refundedItems > 0) return { label: "STORNATO PARZ.", refunded: true };
+  return { label: "PAGATO", refunded: false };
 }
 
 export default async function RicevutaPubblicaPage({
@@ -36,7 +42,10 @@ export default async function RicevutaPubblicaPage({
 }) {
   const receipt = await prisma.receipt.findUnique({
     where: { token: params.token },
-    include: { lines: true },
+    include: {
+      lines: true,
+      payment: { select: { status: true, items: { select: { status: true } } } },
+    },
   });
   if (!receipt) notFound();
 
@@ -72,176 +81,162 @@ export default async function RicevutaPubblicaPage({
 
   // ── Codice fiscale / partita IVA: mostra quello presente ───────────────────
   const taxId = receipt.partitaIva
-    ? { label: "Partita IVA", value: receipt.partitaIva }
+    ? { label: "P. IVA", value: receipt.partitaIva }
     : receipt.codiceFiscale
-      ? { label: "Codice fiscale", value: receipt.codiceFiscale }
+      ? { label: "Cod. fiscale", value: receipt.codiceFiscale }
       : null;
+  const company = receipt.ragioneSociale?.trim();
+  const stamp = stampFor(receipt.payment);
+  const cur = receipt.currency;
 
   return (
-    <main className="mx-auto max-w-2xl px-6 py-10 print:py-0">
-      <div className="mb-4 flex justify-end print:hidden">
-        <PrintButton />
-      </div>
-
-      <article className="card p-8 print:border-0 print:shadow-none">
-        {/* Header */}
-        <header className="flex flex-wrap items-start justify-between gap-4 border-b border-line pb-5">
-          <div>
-            <h1 className="text-2xl font-semibold tracking-tight">
-              Ricevuta non fiscale
-            </h1>
-            <p className="mt-1 font-mono text-sm text-slate-600">
-              {receipt.number}
-            </p>
+    <div className="rcpt-page" suppressHydrationWarning>
+      <script dangerouslySetInnerHTML={{ __html: JS_FLAG_SCRIPT }} />
+      <main className="rcpt-main">
+        <header className="rcpt-header">
+          <div className="rcpt-brand">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={LOGO_URL} alt="Delta Solutions" />
+            <span>RADAR</span>
           </div>
-          <div className="text-right">
-            <p className="font-mono text-xs uppercase tracking-wide text-slate-500">
-              Data emissione
-            </p>
-            <p className="font-mono text-sm text-ink">
-              {formatDate(receipt.issuedAt)}
-            </p>
-          </div>
+          <ReceiptControls />
         </header>
 
-        {/* Cliente */}
-        <section className="border-b border-line-soft py-5">
-          <h2 className="mb-2 font-mono text-xs uppercase tracking-wide text-slate-500">
-            Cliente
-          </h2>
-          <dl>
-            <Field
-              label="Denominazione"
-              value={receipt.ragioneSociale?.trim() || receipt.clientName}
-            />
-            {receipt.ragioneSociale?.trim() ? (
-              <Field label="Referente" value={receipt.clientName} />
-            ) : null}
-            {taxId ? <Field label={taxId.label} value={taxId.value} /> : null}
-            {receipt.clientAddress ? (
-              <Field label="Indirizzo" value={receipt.clientAddress} />
-            ) : null}
-            {receipt.clientEmail ? (
-              <Field label="Email" value={receipt.clientEmail} />
-            ) : null}
-          </dl>
-        </section>
+        <div className="rcpt-printer" aria-hidden="true">
+          <div className="rcpt-printer-label">
+            <span className="rcpt-led" />
+            RADAR · RICEVUTA DI PAGAMENTO
+          </div>
+          <div className="rcpt-slit" />
+        </div>
 
-        {/* Servizi */}
-        <section className="border-b border-line-soft py-5">
-          <h2 className="mb-3 font-mono text-xs uppercase tracking-wide text-slate-500">
-            {receipt.lines.length === 1 ? "Servizio" : "Servizi"}
-          </h2>
-          <div className="space-y-2">
-            {receipt.lines.map((line) => {
-              const linePeriod =
-                line.periodStart && line.periodEnd
-                  ? `${formatDate(line.periodStart)} → ${formatDate(line.periodEnd)}`
-                  : null;
-              return (
-                <div
-                  key={line.id}
-                  className="flex items-start justify-between gap-4 border-b border-line-soft pb-2 last:border-0 last:pb-0"
-                >
-                  <div>
-                    <p className="text-sm text-ink">
-                      {line.serviceName}
-                      {line.quantity > 1 ? (
-                        <span className="text-slate-500"> ×{line.quantity}</span>
-                      ) : null}
-                    </p>
-                    <EndClientLabel name={line.endClientName} />
-                    {line.description?.trim() ? (
-                      <p className="text-xs text-slate-500">
-                        {line.description}
-                      </p>
+        <div className="rcpt-slot">
+          <div className="rcpt-feed">
+            <article id="rcpt-paper" className="rcpt-paper" aria-label={`Ricevuta ${receipt.number}`}>
+              <h1 className="rcpt-title">DELTA SOLUTIONS</h1>
+              <p className="rcpt-subtitle">Ricevuta non fiscale</p>
+              <p className="rcpt-meta">
+                {receipt.number} · {formatDate(receipt.issuedAt)}
+              </p>
+
+              <hr className="rcpt-sep" />
+
+              <dl className="rcpt-fields">
+                <dt>Cliente</dt>
+                <dd>{company || receipt.clientName}</dd>
+                {company ? (
+                  <>
+                    <dt>Referente</dt>
+                    <dd>{receipt.clientName}</dd>
+                  </>
+                ) : null}
+                {taxId ? (
+                  <>
+                    <dt>{taxId.label}</dt>
+                    <dd>{taxId.value}</dd>
+                  </>
+                ) : null}
+                {receipt.clientAddress ? (
+                  <>
+                    <dt>Indirizzo</dt>
+                    <dd>{receipt.clientAddress}</dd>
+                  </>
+                ) : null}
+                {receipt.clientEmail ? (
+                  <>
+                    <dt>Email</dt>
+                    <dd>{receipt.clientEmail}</dd>
+                  </>
+                ) : null}
+              </dl>
+
+              <hr className="rcpt-sep" />
+
+              {/* Righe al NETTO (imponibile). */}
+              <div>
+                {receipt.lines.map((line) => (
+                  <div key={line.id} className="rcpt-line">
+                    <div className="rcpt-line-head">
+                      <span className="rcpt-line-name">
+                        {line.serviceName}
+                        {line.quantity > 1 ? ` ×${line.quantity}` : ""}
+                      </span>
+                      <span className="rcpt-dots" aria-hidden="true" />
+                      <span className="rcpt-amount">{formatEur(line.amountCents, cur)}</span>
+                    </div>
+                    {line.endClientName ? (
+                      <p className="rcpt-line-sub">Cliente finale: {line.endClientName}</p>
                     ) : null}
-                    {linePeriod ? (
-                      <p className="font-mono text-xs text-slate-500">
-                        {linePeriod}
+                    {line.description?.trim() ? (
+                      <p className="rcpt-line-sub">{line.description}</p>
+                    ) : null}
+                    {line.periodStart && line.periodEnd ? (
+                      <p className="rcpt-line-sub">
+                        {formatDate(line.periodStart)} → {formatDate(line.periodEnd)}
                       </p>
                     ) : null}
                   </div>
-                  <p className="shrink-0 font-mono text-sm text-ink">
-                    {formatEur(line.amountCents, receipt.currency)}
-                  </p>
-                </div>
-              );
-            })}
-          </div>
-
-          {/* Riepilogo importi: le righe sono al NETTO (imponibile). */}
-          <dl className="mt-4 space-y-1 border-t border-line-soft pt-3">
-            <div className="flex items-center justify-between text-sm">
-              <dt className="text-slate-500">Imponibile</dt>
-              <dd className="font-mono text-ink">
-                {formatEur(receipt.taxableAmountCents, receipt.currency)}
-              </dd>
-            </div>
-            <div className="flex items-center justify-between text-sm">
-              <dt className="text-slate-500">IVA (22%)</dt>
-              <dd className="font-mono text-ink">
-                {formatEur(receipt.vatAmountCents, receipt.currency)}
-              </dd>
-            </div>
-            {receipt.serviceFeeCents > 0 ? (
-              <div className="flex items-center justify-between text-sm">
-                <dt className="text-slate-500">
-                  Costi di servizio
-                  <span className="ml-1 text-xs text-slate-400">
-                    (gestione pagamento 1,5%)
-                  </span>
-                </dt>
-                <dd className="font-mono text-ink">
-                  {formatEur(receipt.serviceFeeCents, receipt.currency)}
-                </dd>
+                ))}
               </div>
-            ) : null}
-            <div className="mt-1 flex items-center justify-between border-t border-line-soft pt-2">
-              <dt className="font-medium text-ink">Totale dovuto</dt>
-              <dd className="font-mono text-lg font-semibold text-ink">
-                {formatEur(receipt.amountCents, receipt.currency)}
-              </dd>
-            </div>
-          </dl>
-        </section>
 
-        {/* Pagamento */}
-        <section className="py-5">
-          <h2 className="mb-2 font-mono text-xs uppercase tracking-wide text-slate-500">
-            Pagamento
-          </h2>
-          <dl>
-            <Field label="Metodo" value={methodLabel(receipt.method)} />
-            <Field
-              label="Data pagamento"
-              value={
-                <span className="font-mono">{formatDate(receipt.paidAt)}</span>
-              }
-            />
-          </dl>
-        </section>
+              <hr className="rcpt-sep" />
 
-        {/* Footer */}
-        <footer className="mt-2 border-t border-line pt-5 text-center">
-          <p className="text-sm font-medium text-ink">Radar — Delta Solutions</p>
-          <p className="mt-1 text-xs text-slate-500">
-            Questo documento non ha valore fiscale
-          </p>
-          <p className="mt-0.5 text-xs text-slate-500">
-            Per informazioni: hello@deltasolutions.agency
-          </p>
-        </footer>
-      </article>
+              <div className="rcpt-row">
+                <span>Imponibile</span>
+                <span>{formatEur(receipt.taxableAmountCents, cur)}</span>
+              </div>
+              <div className="rcpt-row">
+                <span>IVA 22%</span>
+                <span>{formatEur(receipt.vatAmountCents, cur)}</span>
+              </div>
+              {receipt.serviceFeeCents > 0 ? (
+                <div className="rcpt-row">
+                  <span>Commissione di servizio (1,5%)</span>
+                  <span>{formatEur(receipt.serviceFeeCents, cur)}</span>
+                </div>
+              ) : null}
 
-      {/* Invito recensione: fuori dal documento fiscale, nascosto in stampa. */}
-      <div className="mt-6">
-        <GoogleReviewCta
-          variant="subtle"
-          title="Ti è piaciuto il nostro servizio?"
-          description="Se ti trovi bene con Delta Solutions, lasciarci una recensione ci aiuta tantissimo. Grazie!"
-        />
-      </div>
-    </main>
+              <hr className="rcpt-sep" />
+
+              <div className="rcpt-total">
+                <span
+                  className={`rcpt-stamp${stamp.refunded ? " rcpt-stamp-refunded" : ""}${stamp.label.length > 10 ? " rcpt-stamp-long" : ""}`}
+                  aria-label={`Stato: ${stamp.label}`}
+                >
+                  {stamp.label}
+                </span>
+                <p className="rcpt-total-label">TOTALE PAGATO</p>
+                <p className="rcpt-total-amount">{formatEur(receipt.amountCents, cur)}</p>
+              </div>
+
+              <hr className="rcpt-sep" />
+
+              <dl className="rcpt-fields">
+                <dt>Metodo</dt>
+                <dd>{methodLabel(receipt.method)}</dd>
+                <dt>Data pag.</dt>
+                <dd>{formatDate(receipt.paidAt)}</dd>
+              </dl>
+
+              <hr className="rcpt-sep" />
+
+              <div className="rcpt-barcode" aria-hidden="true" />
+              <p className="rcpt-footnote">
+                Documento senza valore fiscale · hello@deltasolutions.agency
+              </p>
+            </article>
+          </div>
+        </div>
+
+        {/* Invito recensione: fuori dal documento, nascosto in stampa. */}
+        <div className="rcpt-review">
+          <GoogleReviewCta
+            variant="subtle"
+            title="Ti è piaciuto il nostro servizio?"
+            description="Se ti trovi bene con Delta Solutions, lasciarci una recensione ci aiuta tantissimo. Grazie!"
+          />
+        </div>
+      </main>
+    </div>
   );
 }

@@ -1,0 +1,447 @@
+/*
+ * Ricevuta pubblica /r/[token]: scontrino che esce dalla stampante.
+ *
+ * Lo stato "nascosto nella stampante" vale SOLO con JavaScript attivo (classe
+ * rcpt-js su <html>, impostata da uno script inline prima dello scontrino):
+ * senza JS lo scontrino è subito visibile. Se il client component non parte,
+ * l'animazione di sicurezza (rcpt-failsafe) lo mostra comunque dopo 3s.
+ */
+
+.rcpt-page {
+  background: #f3f0ea;
+  min-height: 100vh;
+}
+
+.rcpt-main {
+  margin: 0 auto;
+  max-width: 560px;
+  padding: 24px 16px 48px;
+}
+
+/* ── Header ─────────────────────────────────────────────────────────────── */
+.rcpt-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+.rcpt-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.rcpt-brand img {
+  height: 26px;
+  width: auto;
+}
+.rcpt-brand span {
+  font-family: "Space Mono", ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  color: #5f6573;
+}
+.rcpt-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.rcpt-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 44px;
+  padding: 0 18px;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s, background-color 0.15s;
+}
+.rcpt-btn:focus-visible {
+  outline: 2px solid #2b7fff;
+  outline-offset: 2px;
+}
+.rcpt-btn-ghost {
+  background: #fff;
+  border: 1px solid #d6d1c6;
+  color: #12161f;
+}
+.rcpt-btn-ghost:hover {
+  background: #faf8f4;
+}
+.rcpt-btn-primary {
+  background: linear-gradient(90deg, #2b7fff, #8b5cf6);
+  border: 0;
+  color: #fff;
+}
+.rcpt-btn-primary:hover {
+  opacity: 0.9;
+}
+
+/* ── Stampante ──────────────────────────────────────────────────────────── */
+.rcpt-printer {
+  position: relative;
+  background: #12182b;
+  border-radius: 18px;
+  padding: 18px 22px 16px;
+  box-shadow: 0 18px 40px rgba(18, 24, 43, 0.28);
+}
+.rcpt-printer-label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-family: "Space Mono", ui-monospace, monospace;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  color: #b9c0d4;
+}
+.rcpt-led {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #3ee08f;
+  box-shadow: 0 0 8px rgba(62, 224, 143, 0.7);
+  animation: rcpt-blink 1.2s steps(2) infinite;
+}
+@keyframes rcpt-blink {
+  50% {
+    opacity: 0.25;
+  }
+}
+.rcpt-slit {
+  height: 10px;
+  margin-top: 18px;
+  border-radius: 6px;
+  background: #05070f;
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.8);
+}
+
+/* ── Zona carta ─────────────────────────────────────────────────────────── */
+/* Inizia a metà della fessura (16px padding + 5px = 21px) ed è più stretta. */
+.rcpt-slot {
+  position: relative;
+  z-index: 1;
+  margin: -21px 34px 0;
+  padding-bottom: 28px;
+  overflow: hidden;
+}
+.rcpt-slot::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto;
+  height: 16px;
+  z-index: 2;
+  background: linear-gradient(rgba(5, 7, 15, 0.6), rgba(5, 7, 15, 0));
+  pointer-events: none;
+}
+.rcpt-feed {
+  filter: drop-shadow(0 3px 4px rgba(18, 24, 43, 0.14));
+}
+
+/* ── Scontrino ──────────────────────────────────────────────────────────── */
+.rcpt-paper {
+  position: relative;
+  background: #fbfaf6;
+  color: #12161f;
+  padding: 40px 32px 46px;
+  font-family: "Space Mono", ui-monospace, monospace;
+  font-size: 12px;
+  line-height: 1.55;
+  -webkit-mask: conic-gradient(from -45deg at bottom, #0000, #000 1deg 89deg, #0000 90deg) 50% / 14px 100%;
+  mask: conic-gradient(from -45deg at bottom, #0000, #000 1deg 89deg, #0000 90deg) 50% / 14px 100%;
+}
+.rcpt-sep {
+  border: 0;
+  border-top: 1px dashed #b9b4a8;
+  margin: 16px 0;
+}
+.rcpt-title {
+  font-family: "Space Grotesk", ui-sans-serif, sans-serif;
+  font-weight: 700;
+  font-size: 20px;
+  letter-spacing: 0.04em;
+  text-align: center;
+}
+.rcpt-subtitle {
+  margin-top: 2px;
+  text-align: center;
+}
+.rcpt-meta {
+  margin-top: 2px;
+  text-align: center;
+  color: #5f6573;
+}
+.rcpt-fields {
+  display: grid;
+  grid-template-columns: 92px 1fr;
+  gap: 4px 10px;
+}
+.rcpt-fields dt {
+  color: #5f6573;
+  text-transform: uppercase;
+  font-size: 11px;
+  padding-top: 1px;
+}
+.rcpt-fields dd {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.rcpt-line + .rcpt-line {
+  margin-top: 12px;
+}
+.rcpt-line-head {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.rcpt-line-name {
+  font-weight: 700;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.rcpt-dots {
+  flex: 1 1 auto;
+  min-width: 12px;
+  border-bottom: 1px dotted #8c877b;
+  transform: translateY(-4px);
+}
+.rcpt-amount {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+.rcpt-line-sub {
+  font-size: 11px;
+  color: #5f6573;
+}
+.rcpt-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+.rcpt-row + .rcpt-row {
+  margin-top: 2px;
+}
+.rcpt-total {
+  position: relative;
+  margin-top: 8px;
+}
+.rcpt-total-label {
+  font-weight: 700;
+  letter-spacing: 0.06em;
+}
+.rcpt-total-amount {
+  font-family: "Space Grotesk", ui-sans-serif, sans-serif;
+  font-weight: 700;
+  font-size: 34px;
+  line-height: 1.15;
+  white-space: nowrap;
+}
+.rcpt-stamp {
+  position: absolute;
+  right: 4px;
+  top: 10px;
+  padding: 2px 12px;
+  border: 3px solid #2b5fd9;
+  border-radius: 6px;
+  color: #2b5fd9;
+  font-family: "Space Grotesk", ui-sans-serif, sans-serif;
+  font-weight: 700;
+  font-size: 26px;
+  letter-spacing: 0.12em;
+  line-height: 1.2;
+  white-space: nowrap;
+  opacity: 0.92;
+  transform: rotate(-14deg) scale(1);
+  pointer-events: none;
+}
+.rcpt-stamp-refunded {
+  border-color: #c2410c;
+  color: #c2410c;
+}
+/* "STORNATO PARZ.": testo più lungo, timbro più piccolo per non coprire il totale. */
+.rcpt-stamp-long {
+  font-size: 18px;
+  top: 16px;
+}
+.rcpt-barcode {
+  height: 44px;
+  margin: 4px auto 0;
+  max-width: 240px;
+  background: repeating-linear-gradient(
+    90deg,
+    #12161f 0 2px,
+    transparent 2px 4px,
+    #12161f 4px 5px,
+    transparent 5px 8px,
+    #12161f 8px 11px,
+    transparent 11px 12px,
+    #12161f 12px 13px,
+    transparent 13px 16px
+  );
+}
+.rcpt-footnote {
+  margin-top: 10px;
+  text-align: center;
+  font-size: 11px;
+  color: #5f6573;
+}
+.rcpt-review {
+  margin-top: 8px;
+}
+
+/* ── Animazione (solo con JS) ───────────────────────────────────────────── */
+.rcpt-js .rcpt-paper {
+  transform: translateY(-104%);
+  animation: rcpt-failsafe 0s 3s forwards;
+}
+.rcpt-js .rcpt-paper .rcpt-stamp {
+  opacity: 0;
+  transform: rotate(-14deg) scale(1.8);
+  animation: rcpt-stamp 0s 3s forwards;
+}
+.rcpt-js .rcpt-paper.printing {
+  animation: rcpt-feed 2.6s cubic-bezier(0.3, 0.05, 0.2, 1) forwards;
+}
+.rcpt-js .rcpt-paper.printing .rcpt-stamp {
+  animation: rcpt-stamp 0.45s 2.75s cubic-bezier(0.2, 1.4, 0.4, 1) forwards;
+}
+@keyframes rcpt-failsafe {
+  to {
+    transform: translateY(0);
+  }
+}
+@keyframes rcpt-feed {
+  0% { transform: translateY(-104%); }
+  12% { transform: translateY(-86%); }
+  16% { transform: translateY(-84%); }
+  30% { transform: translateY(-62%); }
+  34% { transform: translateY(-60%); }
+  50% { transform: translateY(-36%); }
+  54% { transform: translateY(-34%); }
+  72% { transform: translateY(-12%); }
+  78% { transform: translateY(-10%); }
+  100% { transform: translateY(0); }
+}
+@keyframes rcpt-stamp {
+  to {
+    opacity: 0.92;
+    transform: rotate(-14deg) scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rcpt-led {
+    animation: none;
+  }
+  .rcpt-js .rcpt-paper,
+  .rcpt-js .rcpt-paper.printing {
+    transform: none;
+    animation: none;
+  }
+  .rcpt-js .rcpt-paper .rcpt-stamp,
+  .rcpt-js .rcpt-paper.printing .rcpt-stamp {
+    opacity: 0.92;
+    transform: rotate(-14deg) scale(1);
+    animation: none;
+  }
+}
+
+/* ── Mobile ─────────────────────────────────────────────────────────────── */
+@media (max-width: 480px) {
+  .rcpt-printer {
+    padding: 16px 16px 16px;
+  }
+  .rcpt-slot {
+    margin: -21px 24px 0;
+  }
+  .rcpt-paper {
+    padding: 32px 18px 40px;
+  }
+  .rcpt-fields {
+    grid-template-columns: 84px 1fr;
+  }
+  .rcpt-total-amount {
+    font-size: 30px;
+  }
+  .rcpt-stamp {
+    font-size: 19px;
+    padding: 1px 8px;
+    top: 14px;
+  }
+  .rcpt-stamp-long {
+    font-size: 14px;
+    top: 18px;
+  }
+}
+
+/* ── Stampa / PDF ───────────────────────────────────────────────────────── */
+@media print {
+  @page {
+    size: A4;
+    margin: 14mm;
+  }
+  body:has(.rcpt-page),
+  .rcpt-page {
+    background: #fff;
+    min-height: 0;
+  }
+  .rcpt-main {
+    max-width: none;
+    padding: 0;
+  }
+  .rcpt-header,
+  .rcpt-printer,
+  .rcpt-review,
+  .rcpt-slot::before {
+    display: none !important;
+  }
+  .rcpt-slot {
+    margin: 0;
+    padding: 0;
+    overflow: visible;
+  }
+  .rcpt-feed {
+    filter: none;
+  }
+  .rcpt-paper,
+  .rcpt-js .rcpt-paper,
+  .rcpt-js .rcpt-paper.printing {
+    transform: none !important;
+    animation: none !important;
+    -webkit-mask: none;
+    mask: none;
+    background: #fff;
+    color: #000;
+    max-width: 120mm;
+    margin: 0 auto;
+    padding: 0;
+    font-size: 11px;
+  }
+  .rcpt-js .rcpt-paper .rcpt-stamp,
+  .rcpt-stamp {
+    animation: none !important;
+    opacity: 1;
+    transform: rotate(-14deg);
+    border-color: #000;
+    color: #000;
+  }
+  .rcpt-meta,
+  .rcpt-fields dt,
+  .rcpt-line-sub,
+  .rcpt-footnote {
+    color: #000;
+  }
+  .rcpt-sep {
+    border-top-color: #000;
+  }
+  .rcpt-dots {
+    border-bottom-color: #555;
+  }
+  .rcpt-barcode {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+}
