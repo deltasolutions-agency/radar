@@ -369,6 +369,21 @@ export const subscriptionCreateSchema = z.object({
   // Se true, dopo la creazione genera una richiesta di attivazione del rinnovo
   // automatico per tutti gli item e la integra nella mail di benvenuto (J.2/L.3).
   requestAutoCharge: z.boolean().optional(),
+  // Scelta obbligatoria per i nuovi abbonamenti: "da pagare" (nasce in attesa
+  // del primo pagamento) o "già pagato" (attivo subito, pagamento manuale).
+  paymentMode: z.enum(["DA_PAGARE", "PAGATO"], {
+    errorMap: () => ({ message: "Scegli se l'abbonamento è da pagare o già pagato" }),
+  }),
+  // Solo con paymentMode = PAGATO: dati del pagamento manuale di attivazione.
+  manualPayment: z
+    .object({
+      method: z.preprocess(emptyToUndef, z.string().trim().max(60).optional()),
+      paidAt: z.coerce
+        .date({ errorMap: () => ({ message: "Data pagamento non valida" }) })
+        .optional(),
+      note: z.preprocess(emptyToUndef, z.string().trim().max(5000).optional()),
+    })
+    .optional(),
   items: z
     .array(subscriptionItemInput)
     .min(1, "Aggiungi almeno un servizio all'abbonamento"),
@@ -386,6 +401,18 @@ export type SubscriptionCreateInput = z.infer<typeof subscriptionCreateSchema>;
 // ──────────────────────────────────────────────────────────────────────────
 // PAGAMENTO MANUALE — schema
 // ──────────────────────────────────────────────────────────────────────────
+
+/** Metodi proposti per i pagamenti manuali (salvati nella nota del pagamento). */
+export const MANUAL_PAYMENT_METHODS = ["Bonifico", "Contanti", "Assegno", "Altro"] as const;
+
+/** Pagamento manuale di ATTIVAZIONE ("Segna come pagato"): importo dai prezzi iniziali. */
+export const manualActivationSchema = z.object({
+  method: z.preprocess(emptyToUndef, z.string().trim().max(60).optional()),
+  note: z.preprocess(emptyToUndef, z.string().trim().max(5000).optional()),
+  paidAt: z.coerce
+    .date({ errorMap: () => ({ message: "Data pagamento non valida" }) })
+    .optional(),
+});
 
 export const manualPaymentSchema = z.object({
   amountCents: z

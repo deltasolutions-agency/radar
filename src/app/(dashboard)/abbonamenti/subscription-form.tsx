@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { subscriptionCreateSchema } from "@/lib/validations";
+import { subscriptionCreateSchema, MANUAL_PAYMENT_METHODS } from "@/lib/validations";
 import {
   ItemFields,
   EMPTY_ITEM,
@@ -25,6 +25,11 @@ export function SubscriptionForm() {
   const [notes, setNotes] = useState("");
   const [serviceFeeEnabled, setServiceFeeEnabled] = useState(false);
   const [requestAutoCharge, setRequestAutoCharge] = useState(false);
+  // Nuovo abbonamento: "da pagare" (default) o "già pagato" (pagamento manuale).
+  const [paymentMode, setPaymentMode] = useState<"DA_PAGARE" | "PAGATO">("DA_PAGARE");
+  const [manualMethod, setManualMethod] = useState<string>(MANUAL_PAYMENT_METHODS[0]);
+  const [manualPaidAt, setManualPaidAt] = useState("");
+  const [manualNote, setManualNote] = useState("");
   const [items, setItems] = useState<ItemValues[]>([{ ...EMPTY_ITEM }]);
 
   const [clients, setClients] = useState<ClientOption[]>([]);
@@ -100,7 +105,18 @@ export function SubscriptionForm() {
       clientId,
       notes: notes || undefined,
       serviceFeeEnabled,
-      requestAutoCharge,
+      // "Da pagare": il rinnovo automatico si attiva dalla pagina di pagamento.
+      requestAutoCharge: paymentMode === "PAGATO" && requestAutoCharge,
+      paymentMode,
+      ...(paymentMode === "PAGATO"
+        ? {
+            manualPayment: {
+              method: manualMethod,
+              paidAt: manualPaidAt || undefined,
+              note: manualNote || undefined,
+            },
+          }
+        : {}),
       items: items.map((it) =>
         itemValuesToApi(
           it,
@@ -143,7 +159,16 @@ export function SubscriptionForm() {
       }
 
       const id = body.subscription?.id;
-      router.push(id ? `/abbonamenti/${id}` : "/abbonamenti");
+      // Esito di link/attivazione mostrato nel dettaglio.
+      const notice =
+        paymentMode === "DA_PAGARE"
+          ? body.firstPayment?.emailSent
+            ? "?primoPagamento=inviato"
+            : "?primoPagamento=non-inviato"
+          : body.activationError
+            ? "?attivazione=errore"
+            : "";
+      router.push(id ? `/abbonamenti/${id}${notice}` : "/abbonamenti");
       router.refresh();
     } catch {
       setFormError("Errore di rete durante il salvataggio");
@@ -212,6 +237,100 @@ export function SubscriptionForm() {
             </span>
           </label>
         </div>
+        <fieldset className="rounded-lg border border-line-soft bg-canvas p-4">
+          <legend className="px-1 text-sm font-medium text-ink">
+            Pagamento <span className="text-red-600">*</span>
+          </legend>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label
+              className={`flex cursor-pointer items-start gap-2.5 rounded-lg border bg-white p-3 text-sm ${
+                paymentMode === "DA_PAGARE" ? "border-brand ring-1 ring-brand" : "border-line"
+              }`}
+            >
+              <input
+                type="radio"
+                name="paymentMode"
+                className="mt-0.5"
+                checked={paymentMode === "DA_PAGARE"}
+                onChange={() => setPaymentMode("DA_PAGARE")}
+              />
+              <span>
+                Da pagare
+                <span className="mt-0.5 block text-xs text-slate-500">
+                  Nasce in attesa del primo pagamento: il cliente riceve il link
+                  &quot;Paga ora&quot; con i prezzi indicati qui (nessun aumento).
+                  Si attiva quando paga.
+                </span>
+              </span>
+            </label>
+            <label
+              className={`flex cursor-pointer items-start gap-2.5 rounded-lg border bg-white p-3 text-sm ${
+                paymentMode === "PAGATO" ? "border-brand ring-1 ring-brand" : "border-line"
+              }`}
+            >
+              <input
+                type="radio"
+                name="paymentMode"
+                className="mt-0.5"
+                checked={paymentMode === "PAGATO"}
+                onChange={() => setPaymentMode("PAGATO")}
+              />
+              <span>
+                Già pagato
+                <span className="mt-0.5 block text-xs text-slate-500">
+                  Attivo subito: registra il primo pagamento manuale con
+                  ricevuta.
+                </span>
+              </span>
+            </label>
+          </div>
+          {paymentMode === "PAGATO" ? (
+            <div className="mt-4 grid gap-4 sm:grid-cols-3">
+              <div>
+                <label htmlFor="manualMethod" className="field-label">
+                  Metodo
+                </label>
+                <select
+                  id="manualMethod"
+                  className="field"
+                  value={manualMethod}
+                  onChange={(e) => setManualMethod(e.target.value)}
+                >
+                  {MANUAL_PAYMENT_METHODS.map((m) => (
+                    <option key={m} value={m}>
+                      {m}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label htmlFor="manualPaidAt" className="field-label">
+                  Data pagamento
+                </label>
+                <input
+                  id="manualPaidAt"
+                  type="date"
+                  className="field"
+                  value={manualPaidAt}
+                  onChange={(e) => setManualPaidAt(e.target.value)}
+                />
+              </div>
+              <div>
+                <label htmlFor="manualNote" className="field-label">
+                  Note
+                </label>
+                <input
+                  id="manualNote"
+                  className="field"
+                  placeholder="es. bonifico del 12/06"
+                  value={manualNote}
+                  onChange={(e) => setManualNote(e.target.value)}
+                />
+              </div>
+            </div>
+          ) : null}
+        </fieldset>
+        {paymentMode === "PAGATO" ? (
         <div className="rounded-lg border border-line-soft bg-canvas p-4">
           <label className="flex items-start gap-2.5 text-sm">
             <input
@@ -231,6 +350,12 @@ export function SubscriptionForm() {
             </span>
           </label>
         </div>
+        ) : (
+          <p className="text-xs text-slate-500">
+            Rinnovo automatico: il cliente può attivarlo direttamente dalla
+            pagina di pagamento del primo pagamento.
+          </p>
+        )}
       </section>
 
       {items.map((item, index) => (

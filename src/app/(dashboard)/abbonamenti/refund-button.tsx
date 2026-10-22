@@ -25,6 +25,7 @@ export function RefundButton({
   paymentId,
   items,
   serviceFeeCents = 0,
+  activation = false,
 }: {
   paymentId: string;
   items: RefundableItem[];
@@ -35,6 +36,11 @@ export function RefundButton({
    * stornabili, coerente col backend.
    */
   serviceFeeCents?: number;
+  /**
+   * Primo pagamento (attivazione): solo storno totale; l'abbonamento torna in
+   * attesa del primo pagamento.
+   */
+  activation?: boolean;
 }) {
   const router = useRouter();
   const [confirming, setConfirming] = useState(false);
@@ -140,6 +146,7 @@ export function RefundButton({
               <input
                 type="checkbox"
                 checked={!!selected[it.id]}
+                disabled={activation}
                 onChange={() => toggle(it.id)}
               />
               {it.serviceName}
@@ -179,8 +186,11 @@ export function RefundButton({
         <span className="font-mono font-medium">
           {formatEur(grandTotal, currency)}
         </span>
-        . Le righe con una scadenza indicata torneranno a quella data. Azione non
-        reversibile.
+        .{" "}
+        {activation
+          ? "Primo pagamento: si storna solo per intero e l'abbonamento torna in attesa di pagamento (date invariate)."
+          : "Le righe con una scadenza indicata torneranno a quella data."}{" "}
+        Azione non reversibile.
       </p>
       {error ? (
         <p className="mt-1 text-xs font-medium text-red-700">{error}</p>

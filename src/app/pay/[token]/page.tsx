@@ -114,7 +114,9 @@ export default async function PayPage({
   return (
     <Shell>
       <h1 className="text-lg font-semibold tracking-tight">
-        Pagamento abbonamento
+        {payment.kind === "ACTIVATION"
+          ? "Attivazione abbonamento · primo pagamento"
+          : "Pagamento abbonamento"}
       </h1>
       <p className="mt-1 text-sm text-slate-500">{client.name}</p>
 

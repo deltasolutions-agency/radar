@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { json, error, withApi, requireSession } from "@/lib/api";
 import { subscriptionItemCreateSchema } from "@/lib/validations";
 import { computeItemStatus } from "@/lib/subscription-status";
+import { invalidateBeforeChange, notActiveMessage } from "@/lib/activation";
 
 type Params = { params: { id: string } };
 
@@ -14,9 +15,12 @@ export function POST(req: NextRequest, { params }: Params) {
 
     const subscription = await prisma.subscription.findUnique({
       where: { id: params.id },
-      select: { id: true },
+      select: { id: true, activationState: true },
     });
     if (!subscription) return error("Abbonamento non trovato", 404);
+    if (subscription.activationState === "CANCELLED_BEFORE_START") {
+      return error(notActiveMessage(subscription.activationState)!, 409);
+    }
 
     const data = subscriptionItemCreateSchema.parse(await req.json());
 
@@ -28,6 +32,9 @@ export function POST(req: NextRequest, { params }: Params) {
       return error("Servizio non trovato", 400, {
         serviceId: "Servizio inesistente",
       });
+
+    const conflict = await invalidateBeforeChange(subscription.id, "servizio aggiunto");
+    if (conflict) return error(conflict, 409);
 
     const customPeriodDays = data.customPeriodDays ?? null;
     const status = computeItemStatus({

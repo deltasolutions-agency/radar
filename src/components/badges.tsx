@@ -1,4 +1,5 @@
-import type { EmailLogStatus } from "@prisma/client";
+import type { EmailLogStatus, SubscriptionActivationState } from "@prisma/client";
+import { ACTIVATION_STATE_LABELS } from "@/lib/activation-state";
 import { EMAIL_LOG_STATUS_LABELS } from "@/lib/email-log-labels";
 import {
   SERVICE_TYPE_LABELS,
@@ -119,6 +120,23 @@ export function EmailStatusBadge({ status }: { status: EmailLogStatus }) {
       className={`inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-medium ${EMAIL_STATUS_STYLES[status]}`}
     >
       {EMAIL_LOG_STATUS_LABELS[status]}
+    </span>
+  );
+}
+
+// Stato di attivazione dell'abbonamento (solo i casi non attivi hanno un badge).
+const ACTIVATION_STYLES: Record<"PENDING_FIRST_PAYMENT" | "CANCELLED_BEFORE_START", string> = {
+  PENDING_FIRST_PAYMENT: "bg-indigo-50 text-indigo-700 border-indigo-200",
+  CANCELLED_BEFORE_START: "bg-slate-100 text-slate-500 border-slate-200",
+};
+
+export function ActivationStateBadge({ state }: { state: SubscriptionActivationState }) {
+  if (state === "ACTIVE") return null;
+  return (
+    <span
+      className={`inline-flex items-center whitespace-nowrap rounded-md border px-2 py-0.5 text-xs font-medium ${ACTIVATION_STYLES[state]}`}
+    >
+      {ACTIVATION_STATE_LABELS[state]}
     </span>
   );
 }

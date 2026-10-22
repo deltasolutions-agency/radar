@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { AbbonamentiTable, type SubscriptionRow } from "./abbonamenti-table";
+import { ACTIVE_SUBSCRIPTION_WHERE } from "@/lib/activation-state";
 import {
   SUBSCRIPTION_STATUSES,
   SUBSCRIPTION_STATUS_LABELS,
@@ -18,6 +19,8 @@ export default async function AbbonamentiPage({
 }: {
   searchParams: { status?: string };
 }) {
+  // Filtro speciale: abbonamenti in attesa del primo pagamento.
+  const pendingOnly = searchParams.status === "IN_ATTESA_PAGAMENTO";
   const status =
     searchParams.status &&
     (SUBSCRIPTION_STATUSES as readonly string[]).includes(searchParams.status)
@@ -26,8 +29,13 @@ export default async function AbbonamentiPage({
 
   // Un contenitore compare nel filtro se ALMENO UNA delle sue righe è in quello
   // stato; mostriamo comunque TUTTE le sue righe.
+  // Gli stati delle righe valgono solo per gli abbonamenti attivi.
   const subscriptions = await prisma.subscription.findMany({
-    where: status ? { items: { some: { status } } } : undefined,
+    where: pendingOnly
+      ? { activationState: "PENDING_FIRST_PAYMENT" }
+      : status
+        ? { items: { some: { status } }, ...ACTIVE_SUBSCRIPTION_WHERE }
+        : undefined,
     include: {
       client: { select: { name: true, ragioneSociale: true } },
       items: {
@@ -66,8 +74,9 @@ export default async function AbbonamentiPage({
           ? [...distinctStatuses][0]
           : "MISTO";
 
-    // Prossima scadenza: la più imminente tra le righe non cessate.
-    const openEndDates = sub.items
+    // Prossima scadenza: la più imminente tra le righe non cessate (solo per
+    // gli abbonamenti attivi).
+    const openEndDates = (sub.activationState === "ACTIVE" ? sub.items : [])
       .filter((it) => !CLOSED_STATUSES.has(it.status))
       .map((it) => it.endDate.getTime());
     const nextDueISO =
@@ -83,6 +92,7 @@ export default async function AbbonamentiPage({
       status,
       nextDueISO,
       notes: sub.notes ?? null,
+      activationState: sub.activationState,
     };
   });
 
@@ -115,7 +125,7 @@ export default async function AbbonamentiPage({
       <div className="flex flex-wrap gap-2">
         <Link
           href="/abbonamenti"
-          className={!status ? "btn-primary" : "btn-ghost"}
+          className={!status && !pendingOnly ? "btn-primary" : "btn-ghost"}
         >
           Tutti
         </Link>
@@ -128,6 +138,12 @@ export default async function AbbonamentiPage({
             {SUBSCRIPTION_STATUS_LABELS[s]}
           </Link>
         ))}
+        <Link
+          href="/abbonamenti?status=IN_ATTESA_PAGAMENTO"
+          className={pendingOnly ? "btn-primary" : "btn-ghost"}
+        >
+          In attesa di pagamento
+        </Link>
       </div>
 
       <AbbonamentiTable rows={rows} />

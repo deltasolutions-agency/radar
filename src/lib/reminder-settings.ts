@@ -121,3 +121,37 @@ export async function loadReminderTemplates(): Promise<ReminderTemplateMap> {
     return {};
   }
 }
+
+/** Solleciti del primo pagamento: default (coincidono con lo schema Prisma). */
+export const DEFAULT_FIRST_PAYMENT_REMINDER_DAYS = [3, 7];
+export const DEFAULT_FIRST_PAYMENT_ADMIN_ALERT_DAY = 10;
+
+export type FirstPaymentSettings = {
+  /** Giorni dall'invio del link in cui sollecitare il cliente (crescenti). */
+  reminderDays: number[];
+  /** Giorno dell'avviso all'admin. */
+  adminAlertDay: number;
+};
+
+/** Carica le soglie dei solleciti del primo pagamento, con fallback ai default. Non lancia. */
+export async function loadFirstPaymentSettings(): Promise<FirstPaymentSettings> {
+  try {
+    const s = await prisma.reminderSettings.findUnique({
+      where: { id: SETTINGS_SINGLETON_ID },
+      select: { firstPaymentReminderDays: true, firstPaymentAdminAlertDay: true },
+    });
+    const days = s?.firstPaymentReminderDays?.length
+      ? s.firstPaymentReminderDays
+      : DEFAULT_FIRST_PAYMENT_REMINDER_DAYS;
+    return {
+      reminderDays: [...new Set(days)].filter((d) => d >= 1).sort((a, b) => a - b),
+      adminAlertDay: s?.firstPaymentAdminAlertDay ?? DEFAULT_FIRST_PAYMENT_ADMIN_ALERT_DAY,
+    };
+  } catch (e) {
+    console.error("[reminder-settings] load solleciti primo pagamento fallito, uso default:", e);
+    return {
+      reminderDays: DEFAULT_FIRST_PAYMENT_REMINDER_DAYS,
+      adminAlertDay: DEFAULT_FIRST_PAYMENT_ADMIN_ALERT_DAY,
+    };
+  }
+}

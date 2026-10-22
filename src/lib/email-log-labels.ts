@@ -18,6 +18,9 @@ export const EMAIL_LOG_TYPE_LABELS: Record<EmailLogType, string> = {
   REFUND: "Storno",
   DATA_CHANGE_NOTICE: "Dati modificati dal cliente",
   DATA_UPDATE_REQUEST: "Richiesta verifica dati",
+  FIRST_PAYMENT_LINK: "Link primo pagamento",
+  FIRST_PAYMENT_REMINDER: "Sollecito primo pagamento",
+  FIRST_PAYMENT_ADMIN_ALERT: "Primo pagamento non ricevuto (admin)",
   OTHER: "Altro",
 };
 

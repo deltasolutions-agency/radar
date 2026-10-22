@@ -2,6 +2,7 @@ import type { NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { renewalChargePriceCents } from "@/lib/renewal-price";
 import { json, error, withApi, requireSession } from "@/lib/api";
+import { notActiveMessage } from "@/lib/activation";
 import { sendEmail } from "@/lib/send-email";
 import { buildAutoChargeRequestEmail } from "@/lib/email-templates";
 import { formatEur } from "@/lib/format";
@@ -41,6 +42,9 @@ export function POST(req: NextRequest, { params }: Params) {
       },
     });
     if (!subscription) return error("Abbonamento non trovato", 404);
+    // Rinnovi solo su abbonamenti attivi (il primo pagamento ha il suo flusso).
+    const notActive = notActiveMessage(subscription.activationState);
+    if (notActive) return error(notActive, 409);
 
     // Tutti gli id selezionati devono appartenere al contenitore ed essere idonei.
     if (subscription.items.length !== itemIds.length) {

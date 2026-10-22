@@ -11,6 +11,9 @@ import { buildConfirmationEmail } from "@/lib/email-templates";
 import { sendEmail, type EmailLogMeta } from "@/lib/send-email";
 import { MS_PER_DAY, periodDurationDays } from "@/lib/billing-period";
 import { renewalOutcome } from "@/lib/renewal-price";
+import { formatDate } from "@/lib/format";
+import { romeYmd } from "@/lib/rome-time";
+import { computeItemStatus } from "@/lib/subscription-status";
 
 /** Esito del rinnovo di una singola riga (SubscriptionItem) del pagamento. */
 export type ConfirmPaymentItemResult = {
@@ -32,6 +35,12 @@ export type ConfirmPaymentResult = {
   items: ConfirmPaymentItemResult[];
   /** true se il pagamento era già stato confermato ed elaborato (retry). */
   alreadyProcessed: boolean;
+  /**
+   * Solo per il primo pagamento (Payment.kind = ACTIVATION): l'abbonamento è
+   * stato attivato con le date del form; startDatePassed = la data di inizio
+   * più vicina era già passata alla conferma (avviso all'admin).
+   */
+  activation?: { startDatePassed: boolean; earliestStartDate: Date };
 };
 
 /**
@@ -50,6 +59,12 @@ export type ConfirmPaymentResult = {
  * NOTA CRITICA: il calcolo del rinnovo è INDIPENDENTE per ogni riga — item con
  * periodi diversi nello stesso pagamento avanzano ciascuno della propria durata,
  * non una durata comune.
+ *
+ * Primo pagamento (Payment.kind = ACTIVATION): è un'ATTIVAZIONE, non un
+ * rinnovo. Le righe vengono confermate SENZA spostare le date né applicare
+ * l'aumento (nessuno snapshot pre-rinnovo: lo storno non tocca le date) e
+ * l'abbonamento passa ad ACTIVE nella stessa transazione. Webhook Stripe,
+ * pagamento manuale e storno passano tutti da qui.
  *
  * Controllo difensivo per singola riga: se billingPeriod è PERSONALIZZATA ma
  * customPeriodDays è null, quella riga viene registrata come pagata ma NON
@@ -100,11 +115,33 @@ export async function confirmPaymentAndRenew(
 
     const paidAt = payment.paidAt ?? new Date();
     const now = new Date();
+    const isActivation = payment.kind === "ACTIVATION";
 
     // ── Rinnovo INDIPENDENTE di ciascuna riga ───────────────────────────────
     const items: ConfirmPaymentItemResult[] = [];
     for (const pi of payment.items) {
       const { service, ...itemOnly } = pi.subscriptionItem;
+
+      // Attivazione: conferma senza rinnovo (date e prezzo invariati).
+      if (isActivation) {
+        await tx.paymentItem.update({
+          where: { id: pi.id },
+          data: { status: "CONFERMATO" },
+        });
+        const activatedItem = await tx.subscriptionItem.update({
+          where: { id: itemOnly.id },
+          data: { status: computeItemStatus(itemOnly) },
+        });
+        items.push({
+          subscriptionItem: activatedItem,
+          serviceName: service.name,
+          endClientName: itemOnly.endClientName,
+          amountCents: pi.amountCents,
+          newEndDate: itemOnly.endDate,
+          renewalSkipped: false,
+        });
+        continue;
+      }
 
       const durationDays = periodDurationDays(itemOnly);
       const renewalSkipped =
@@ -179,6 +216,24 @@ export async function confirmPaymentAndRenew(
       data: { status: "CONFERMATO", paidAt },
     });
 
+    // ── Attivazione dell'abbonamento (primo pagamento) ──────────────────────
+    let activation: ConfirmPaymentResult["activation"];
+    if (isActivation) {
+      await tx.subscription.update({
+        where: { id: payment.subscriptionId },
+        data: { activationState: "ACTIVE" },
+      });
+      const earliestStartDate = new Date(
+        Math.min(...payment.items.map((pi) => pi.subscriptionItem.startDate.getTime())),
+      );
+      // Confronto a giorni: le date delle righe sono giorni (mezzanotte UTC),
+      // il pagamento è un istante → giorno in ora italiana.
+      activation = {
+        earliestStartDate,
+        startDatePassed: earliestStartDate.toISOString().slice(0, 10) < romeYmd(paidAt),
+      };
+    }
+
     // ── Ricevuta (dentro la stessa transazione) ─────────────────────────────
     const receipt = await createReceiptForPayment(payment.id, tx);
 
@@ -187,6 +242,7 @@ export async function confirmPaymentAndRenew(
       receipt,
       items,
       alreadyProcessed: false,
+      activation,
     };
   });
 
@@ -246,14 +302,18 @@ async function sendConfirmationEmail(
     currency: receipt.currency,
     method: result.payment.method,
     receiptToken: receipt.token,
+    activation: !!result.activation,
   };
+  const startDateWarning = result.activation?.startDatePassed
+    ? `La data di inizio (${formatDate(result.activation.earliestStartDate)}) era già passata al momento del pagamento: le date sono rimaste quelle impostate. Verifica se modificarle.`
+    : null;
 
   // Invio all'admin (destinatario di default = ADMIN_EMAIL).
   await deliverConfirmation({
     paymentId,
     dedupeKey: `${paymentId}-admin`,
     recipient: process.env.ADMIN_EMAIL,
-    content: buildConfirmationEmail({ ...commonData, audience: "admin" }),
+    content: buildConfirmationEmail({ ...commonData, audience: "admin", startDateWarning }),
     logMeta,
   });
 

@@ -54,7 +54,7 @@ export async function planActivationReminders(now: Date): Promise<ActivationPlan
   const maxHour = hours.length > 0 ? hours[hours.length - 1] : null;
   const windowStart = new Date(now.getTime() - ACTIVATION_WINDOW_HOURS * MS_PER_HOUR);
 
-  const requests =
+  const allRequests =
     maxHour == null
       ? []
       : await prisma.autoChargeRequest.findMany({
@@ -62,6 +62,20 @@ export async function planActivationReminders(now: Date): Promise<ActivationPlan
           include: { client: true, activationReminders: true },
           orderBy: { createdAt: "asc" },
         });
+  // Richieste che riguardano solo abbonamenti non attivi (in attesa del primo
+  // pagamento o annullati): nessun sollecito.
+  const notActiveIds = new Set(
+    (
+      await prisma.subscriptionItem.findMany({
+        where: {
+          id: { in: [...new Set(allRequests.flatMap((r) => r.itemIds))] },
+          subscription: { activationState: { not: "ACTIVE" } },
+        },
+        select: { id: true },
+      })
+    ).map((it) => it.id),
+  );
+  const requests = allRequests.filter((r) => r.itemIds.some((id) => !notActiveIds.has(id)));
 
   const byKey = new Map<string, ActivationGroup>();
   for (const req of requests) {

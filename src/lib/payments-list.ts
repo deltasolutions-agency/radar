@@ -111,6 +111,7 @@ export const PAYMENT_LIST_SELECT = {
   id: true,
   status: true,
   method: true,
+  kind: true,
   paidAt: true,
   amountCents: true,
   serviceFeeCents: true,

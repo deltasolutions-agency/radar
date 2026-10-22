@@ -668,6 +668,13 @@ export type ConfirmationEmailData = {
    * "client": tono rivolto al cliente, SOLO ricevuta pubblica, MAI link interni.
    */
   audience?: "admin" | "client";
+  /**
+   * Primo pagamento (attivazione): le date non si spostano, la colonna mostra
+   * "Attivo fino al" invece di "Nuova scadenza".
+   */
+  activation?: boolean;
+  /** Solo admin: data di inizio già passata alla conferma dell'attivazione. */
+  startDateWarning?: string | null;
 };
 
 function methodLabel(method: PaymentMethod): string {
@@ -715,8 +722,15 @@ export function buildConfirmationEmail(
     : `[Radar] Pagamento confermato: ${d.clientName} — ${label}`;
 
   const intro = isClient
-    ? "Grazie! Abbiamo ricevuto il tuo pagamento. Di seguito il riepilogo."
-    : "Abbiamo registrato il pagamento per l'abbonamento.";
+    ? d.activation
+      ? "Grazie! Abbiamo ricevuto il tuo pagamento: i servizi sono attivi. Di seguito il riepilogo."
+      : "Grazie! Abbiamo ricevuto il tuo pagamento. Di seguito il riepilogo."
+    : d.activation
+      ? "Abbiamo registrato il primo pagamento: l'abbonamento è ora attivo."
+      : "Abbiamo registrato il pagamento per l'abbonamento.";
+  const endLabel = d.activation ? "attivo fino al" : "nuova scadenza";
+  const endHeader = d.activation ? "Attivo fino al" : "Nuova scadenza";
+  const warning = !isClient && d.startDateWarning ? d.startDateWarning : null;
 
   const receiptLineText = receiptUrl
     ? `Ricevuta:  ${receiptUrl}`
@@ -728,12 +742,13 @@ export function buildConfirmationEmail(
 
   const itemLinesText = d.items.map(
     (it) =>
-      `- ${serviceLineText(it.serviceName, it.endClientName)}: ${formatEur(it.amountCents, currency)} · nuova scadenza ${formatDate(it.newEndDate)}`,
+      `- ${serviceLineText(it.serviceName, it.endClientName)}: ${formatEur(it.amountCents, currency)} · ${endLabel} ${formatDate(it.newEndDate)}`,
   );
 
   const textLines = [
     intro,
     "",
+    ...(warning ? [`ATTENZIONE: ${warning}`, ""] : []),
     ...(isClient ? [] : [`Cliente: ${d.clientName}`, ""]),
     "Servizi:",
     ...itemLinesText,
@@ -776,13 +791,14 @@ export function buildConfirmationEmail(
       ${emailHeaderHtml()}
       <h2 style="font-size:18px;margin:0 0 8px">${isClient ? "Pagamento ricevuto" : "Pagamento confermato"}</h2>
       <p style="font-size:14px;line-height:1.5">${intro}</p>
+      ${warning ? `<p style="font-size:14px;line-height:1.5;border:1px solid #fcd34d;background:#fffbeb;color:#92400e;border-radius:8px;padding:10px 12px">${h(warning)}</p>` : ""}
       ${clientRowHtml}
       <table style="border-collapse:collapse;width:100%;font-family:sans-serif;font-size:14px;color:#1e293b">
         <thead>
           <tr style="text-align:left;color:#64748b;font-size:12px;text-transform:uppercase;letter-spacing:0.04em">
             <th style="padding:0 12px 6px 0;font-weight:500">Servizio</th>
             <th style="padding:0 12px 6px 0;font-weight:500;text-align:right">Importo</th>
-            <th style="padding:0 0 6px;font-weight:500;text-align:right">Nuova scadenza</th>
+            <th style="padding:0 0 6px;font-weight:500;text-align:right">${endHeader}</th>
           </tr>
         </thead>
         <tbody>${itemRowsHtml}</tbody>
@@ -848,9 +864,53 @@ export type WelcomeEmailData = {
    */
   dataEditUrl?: string | null;
   billingData?: BillingDatum[];
+  /**
+   * Abbonamento "da pagare": blocco "Primo pagamento" con l'imponibile e il
+   * pulsante "Paga ora" (/pay). IVA e commissione sono sulla pagina /pay.
+   */
+  firstPayment?: FirstPaymentBlock | null;
 };
 
 const CONTACT_EMAIL = "hello@deltasolutions.agency";
+
+// ──────────────────────────────────────────────────────────────────────────
+// PRIMO PAGAMENTO — blocco condiviso da benvenuto, "Attivazione nuovi servizi"
+// e solleciti. Come i reminder: solo imponibile in email.
+// ──────────────────────────────────────────────────────────────────────────
+
+export type FirstPaymentBlock = {
+  /** URL della pagina /pay/{token} del pagamento di attivazione. */
+  payUrl: string;
+  /** Imponibile del primo pagamento (prezzo iniziale × quantità, IVA esclusa). */
+  netCents: number;
+  currency: string;
+};
+
+const FIRST_PAYMENT_INTRO =
+  "I servizi si attivano con il primo pagamento. Puoi pagare con carta tramite il link sicuro qui sotto.";
+
+function firstPaymentBlockText(b: FirstPaymentBlock): string[] {
+  return [
+    "",
+    "Primo pagamento",
+    FIRST_PAYMENT_INTRO,
+    `${NET_ONLY_LABEL}: ${formatEur(b.netCents, b.currency)}`,
+    NET_ONLY_NOTE,
+    `Paga ora: ${b.payUrl}`,
+    PAYMENT_LINK_VALIDITY_NOTE,
+  ];
+}
+
+function firstPaymentBlockHtml(b: FirstPaymentBlock): string {
+  return `<div style="margin:16px 0;border:1px solid #c7d2fe;border-radius:12px;padding:16px;background:#eef2ff">
+        <h3 style="font-size:15px;margin:0 0 6px">Primo pagamento</h3>
+        <p style="font-size:14px;line-height:1.5;margin:0 0 10px">${FIRST_PAYMENT_INTRO}</p>
+        <p style="font-size:14px;margin:0"><span style="color:#64748b">${NET_ONLY_LABEL}:</span> <strong>${formatEur(b.netCents, b.currency)}</strong></p>
+        <p style="font-size:12px;color:#64748b;margin:4px 0 14px">${NET_ONLY_NOTE}</p>
+        <a href="${h(b.payUrl)}" style="display:inline-block;background:#4f46e5;color:#ffffff;text-decoration:none;font-family:sans-serif;font-size:14px;font-weight:600;padding:12px 20px;border-radius:8px">Paga ora →</a>
+        <p style="font-size:12px;color:#64748b;margin:10px 0 0">${PAYMENT_LINK_VALIDITY_NOTE}</p>
+      </div>`;
+}
 
 // ──────────────────────────────────────────────────────────────────────────
 // Sezione DATI DI FATTURAZIONE (sola lettura + CTA) — condivisa da benvenuto
@@ -966,9 +1026,10 @@ export function buildWelcomeEmail(d: WelcomeEmailData): EmailContent {
     "",
     intro,
     "",
-    "Servizi attivati:",
+    d.firstPayment ? "Servizi da attivare:" : "Servizi attivati:",
     ...itemLinesText,
     "* Prezzi IVA esclusa.",
+    ...(d.firstPayment ? firstPaymentBlockText(d.firstPayment) : []),
     "",
     explanation,
     ...autoChargeText,
@@ -1013,6 +1074,7 @@ export function buildWelcomeEmail(d: WelcomeEmailData): EmailContent {
         <tbody>${itemRowsHtml}</tbody>
       </table>
       <p style="font-size:11px;color:#94a3b8;margin:0 0 12px">* Prezzi IVA esclusa.</p>
+      ${d.firstPayment ? firstPaymentBlockHtml(d.firstPayment) : ""}
       <p style="font-size:14px;line-height:1.5">${explanation}</p>
       ${
         d.autoChargeUrl
@@ -1794,4 +1856,167 @@ export function buildCronSummaryEmail(d: {
       <p style="font-size:12px;color:#94a3b8">Radar — Delta Solutions · riepilogo automatico</p>
     </div>`;
   return { subject: d.subject, text, html };
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// PRIMO PAGAMENTO — "Attivazione nuovi servizi", solleciti, avviso admin
+// ──────────────────────────────────────────────────────────────────────────
+
+export type FirstPaymentEmailItem = {
+  serviceName: string;
+  endClientName?: string | null;
+  /** Prezzo iniziale × quantità (netto). */
+  netCents: number;
+  startDate: Date;
+  endDate: Date;
+};
+
+function firstPaymentItemsText(items: FirstPaymentEmailItem[], currency: string): string[] {
+  return items.map(
+    (it) =>
+      `- ${serviceLineText(it.serviceName, it.endClientName)} — dal ${formatDate(it.startDate)} al ${formatDate(it.endDate)} — ${formatEur(it.netCents, currency)}*`,
+  );
+}
+
+function firstPaymentItemsHtml(items: FirstPaymentEmailItem[], currency: string): string {
+  const rows = items
+    .map(
+      (it) => `
+        <tr>
+          <td style="padding:6px 12px 6px 0;border-bottom:1px solid #f1f5f9">${serviceCellHtml(it.serviceName, it.endClientName)}<br/><span style="color:#94a3b8;font-size:12px">dal ${formatDate(it.startDate)} al ${formatDate(it.endDate)}</span></td>
+          <td style="padding:6px 0;border-bottom:1px solid #f1f5f9;text-align:right;white-space:nowrap">${formatEur(it.netCents, currency)}*</td>
+        </tr>`,
+    )
+    .join("");
+  return `<table style="border-collapse:collapse;width:100%;font-family:sans-serif;font-size:14px;color:#1e293b;margin:8px 0">
+        <tbody>${rows}</tbody>
+      </table>
+      <p style="font-size:11px;color:#94a3b8;margin:0 0 12px">* Prezzi IVA esclusa.</p>`;
+}
+
+function clientEmailHtml(title: string, body: string): string {
+  return `
+    <div style="max-width:560px;margin:0 auto;font-family:sans-serif;color:#1e293b;background-color:#ffffff;padding:24px;border-radius:12px">
+      ${emailHeaderHtml()}
+      <h2 style="font-size:18px;margin:0 0 8px">${title}</h2>
+      ${body}
+      <p style="font-size:13px;color:#64748b;line-height:1.6">
+        Per qualsiasi domanda scrivici a
+        <a href="mailto:${CONTACT_EMAIL}" style="color:#4f46e5">${CONTACT_EMAIL}</a>.
+      </p>
+      <hr style="border:none;border-top:1px solid #e2e8f0;margin:24px 0" />
+      <p style="font-size:12px;color:#94a3b8">Radar — Delta Solutions Agency</p>
+    </div>`;
+}
+
+export type FirstPaymentEmailData = {
+  clientName: string;
+  items: FirstPaymentEmailItem[];
+  currency: string;
+  payment: FirstPaymentBlock;
+};
+
+/**
+ * "Attivazione nuovi servizi": al cliente già servito (benvenuto con PDF già
+ * inviato) per un nuovo abbonamento "da pagare", e per il reinvio del link.
+ * Solo imponibile in email; IVA e commissione sulla pagina /pay.
+ */
+export function buildFirstPaymentEmail(d: FirstPaymentEmailData): EmailContent {
+  const subject = "Attivazione nuovi servizi — Delta Solutions Agency";
+  const intro =
+    "abbiamo preparato l'attivazione dei servizi qui sotto. Per renderli attivi è sufficiente completare il primo pagamento.";
+  const text = [
+    `Ciao ${d.clientName},`,
+    "",
+    intro,
+    "",
+    "Servizi da attivare:",
+    ...firstPaymentItemsText(d.items, d.currency),
+    "* Prezzi IVA esclusa.",
+    ...firstPaymentBlockText(d.payment),
+    "",
+    `Per qualsiasi domanda scrivici a ${CONTACT_EMAIL}.`,
+    "",
+    "Il team di Delta Solutions Agency",
+  ].join("\n");
+  const html = clientEmailHtml(
+    "Attivazione nuovi servizi",
+    `<p style="font-size:14px;line-height:1.5">Ciao ${h(d.clientName)},</p>
+      <p style="font-size:14px;line-height:1.5">${intro}</p>
+      ${firstPaymentItemsHtml(d.items, d.currency)}
+      ${firstPaymentBlockHtml(d.payment)}`,
+  );
+  return { subject, text, html };
+}
+
+/** Sollecito al cliente: primo pagamento non ancora ricevuto (+N giorni). */
+export function buildFirstPaymentReminderEmail(
+  d: FirstPaymentEmailData & { daysSinceLink: number },
+): EmailContent {
+  const subject = "Promemoria: attivazione dei tuoi servizi in attesa di pagamento";
+  const intro =
+    "ti ricordiamo che l'attivazione dei servizi qui sotto è in attesa del primo pagamento. Puoi completarlo in pochi passaggi dal link sicuro.";
+  const text = [
+    `Ciao ${d.clientName},`,
+    "",
+    intro,
+    "",
+    "Servizi da attivare:",
+    ...firstPaymentItemsText(d.items, d.currency),
+    "* Prezzi IVA esclusa.",
+    ...firstPaymentBlockText(d.payment),
+    "",
+    "Se hai già pagato, ignora questo messaggio.",
+    `Per qualsiasi domanda scrivici a ${CONTACT_EMAIL}.`,
+    "",
+    "Il team di Delta Solutions Agency",
+  ].join("\n");
+  const html = clientEmailHtml(
+    "Attivazione in attesa di pagamento",
+    `<p style="font-size:14px;line-height:1.5">Ciao ${h(d.clientName)},</p>
+      <p style="font-size:14px;line-height:1.5">${intro}</p>
+      ${firstPaymentItemsHtml(d.items, d.currency)}
+      ${firstPaymentBlockHtml(d.payment)}
+      <p style="font-size:13px;color:#64748b">Se hai già pagato, ignora questo messaggio.</p>`,
+  );
+  return { subject, text, html };
+}
+
+/** Avviso all'admin: primo pagamento non ricevuto dopo N giorni (nessuna cessazione). */
+export function buildFirstPaymentAdminAlertEmail(d: {
+  subscriptionId: string;
+  clientName: string;
+  clientEmail: string | null;
+  daysSinceLink: number;
+  linkSentAt: Date;
+  items: FirstPaymentEmailItem[];
+  currency: string;
+}): EmailContent {
+  const detail = detailUrl(d.subscriptionId);
+  const net = d.items.reduce((s, it) => s + it.netCents, 0);
+  const subject = `[Radar] Primo pagamento non ricevuto: ${d.clientName} (${d.daysSinceLink} gg)`;
+  const intro = `Il primo pagamento dell'abbonamento non è ancora arrivato: link inviato il ${formatDate(d.linkSentAt)} (${d.daysSinceLink} giorni fa). Nessuna azione automatica: l'abbonamento resta in attesa.`;
+  const text = [
+    intro,
+    "",
+    `Cliente: ${d.clientName}${d.clientEmail ? ` <${d.clientEmail}>` : ""}`,
+    "Servizi:",
+    ...firstPaymentItemsText(d.items, d.currency),
+    `${NET_ONLY_LABEL}: ${formatEur(net, d.currency)}`,
+    "",
+    `Dettaglio: ${detail}`,
+  ].join("\n");
+  const html = `
+    <div style="max-width:560px;margin:0 auto;font-family:sans-serif;color:#1e293b;background-color:#ffffff;padding:24px;border-radius:12px">
+      ${emailHeaderHtml()}
+      <h2 style="font-size:18px;margin:0 0 8px">Primo pagamento non ricevuto</h2>
+      <p style="font-size:14px;line-height:1.5">${h(intro)}</p>
+      <p style="font-size:14px;margin:0 0 8px"><span style="color:#64748b">Cliente:</span> ${h(d.clientName)}${d.clientEmail ? ` &lt;${h(d.clientEmail)}&gt;` : ""}</p>
+      ${firstPaymentItemsHtml(d.items, d.currency)}
+      <p style="font-size:14px"><span style="color:#64748b">${NET_ONLY_LABEL}:</span> <strong>${formatEur(net, d.currency)}</strong></p>
+      <p style="font-size:14px"><a href="${detail}" style="color:#4f46e5">Apri il dettaglio dell'abbonamento →</a></p>
+      <hr style="border:none;border-top:1px solid #e2e8f0;margin:24px 0" />
+      <p style="font-size:12px;color:#94a3b8">Radar — Delta Solutions</p>
+    </div>`;
+  return { subject, text, html };
 }

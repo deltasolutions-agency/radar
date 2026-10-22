@@ -9,9 +9,13 @@ import { EndClientLabel } from "@/components/end-client-label";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import {
+  ActivationStateBadge,
   SubscriptionStatusBadge,
   PaymentStatusBadge,
 } from "@/components/badges";
+import { CancelActivationButton, FirstPaymentPanel } from "../first-payment-panel";
+import { addVatToNet } from "@/lib/vat";
+import { romeYmd } from "@/lib/rome-time";
 import { DeleteButton } from "@/components/delete-button";
 import { CeaseButton } from "../cease-button";
 import { PaymentActions } from "../payment-actions";
@@ -27,7 +31,7 @@ import {
   isReceiptPubliclyAccessible,
   getReceiptExpiryDate,
 } from "@/lib/receipt-access";
-import { formatEur, formatDate } from "@/lib/format";
+import { formatEur, formatDate, formatDateTime } from "@/lib/format";
 import {
   formatBillingPeriod,
   PAYMENT_METHOD_LABELS,
@@ -45,7 +49,12 @@ export default async function AbbonamentoDettaglioPage({
   searchParams,
 }: {
   params: { id: string };
-  searchParams: { payment?: string; setup?: string };
+  searchParams: {
+    payment?: string;
+    setup?: string;
+    primoPagamento?: string;
+    attivazione?: string;
+  };
 }) {
   const isAdmin = !!(await getAdminSession());
   const sub = await prisma.subscription.findUnique({
@@ -76,6 +85,48 @@ export default async function AbbonamentoDettaglioPage({
     ? sub.client.ragioneSociale
     : sub.client.name;
   const hasPayments = sub.payments.length > 0;
+  const isActive = sub.activationState === "ACTIVE";
+  const isPending = sub.activationState === "PENDING_FIRST_PAYMENT";
+
+  // Primo pagamento: prezzi iniziali (nessun aumento) delle righe non cessate.
+  const activationLines = sub.items.filter((it) => it.status !== "CESSATO");
+  const activationNet = activationLines.reduce((s, it) => s + it.priceCents * it.quantity, 0);
+  const activationGross = activationLines.reduce(
+    (s, it) => s + addVatToNet(it.priceCents * it.quantity).grossCents,
+    0,
+  );
+  const payableActivation = sub.payments.find(
+    (p) =>
+      p.kind === "ACTIVATION" &&
+      (p.status === "IN_ATTESA" || (p.status === "FALLITO" && !p.note)),
+  );
+  const linkSentLabel = sub.firstPaymentLinkSentAt
+    ? `inviato il ${formatDateTime(sub.firstPaymentLinkSentAt)}${
+        payableActivation?.checkoutExpiresAt &&
+        payableActivation.checkoutExpiresAt.getTime() < Date.now()
+          ? " · sessione scaduta: si rigenera quando il cliente apre il link"
+          : ""
+      }`
+    : null;
+  const linkInvalidated =
+    isPending && !sub.firstPaymentLinkSentAt && sub.payments.some((p) => p.kind === "ACTIVATION");
+
+  // Attivazione con data di inizio già passata: avviso finché non ci sono
+  // pagamenti successivi (l'admin decide se modificare le date).
+  const activationPayment = sub.payments.find(
+    (p) => p.kind === "ACTIVATION" && p.status === "CONFERMATO",
+  );
+  const earliestStart = sub.items.length
+    ? new Date(Math.min(...sub.items.map((it) => it.startDate.getTime())))
+    : null;
+  const startDateWarning =
+    isActive &&
+    activationPayment?.paidAt &&
+    earliestStart &&
+    sub.payments[0]?.id === activationPayment.id &&
+    earliestStart.toISOString().slice(0, 10) < romeYmd(activationPayment.paidAt)
+      ? `Attivato il ${formatDate(activationPayment.paidAt)} con data di inizio già passata (${formatDate(earliestStart)}): le date sono rimaste quelle impostate. Modificale se necessario.`
+      : null;
 
   // Servizi idonei alla richiesta di attivazione (non cessati/sospesi e non già
   // in rinnovo automatico): l'admin ne sceglie un sottoinsieme esplicito.
@@ -124,8 +175,9 @@ export default async function AbbonamentoDettaglioPage({
           ← Abbonamenti
         </Link>
         <div className="mt-1 flex flex-wrap items-center justify-between gap-3">
-          <h1 className="text-2xl font-semibold tracking-tight">
+          <h1 className="flex flex-wrap items-center gap-3 text-2xl font-semibold tracking-tight">
             {clientName}
+            <ActivationStateBadge state={sub.activationState} />
           </h1>
           <div className="flex items-center gap-2">
             <Link href={`/abbonamenti/${sub.id}/modifica`} className="btn-ghost">
@@ -141,6 +193,52 @@ export default async function AbbonamentoDettaglioPage({
           </div>
         </div>
       </div>
+
+      {searchParams.primoPagamento === "inviato" && isPending ? (
+        <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+          Abbonamento creato in attesa del primo pagamento: link &quot;Paga
+          ora&quot; inviato al cliente.
+        </p>
+      ) : null}
+      {searchParams.primoPagamento === "non-inviato" && isPending ? (
+        <p className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          Abbonamento creato in attesa del primo pagamento, ma il link non è
+          stato inviato (vedi Log email). Usa &quot;Reinvia link primo
+          pagamento&quot;.
+        </p>
+      ) : null}
+      {searchParams.attivazione === "errore" && isPending ? (
+        <p className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          Abbonamento creato, ma il pagamento non è stato registrato: usa
+          &quot;Segna come pagato&quot;.
+        </p>
+      ) : null}
+      {startDateWarning ? (
+        <p className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          {startDateWarning}
+        </p>
+      ) : null}
+      {sub.activationState === "CANCELLED_BEFORE_START" ? (
+        <p className="rounded-lg border border-line bg-canvas px-4 py-3 text-sm text-slate-600">
+          Abbonamento annullato prima del primo pagamento: escluso da cron,
+          scadenze e conteggi. I dati restano consultabili.
+        </p>
+      ) : null}
+
+      {isPending ? (
+        <section className="card space-y-4 border-indigo-200 p-6">
+          <h2 className="mono-label">Primo pagamento</h2>
+          <FirstPaymentPanel
+            subscriptionId={sub.id}
+            netCents={activationNet}
+            grossCents={activationGross}
+            currency={activationLines[0]?.currency ?? "eur"}
+            linkSentLabel={linkSentLabel}
+            linkInvalidated={linkInvalidated}
+            hasClientEmail={!!sub.client.email?.trim()}
+          />
+        </section>
+      ) : null}
 
       {searchParams.payment === "success" ? (
         <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
@@ -214,7 +312,7 @@ export default async function AbbonamentoDettaglioPage({
           </Link>
         </div>
 
-        {sub.items.length > 0 ? (
+        {sub.items.length > 0 && isActive ? (
           <div className="card space-y-3 p-6">
             <h3 className="mono-label">Rinnovo automatico</h3>
             <AutoChargeRequestPanel
@@ -248,9 +346,13 @@ export default async function AbbonamentoDettaglioPage({
                       >
                         {it.service.name}
                       </Link>
-                      <SubscriptionStatusBadge
-                        status={it.status as SubscriptionStatusValue}
-                      />
+                      {isActive ? (
+                        <SubscriptionStatusBadge
+                          status={it.status as SubscriptionStatusValue}
+                        />
+                      ) : (
+                        <ActivationStateBadge state={sub.activationState} />
+                      )}
                     </div>
                     <EndClientLabel name={it.endClientName} className="mt-0.5" />
                   </div>
@@ -261,11 +363,13 @@ export default async function AbbonamentoDettaglioPage({
                     >
                       Modifica
                     </Link>
-                    <CeaseButton
-                      itemId={it.id}
-                      status={it.status}
-                      className="text-slate-600 hover:underline"
-                    />
+                    {isActive ? (
+                      <CeaseButton
+                        itemId={it.id}
+                        status={it.status}
+                        className="text-slate-600 hover:underline"
+                      />
+                    ) : null}
                     {it._count.paymentItems === 0 ? (
                       <DeleteButton
                         endpoint={`/api/subscription-items/${it.id}`}
@@ -365,15 +469,18 @@ export default async function AbbonamentoDettaglioPage({
         )}
       </section>
 
-      {/* Registrazione pagamento (righe raggruppate) */}
-      <section className="card space-y-4 p-6">
-        <h2 className="mono-label">Registra pagamento</h2>
-        <PaymentActions
-          subscriptionId={sub.id}
-          items={payableItems}
-          serviceFeeEnabled={sub.serviceFeeEnabled}
-        />
-      </section>
+      {/* Registrazione pagamento (righe raggruppate): solo abbonamenti attivi;
+          quelli in attesa usano il pannello "Primo pagamento". */}
+      {isActive ? (
+        <section className="card space-y-4 p-6">
+          <h2 className="mono-label">Registra pagamento</h2>
+          <PaymentActions
+            subscriptionId={sub.id}
+            items={payableItems}
+            serviceFeeEnabled={sub.serviceFeeEnabled}
+          />
+        </section>
+      ) : null}
 
       {/* Storico pagamenti */}
       <section className="card overflow-hidden">
@@ -407,6 +514,11 @@ export default async function AbbonamentoDettaglioPage({
                   >
                     <td className="px-5 py-3 text-slate-600">
                       {p.paidAt ? formatDate(p.paidAt) : formatDate(p.createdAt)}
+                      {p.kind === "ACTIVATION" ? (
+                        <span className="mt-0.5 block text-xs font-medium text-indigo-700">
+                          Primo pagamento
+                        </span>
+                      ) : null}
                     </td>
                     <td className="px-5 py-3 text-slate-600">
                       <ul className="space-y-0.5">
@@ -479,6 +591,7 @@ export default async function AbbonamentoDettaglioPage({
                         {p.method === "STRIPE" && refundable.length > 0 ? (
                           <RefundButton
                             paymentId={p.id}
+                            activation={p.kind === "ACTIVATION"}
                             serviceFeeCents={
                               p.serviceFeeCents - p.refundedServiceFeeCents
                             }
@@ -493,6 +606,11 @@ export default async function AbbonamentoDettaglioPage({
                                 : null,
                             }))}
                           />
+                        ) : null}
+                        {p.kind === "ACTIVATION" &&
+                        p.method === "MANUALE" &&
+                        p.status === "CONFERMATO" ? (
+                          <CancelActivationButton paymentId={p.id} />
                         ) : null}
                         <PaymentDeleteButton paymentId={p.id} />
                       </div>

@@ -224,6 +224,11 @@ export default async function PagamentiPage({
                         >
                           {paymentClientLabel(r)}
                         </Link>
+                        {r.kind === "ACTIVATION" ? (
+                          <span className="ml-2 text-xs font-medium text-indigo-700">
+                            Primo pagamento
+                          </span>
+                        ) : null}
                         <ul className="mt-0.5 text-xs text-slate-500">
                           {paymentServiceLabels(r).map((s, i) => (
                             <li key={i}>{s}</li>

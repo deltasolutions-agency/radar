@@ -1,6 +1,7 @@
 import type { NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { json, error, withApi, requireSession } from "@/lib/api";
+import { notActiveMessage } from "@/lib/activation";
 import { createCheckoutPayment, toCheckoutItem } from "@/lib/payment-checkout";
 
 type Params = { params: { id: string } };
@@ -36,6 +37,9 @@ export function POST(req: NextRequest, { params }: Params) {
       },
     });
     if (!subscription) return error("Abbonamento non trovato", 404);
+    // Rinnovi solo su abbonamenti attivi (il primo pagamento ha il suo flusso).
+    const notActive = notActiveMessage(subscription.activationState);
+    if (notActive) return error(notActive, 409);
     if (subscription.items.length !== itemIds.length) {
       return error(
         "Uno o più servizi selezionati non appartengono all'abbonamento",

@@ -4,6 +4,7 @@ import { renewalChargePriceCents } from "@/lib/renewal-price";
 import { formatEur } from "@/lib/format";
 import { getAdminSession } from "@/lib/auth";
 import { invoiceDueBefore, netCollectedCents } from "@/lib/payment-ledger";
+import { ACTIVE_ITEM_WHERE } from "@/lib/activation-state";
 import {
   SUBSCRIPTION_STATUSES,
   SUBSCRIPTION_STATUS_LABELS,
@@ -53,17 +54,21 @@ export default async function DashboardPage() {
     prisma.service.count(),
     prisma.service.count({ where: { active: true } }),
     // Distribuzione dei servizi (SubscriptionItem) per stato.
+    // Solo abbonamenti attivi: quelli in attesa del primo pagamento o annullati
+    // non entrano in conteggi, scadenze e grafici.
     prisma.subscriptionItem.groupBy({
       by: ["status"],
+      where: ACTIVE_ITEM_WHERE,
       _count: { _all: true },
     }),
     // Servizi con addebito automatico attivo.
-    prisma.subscriptionItem.count({ where: { autoChargeEnabled: true } }),
+    prisma.subscriptionItem.count({ where: { autoChargeEnabled: true, ...ACTIVE_ITEM_WHERE } }),
     // Righe in scadenza nei prossimi 30 giorni (non cessate) → importo totale.
     prisma.subscriptionItem.findMany({
       where: {
         status: { notIn: ["CESSATO"] },
         endDate: { gte: now, lte: in30 },
+        ...ACTIVE_ITEM_WHERE,
       },
       select: {
         priceCents: true,

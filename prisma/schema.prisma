@@ -67,6 +67,24 @@ enum PaymentMethod {
   MANUALE
 }
 
+/// Tipo di pagamento: RENEWAL rinnova le righe (date avanti, aumento %);
+/// ACTIVATION è il primo pagamento di un abbonamento nato "da pagare": lo
+/// attiva con le date e i prezzi impostati, senza spostarli.
+enum PaymentKind {
+  RENEWAL
+  ACTIVATION
+}
+
+/// Attivazione dell'abbonamento. ACTIVE = abbonamento operativo (tutti quelli
+/// esistenti); PENDING_FIRST_PAYMENT = in attesa del primo pagamento, escluso
+/// da cron, conteggi e grafici; CANCELLED_BEFORE_START = annullato prima del
+/// primo pagamento, escluso da tutto.
+enum SubscriptionActivationState {
+  ACTIVE
+  PENDING_FIRST_PAYMENT
+  CANCELLED_BEFORE_START
+}
+
 /// Stato del singolo pagamento.
 enum PaymentStatus {
   IN_ATTESA // checkout creato / in attesa di conferma
@@ -302,6 +320,13 @@ model Subscription {
   // contenitore, applicata solo ai pagamenti con metodo STRIPE.
   serviceFeeEnabled Boolean @default(false)
 
+  // Attivazione: gli abbonamenti "da pagare" nascono PENDING_FIRST_PAYMENT e
+  // diventano ACTIVE alla conferma del pagamento di attivazione.
+  activationState        SubscriptionActivationState @default(ACTIVE)
+  // Invio dell'ultimo link di primo pagamento (benvenuto, "Attivazione nuovi
+  // servizi" o reinvio): da qui partono i solleciti. null = nessun link valido.
+  firstPaymentLinkSentAt DateTime?
+
   items     SubscriptionItem[]
   payments  Payment[]
   emailLogs EmailLog[]
@@ -310,6 +335,7 @@ model Subscription {
   updatedAt DateTime @updatedAt
 
   @@index([clientId])
+  @@index([activationState])
   @@map("subscriptions")
 }
 
@@ -391,6 +417,8 @@ model Payment {
   subscriptionId String
   subscription   Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
 
+  // Rinnovo (default) o primo pagamento di attivazione.
+  kind        PaymentKind @default(RENEWAL)
   amountCents Int // somma dei PaymentItem + eventuale costo di servizio
   // Costo di servizio Radar (1,5%) applicato SOLO ai pagamenti Stripe quando
   // Subscription.serviceFeeEnabled è true. NON è un PaymentItem: è un importo
@@ -577,6 +605,10 @@ model ReminderSettings {
   // Ritardo massimo (giorni dalla scadenza) entro cui il cron auto-charge
   // addebita una riga; oltre → esclusa e segnalata all'admin. Range 0–10.
   autoChargeMaxDelayDays Int @default(3)
+  // Solleciti del primo pagamento: giorni dall'invio del link in cui scrivere
+  // al cliente, e giorno dell'avviso all'admin (nessuna cessazione automatica).
+  firstPaymentReminderDays  Int[] @default([3, 7])
+  firstPaymentAdminAlertDay Int   @default(10)
   // DEPRECATA (fase19): il bonifico non è più un'opzione di pagamento per i
   // clienti. Colonna mantenuta solo per non fare una migration distruttiva:
   // NON va letta né scritta da nessuna parte del codice.
@@ -653,6 +685,9 @@ enum EmailLogType {
   REFUND
   DATA_CHANGE_NOTICE // dati di fatturazione modificati dal cliente (admin)
   DATA_UPDATE_REQUEST // richiesta verifica dati al cliente
+  FIRST_PAYMENT_LINK // attivazione nuovi servizi / reinvio link primo pagamento
+  FIRST_PAYMENT_REMINDER // sollecito primo pagamento al cliente
+  FIRST_PAYMENT_ADMIN_ALERT // primo pagamento non ricevuto (admin)
   OTHER
 }
 

@@ -2,7 +2,8 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { SubscriptionStatusBadge } from "@/components/badges";
+import { ActivationStateBadge, SubscriptionStatusBadge } from "@/components/badges";
+import type { SubscriptionActivationState } from "@prisma/client";
 import { formatDate } from "@/lib/format";
 import type { SubscriptionStatusValue } from "@/lib/validations";
 
@@ -18,6 +19,8 @@ export type SubscriptionRow = {
   nextDueISO: string | null;
   /** Note del contenitore (Subscription.notes); null/"" se assenti. */
   notes: string | null;
+  /** Non ACTIVE → badge "In attesa di pagamento" / "Annullato" al posto dello stato. */
+  activationState: SubscriptionActivationState;
 };
 
 /**
@@ -112,7 +115,9 @@ export function AbbonamentiTable({ rows }: { rows: SubscriptionRow[] }) {
                       {r.nextDueISO ? formatDate(new Date(r.nextDueISO)) : "—"}
                     </td>
                     <td className="px-5 py-3">
-                      {r.status === "MISTO" ? (
+                      {r.activationState !== "ACTIVE" ? (
+                        <ActivationStateBadge state={r.activationState} />
+                      ) : r.status === "MISTO" ? (
                         <span className="inline-flex items-center rounded-md border border-line bg-canvas px-2 py-0.5 text-xs font-medium text-slate-600">
                           Misto
                         </span>

@@ -1,4 +1,5 @@
 import type { Prisma } from "@prisma/client";
+import { ACTIVE_SUBSCRIPTION_WHERE } from "@/lib/activation-state";
 import { prisma } from "@/lib/prisma";
 import { periodDurationDays } from "@/lib/billing-period";
 import { loadAutoChargeMaxDelayDays } from "@/lib/reminder-settings";
@@ -103,7 +104,11 @@ export async function planAutoCharge(now: Date): Promise<AutoChargePlan> {
     where: {
       autoChargeEnabled: true,
       status: { notIn: [...BLOCKING] },
-      subscription: { client: { stripeDefaultPaymentMethodId: { not: null } } },
+      // Solo abbonamenti attivi (stessa chiave "subscription": un solo oggetto).
+      subscription: {
+        ...ACTIVE_SUBSCRIPTION_WHERE,
+        client: { stripeDefaultPaymentMethodId: { not: null } },
+      },
     },
     include,
   });
@@ -175,7 +180,7 @@ export async function planAutoCharge(now: Date): Promise<AutoChargePlan> {
       autoChargeEnabled: true,
       status: { notIn: [...BLOCKING] },
       endDate: { lte: now },
-      subscription: { client: { stripeDefaultPaymentMethodId: null } },
+      subscription: { ...ACTIVE_SUBSCRIPTION_WHERE, client: { stripeDefaultPaymentMethodId: null } },
     },
     include,
   });

@@ -1,6 +1,7 @@
 import "server-only";
 import type {
   Payment,
+  PaymentKind,
   BillingPeriod,
   EmailTrigger,
   Service,
@@ -34,6 +35,11 @@ export type SubscriptionItemForCheckout = {
   service: { name: string; description: string | null };
   /** Cliente finale della riga: aggiunto al nome su Stripe e nell'email. */
   endClientName: string | null;
+  /**
+   * Periodo coperto esplicito (pagamento di attivazione: inizio → fine del
+   * form). Assente = rinnovo: da endDate a endDate + durata.
+   */
+  period?: { start: Date; end: Date };
 };
 
 /**
@@ -67,6 +73,8 @@ export type CheckoutRequest = {
   items: SubscriptionItemForCheckout[];
   /** Se true, aggiunge il costo di servizio Radar (1,5%) — solo Stripe. */
   serviceFeeEnabled: boolean;
+  /** RENEWAL (default) o ACTIVATION (primo pagamento). */
+  kind?: PaymentKind;
 };
 
 export type CheckoutResult = {
@@ -102,6 +110,7 @@ export async function createCheckoutPayment(
   },
 ): Promise<CheckoutResult> {
   const { subscriptionId, clientEmail, items, serviceFeeEnabled } = request;
+  const kind = request.kind ?? "RENEWAL";
 
   if (items.length === 0) {
     throw new Error("createCheckoutPayment: nessuna riga di servizio fornita");
@@ -185,6 +194,15 @@ export async function createCheckoutPayment(
   // Periodo coperto da ciascuna riga: da endDate corrente alla scadenza dopo il
   // rinnovo (preview — la conferma definitiva è in confirm-payment).
   const paymentItemsData = items.map((it, idx) => {
+    if (it.period) {
+      return {
+        subscriptionItemId: it.id,
+        amountCents: itemGrossCents[idx],
+        status: "IN_ATTESA" as const,
+        periodStart: it.period.start,
+        periodEnd: it.period.end,
+      };
+    }
     const duration = periodDurationDays(it);
     return {
       subscriptionItemId: it.id,
@@ -201,6 +219,7 @@ export async function createCheckoutPayment(
   const payment = await prisma.payment.create({
     data: {
       subscriptionId,
+      kind,
       amountCents,
       serviceFeeCents,
       currency,
@@ -375,9 +394,17 @@ export async function createAutoChargeCheckoutSession(
 export async function canRegenerateCheckout(paymentId: string): Promise<boolean> {
   const payment = await prisma.payment.findUnique({
     where: { id: paymentId },
-    include: { items: { include: { subscriptionItem: { select: { endDate: true } } } } },
+    include: {
+      subscription: { select: { activationState: true } },
+      items: { include: { subscriptionItem: { select: { endDate: true, startDate: true } } } },
+    },
   });
   if (!payment || payment.method !== "STRIPE" || !payment.stripeCheckoutSessionId) {
+    return false;
+  }
+  const isActivation = payment.kind === "ACTIVATION";
+  // Primo pagamento: rigenerabile solo finché l'abbonamento è in attesa.
+  if (isActivation && payment.subscription.activationState !== "PENDING_FIRST_PAYMENT") {
     return false;
   }
   const expired =
@@ -388,8 +415,12 @@ export async function canRegenerateCheckout(paymentId: string): Promise<boolean>
 
   for (const pi of payment.items) {
     if (pi.status !== "IN_ATTESA") return false;
-    // La riga è stata rinnovata nel frattempo (da un altro pagamento).
-    if (!pi.periodStart || pi.subscriptionItem.endDate.getTime() !== pi.periodStart.getTime()) {
+    // La riga è stata rinnovata nel frattempo (da un altro pagamento). Per il
+    // primo pagamento il periodo parte dalla data di inizio della riga.
+    const expectedStart = isActivation
+      ? pi.subscriptionItem.startDate
+      : pi.subscriptionItem.endDate;
+    if (!pi.periodStart || expectedStart.getTime() !== pi.periodStart.getTime()) {
       return false;
     }
     const other = await prisma.paymentItem.findFirst({

@@ -30,6 +30,11 @@ import {
   type PlannedGroup,
   type ReminderPlan,
 } from "@/lib/cron/reminders-plan";
+import {
+  planFirstPaymentReminders,
+  type FirstPaymentPlan,
+} from "@/lib/cron/first-payment-plan";
+import { firstPaymentDetail, runFirstPaymentActions } from "@/lib/cron/first-payment-run";
 
 function groupDetail(g: PlannedGroup, extra: Record<string, unknown> = {}) {
   return {
@@ -76,14 +81,15 @@ function backlogDetails(plan: ReminderPlan) {
 }
 
 /** Esito dry-run: il piano, senza invii/addebiti/scritture. */
-function dryRunResult(plan: ReminderPlan): CronResult {
+function dryRunResult(plan: ReminderPlan, firstPayment: FirstPaymentPlan): CronResult {
   return {
     dryRun: true,
     candidates: plan.candidates,
     sent: 0,
-    skipped: plan.alreadySent + plan.autoChargeToday.length,
+    skipped: plan.alreadySent + plan.autoChargeToday.length + firstPayment.alreadySent,
     failed: 0,
-    wouldSend: plan.groups.length,
+    wouldSend: plan.groups.length + firstPayment.actions.length,
+    pendingFirstPayment: firstPayment.pending.length,
     statusChanges: plan.statusChanges.length,
     backlog: plan.backlog.length,
     details: [
@@ -95,6 +101,9 @@ function dryRunResult(plan: ReminderPlan): CronResult {
           wouldCreateAutoChargeRequest:
             g.kind === "REMINDER" && !g.autoCharge && !!g.clientEmail && !g.isCessation && !g.reusableAutoChargeToken && !!process.env.APP_URL,
         }),
+      ),
+      ...firstPayment.actions.map((a) =>
+        firstPaymentDetail(a, { outcome: a.blocked ?? "WOULD_SEND" }),
       ),
       ...autoChargeTodayDetails(plan),
       ...backlogDetails(plan),
@@ -244,7 +253,9 @@ export async function runReminders({
   dryRun: boolean;
 }): Promise<CronResult> {
   const plan = await planReminders(now);
-  if (dryRun) return dryRunResult(plan);
+  // Solleciti del primo pagamento (abbonamenti "da pagare" in attesa).
+  const firstPaymentPlan = await planFirstPaymentReminders(now);
+  if (dryRun) return dryRunResult(plan, firstPaymentPlan);
 
   // ── 1. Ricalcolo status ────────────────────────────────────────────────────
   let statusUpdated = 0;
@@ -341,6 +352,13 @@ export async function runReminders({
     }
   }
 
+  // ── 2b. Solleciti primo pagamento (nessuna cessazione automatica) ─────────
+  const fp = await runFirstPaymentActions(firstPaymentPlan);
+  sent += fp.sent;
+  failed += fp.failed;
+  skipped += fp.skipped;
+  details.push(...fp.details);
+
   const backlogLines = plan.backlog.map(
     (b) =>
       `${b.item.subscription.client.ragioneSociale?.trim() || b.item.subscription.client.name} · ${withEndClient(serviceLabel(b.item), b.item.endClientName)} · ${milestoneLabel(b)} non inviata da ${b.daysLate} gg · scadenza ${formatDate(b.item.endDate)} · ${formatEur(renewalChargePriceCents(b.item) * b.item.quantity, b.item.currency)} netti`,
@@ -359,6 +377,8 @@ export async function runReminders({
           { heading: "Email inviate", lines: summarySent },
           { heading: "Errori", lines: summaryErrors },
           { heading: "Servizi cessati per morosità", lines: summaryCessations },
+          { heading: "Solleciti primo pagamento", lines: fp.summarySent },
+          { heading: "Errori solleciti primo pagamento", lines: fp.summaryErrors },
           {
             heading: `Arretrati esclusi (milestone non inviata da più di ${REMINDER_RECOVERY_DAYS} giorni — nessuna email)`,
             lines: backlogLines,

@@ -5,6 +5,7 @@ import type {
 } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { computeItemStatus } from "@/lib/subscription-status";
+import { ACTIVE_ITEM_WHERE } from "@/lib/activation-state";
 import { isShortPeriod } from "@/lib/reminder-schedule";
 import {
   loadReminderThresholds,
@@ -352,7 +353,9 @@ export async function planReminders(
   const settings = await loadReminderThresholds();
 
   const items = await prisma.subscriptionItem.findMany({
-    where: { status: { notIn: [...BLOCKING] } },
+    // Solo abbonamenti attivi: quelli in attesa del primo pagamento o annullati
+    // non hanno promemoria, solleciti, ricalcolo status né cessazione.
+    where: { status: { notIn: [...BLOCKING] }, ...ACTIVE_ITEM_WHERE },
     include: { service: true, subscription: { include: { client: true } } },
   });
 

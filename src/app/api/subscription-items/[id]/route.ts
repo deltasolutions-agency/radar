@@ -1,6 +1,7 @@
 import type { NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { json, error, withApi, requireSession } from "@/lib/api";
+import { invalidateBeforeChange } from "@/lib/activation";
 import { subscriptionItemUpdateSchema } from "@/lib/validations";
 import { computeItemStatus } from "@/lib/subscription-status";
 import { appliedAtOnModeChange } from "@/lib/renewal-mode";
@@ -30,6 +31,10 @@ export function PATCH(req: NextRequest, { params }: Params) {
     if (!existing) return error("Riga non trovata", 404);
 
     const data = subscriptionItemUpdateSchema.parse(await req.json());
+
+    // Abbonamento in attesa del primo pagamento: il link non vale più.
+    const conflict = await invalidateBeforeChange(existing.subscriptionId, "servizio modificato");
+    if (conflict) return error(conflict, 409);
 
     // Se non è stato passato uno status esplicito ma cambiano dati che lo
     // influenzano (scadenza/periodicità), lo ricalcoliamo sui valori risultanti.
@@ -91,7 +96,7 @@ export function DELETE(_req: NextRequest, { params }: Params) {
     await requireSession();
     const item = await prisma.subscriptionItem.findUnique({
       where: { id: params.id },
-      select: { id: true, _count: { select: { paymentItems: true } } },
+      select: { id: true, subscriptionId: true, _count: { select: { paymentItems: true } } },
     });
     if (!item) return error("Riga non trovata", 404);
 
@@ -101,6 +106,9 @@ export function DELETE(_req: NextRequest, { params }: Params) {
         409,
       );
     }
+
+    const conflict = await invalidateBeforeChange(item.subscriptionId, "servizio rimosso");
+    if (conflict) return error(conflict, 409);
 
     await prisma.subscriptionItem.delete({ where: { id: params.id } });
     return json({ ok: true });

@@ -26,6 +26,10 @@ import {
 } from "@/lib/cron/auto-charge-plan";
 import { planActivationReminders } from "@/lib/cron/activation-reminders";
 import {
+  firstPaymentActionLabel,
+  planFirstPaymentReminders,
+} from "@/lib/cron/first-payment-plan";
+import {
   isIncreaseDueAtRenewal,
   isOnceIncreasePending,
   renewalChargePriceCents,
@@ -175,6 +179,37 @@ async function previewReminders() {
       );
     }
   }
+
+  await previewFirstPayment();
+}
+
+/** Abbonamenti "da pagare" in attesa del primo pagamento e solleciti dovuti. */
+async function previewFirstPayment() {
+  const fp = await planFirstPaymentReminders(now);
+  console.log(
+    `\nAbbonamenti in attesa del primo pagamento (esclusi da promemoria, solleciti di rinnovo, ricalcolo status, cessazione e auto-charge): ${fp.pending.length}`,
+  );
+  console.log(
+    `  Solleciti primo pagamento: cliente a +[${fp.settings.reminderDays.join(",")}] gg dall'invio del link · avviso admin a +${fp.settings.adminAlertDay} gg · nessuna cessazione`,
+  );
+  for (const p of fp.pending) {
+    const link = p.linkSentAt
+      ? `link inviato il ${date(p.linkSentAt)} (${p.daysSinceLink} gg fa)${p.payToken ? "" : " · NESSUN LINK PAGABILE"}`
+      : "nessun link valido (da reinviare)";
+    console.log(`\n▸ ${p.clientName} <${p.clientEmail ?? "senza email"}> · abb. ${p.subscriptionId}`);
+    for (const it of p.items) {
+      console.log(
+        `  - ${withEndClient(it.serviceName, it.endClientName)} · ${date(it.startDate)} → ${date(it.endDate)} · netto ${money(it.netCents, p.currency)} (prezzo iniziale, nessun aumento)`,
+      );
+    }
+    console.log(`  Primo pagamento: imponibile ${money(p.netCents, p.currency)} · ${link}`);
+    for (const a of fp.actions.filter((x) => x.sub.subscriptionId === p.subscriptionId)) {
+      const to = a.kind === "ADMIN_ALERT" ? adminEmail : (p.clientEmail ?? "NON INVIABILE (cliente senza email)");
+      const blocked = a.blocked === "NO_LINK" ? " — NON PARTE: nessun link pagabile" : a.blocked === "NO_EMAIL" ? " — NON PARTE: cliente senza email" : "";
+      console.log(`  ⇒ ${firstPaymentActionLabel(a)} → ${to}${blocked}`);
+    }
+  }
+  console.log(`  Solleciti primo pagamento in partenza: ${fp.actions.length} · già inviati: ${fp.alreadySent}`);
 }
 
 // ═════════════════════════════════════════════════════════════════════════════

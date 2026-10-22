@@ -19,6 +19,8 @@ export type ImpostazioniInitial = {
   cessationDay: string;
   autoChargeReminderHours: string;
   autoChargeMaxDelayDays: string;
+  firstPaymentReminderDays: string;
+  firstPaymentAdminAlertDay: string;
   templates: TemplateField[];
 };
 
@@ -49,6 +51,10 @@ export function ImpostazioniForm({
     initial.autoChargeReminderHours,
   );
   const [maxDelay, setMaxDelay] = useState(initial.autoChargeMaxDelayDays);
+  const [firstPaymentDays, setFirstPaymentDays] = useState(initial.firstPaymentReminderDays);
+  const [firstPaymentAdminDay, setFirstPaymentAdminDay] = useState(
+    initial.firstPaymentAdminAlertDay,
+  );
   const [templates, setTemplates] = useState(initial.templates);
 
   const [pending, setPending] = useState(false);
@@ -74,6 +80,8 @@ export function ImpostazioniForm({
       cessationDay: parseInt(cessation, 10) || 0,
       autoChargeReminderHours: parseIntList(autoChargeHours),
       autoChargeMaxDelayDays: Math.min(10, Math.max(0, parseInt(maxDelay, 10) || 0)),
+      firstPaymentReminderDays: parseIntList(firstPaymentDays).filter((n) => n >= 1),
+      firstPaymentAdminAlertDay: Math.max(1, parseInt(firstPaymentAdminDay, 10) || 10),
       templates: Object.fromEntries(
         templates.map((t) => [
           t.type,
@@ -210,6 +218,39 @@ export function ImpostazioniForm({
             <p className="mt-1 text-xs text-slate-500">
               Da 0 a 10. Le righe scadute da più giorni non vengono addebitate e
               sono segnalate all&apos;admin.
+            </p>
+          </div>
+          <div>
+            <label htmlFor="firstPaymentDays" className="field-label">
+              Solleciti primo pagamento · giorni dall&apos;invio del link
+            </label>
+            <input
+              id="firstPaymentDays"
+              className="field"
+              value={firstPaymentDays}
+              onChange={(e) => setFirstPaymentDays(e.target.value)}
+              placeholder="3, 7"
+            />
+            <p className="mt-1 text-xs text-slate-500">
+              Email al cliente se l&apos;abbonamento &quot;da pagare&quot; non è
+              ancora stato pagato.
+            </p>
+          </div>
+          <div>
+            <label htmlFor="firstPaymentAdminDay" className="field-label">
+              Primo pagamento non ricevuto · avviso admin (giorni)
+            </label>
+            <input
+              id="firstPaymentAdminDay"
+              type="number"
+              min={1}
+              className="field"
+              value={firstPaymentAdminDay}
+              onChange={(e) => setFirstPaymentAdminDay(e.target.value)}
+              placeholder="10"
+            />
+            <p className="mt-1 text-xs text-slate-500">
+              Nessuna cessazione automatica: l&apos;abbonamento resta in attesa.
             </p>
           </div>
         </div>

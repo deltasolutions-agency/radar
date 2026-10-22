@@ -59,6 +59,13 @@ export function POST(req: NextRequest, { params }: Params) {
       : null;
 
     let selected = refundable;
+    // Primo pagamento (attivazione): solo storno TOTALE.
+    if (payment.kind === "ACTIVATION" && requestedIds && requestedIds.length > 0) {
+      const set = new Set(requestedIds);
+      if (refundable.some((pi) => !set.has(pi.id))) {
+        return error("Il primo pagamento si storna solo per intero.", 400);
+      }
+    }
     if (requestedIds && requestedIds.length > 0) {
       const set = new Set(requestedIds);
       selected = refundable.filter((pi) => set.has(pi.id));
@@ -66,6 +73,26 @@ export function POST(req: NextRequest, { params }: Params) {
         return error(
           "Una o più righe indicate non appartengono al pagamento o non sono stornabili",
           400,
+        );
+      }
+    }
+
+    // Primo pagamento: stornabile solo se nessun pagamento confermato è venuto
+    // dopo (l'abbonamento tornerà in attesa del primo pagamento).
+    if (payment.kind === "ACTIVATION") {
+      const later = await prisma.payment.findFirst({
+        where: {
+          subscriptionId: payment.subscriptionId,
+          id: { not: payment.id },
+          status: "CONFERMATO",
+          createdAt: { gt: payment.createdAt },
+        },
+        select: { id: true },
+      });
+      if (later) {
+        return error(
+          "Non è possibile stornare il primo pagamento: l'abbonamento ha pagamenti successivi.",
+          409,
         );
       }
     }
@@ -202,6 +229,15 @@ export function POST(req: NextRequest, { params }: Params) {
           });
           itemsReverted++;
         }
+      }
+
+      // Storno del primo pagamento: l'abbonamento torna in attesa (non cessato),
+      // senza link valido finché l'admin non lo reinvia.
+      if (payment.kind === "ACTIVATION") {
+        await tx.subscription.update({
+          where: { id: payment.subscriptionId },
+          data: { activationState: "PENDING_FIRST_PAYMENT", firstPaymentLinkSentAt: null },
+        });
       }
 
       // Payment.status passa a RIMBORSATO solo se tutte le righe sono stornate.

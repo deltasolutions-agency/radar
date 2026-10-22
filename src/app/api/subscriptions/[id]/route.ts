@@ -1,6 +1,7 @@
 import type { NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { json, error, withApi, requireSession } from "@/lib/api";
+import { invalidateBeforeChange } from "@/lib/activation";
 import { subscriptionUpdateSchema } from "@/lib/validations";
 
 type Params = { params: { id: string } };
@@ -41,6 +42,11 @@ export function PATCH(req: NextRequest, { params }: Params) {
     if (!exists) return error("Abbonamento non trovato", 404);
 
     const data = subscriptionUpdateSchema.parse(await req.json());
+    // Il costo di servizio cambia l'importo del primo pagamento in attesa.
+    if (data.serviceFeeEnabled !== undefined) {
+      const conflict = await invalidateBeforeChange(params.id, "costi di servizio modificati");
+      if (conflict) return error(conflict, 409);
+    }
     const subscription = await prisma.subscription.update({
       where: { id: params.id },
       data,

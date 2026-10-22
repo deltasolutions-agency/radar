@@ -1,6 +1,7 @@
 import type { NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { json, error, withApi, requireSession } from "@/lib/api";
+import { notActiveMessage } from "@/lib/activation";
 
 type Params = { params: { id: string } };
 
@@ -13,9 +14,12 @@ export function POST(_req: NextRequest, { params }: Params) {
 
     const item = await prisma.subscriptionItem.findUnique({
       where: { id: params.id },
-      select: { id: true, status: true },
+      select: { id: true, status: true, subscription: { select: { activationState: true } } },
     });
     if (!item) return error("Riga non trovata", 404);
+    // Abbonamento non ancora attivo: niente cessazione (si annulla l'abbonamento).
+    const notActive = notActiveMessage(item.subscription.activationState);
+    if (notActive) return error(notActive, 409);
 
     const ceasable = ["ATTIVO", "IN_SCADENZA", "SCADUTO", "RINNOVATO"];
     if (!ceasable.includes(item.status)) {

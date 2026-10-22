@@ -30,6 +30,13 @@ const bodySchema = z.object({
   cessationDay: z.number().int().min(0).max(3650).optional(),
   autoChargeReminderHours: hourArray.optional(),
   autoChargeMaxDelayDays: z.number().int().min(0).max(10).optional(),
+  // Solleciti primo pagamento: giorni dall'invio del link (≥ 1) e avviso admin.
+  firstPaymentReminderDays: z
+    .array(z.number().int().min(1).max(365))
+    .max(10)
+    .transform((arr) => [...new Set(arr)].sort((a, b) => a - b))
+    .optional(),
+  firstPaymentAdminAlertDay: z.number().int().min(1).max(365).optional(),
   templates: z.record(z.string(), overrideSchema).optional(),
 });
 
@@ -65,6 +72,12 @@ export function PATCH(req: NextRequest) {
         : {}),
       ...(data.autoChargeMaxDelayDays !== undefined
         ? { autoChargeMaxDelayDays: data.autoChargeMaxDelayDays }
+        : {}),
+      ...(data.firstPaymentReminderDays !== undefined
+        ? { firstPaymentReminderDays: data.firstPaymentReminderDays }
+        : {}),
+      ...(data.firstPaymentAdminAlertDay !== undefined
+        ? { firstPaymentAdminAlertDay: data.firstPaymentAdminAlertDay }
         : {}),
     };
 

@@ -10,13 +10,15 @@ import {
 } from "@/lib/validations";
 import { computeItemStatus } from "@/lib/subscription-status";
 import { sendEmail } from "@/lib/send-email";
-import {
-  buildWelcomeEmail,
-  buildAutoChargeRequestEmail,
-} from "@/lib/email-templates";
+import { buildAutoChargeRequestEmail } from "@/lib/email-templates";
 import { formatEur } from "@/lib/format";
-import { ensureDataEditToken, billingDataFor } from "@/lib/client-data";
-import { buildWelcomeLetterPdf } from "@/lib/welcome-letter-pdf";
+import { sendWelcomeEmail, WELCOME_CLIENT_SELECT } from "@/lib/welcome-email";
+import {
+  ActivationConflictError,
+  manualPaymentNote,
+  recordManualActivation,
+  sendFirstPaymentLink,
+} from "@/lib/activation";
 import type { SubscriptionStatus } from "@prisma/client";
 
 // GET /api/subscriptions?status=...
@@ -55,29 +57,18 @@ export function GET(req: NextRequest) {
 // POST /api/subscriptions  → crea abbonamento (contenitore + almeno una riga)
 export function POST(req: NextRequest) {
   return withApi(async () => {
-    await requireSession();
+    const session = await requireSession();
     const data = subscriptionCreateSchema.parse(await req.json());
+    // Pagamento unico (link o manuale) → una sola valuta.
+    if (new Set(data.items.map((it) => it.currency ?? "eur")).size > 1) {
+      return error("I servizi hanno valute diverse: non è possibile un unico primo pagamento.", 400);
+    }
 
     // Verifica esistenza cliente.
     const client = await prisma.client.findUnique({
       where: { id: data.clientId },
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        welcomeEmailSentAt: true,
-        dataEditToken: true,
-        // Dati di fatturazione per la sezione della mail di benvenuto.
-        ragioneSociale: true,
-        partitaIva: true,
-        codiceFiscale: true,
-        indirizzo: true,
-        citta: true,
-        cap: true,
-        provincia: true,
-        sdi: true,
-        pec: true,
-      },
+      // Dati di fatturazione per la sezione della mail di benvenuto.
+      select: WELCOME_CLIENT_SELECT,
     });
     if (!client)
       return error("Cliente non trovato", 400, {
@@ -96,9 +87,12 @@ export function POST(req: NextRequest) {
       });
     }
 
+    // Ogni nuovo abbonamento nasce in attesa del primo pagamento: con "già
+    // pagato" lo attiva subito il pagamento manuale di attivazione qui sotto.
     const subscription = await prisma.subscription.create({
       data: {
         clientId: data.clientId,
+        activationState: "PENDING_FIRST_PAYMENT",
         notes: data.notes,
         serviceFeeEnabled: data.serviceFeeEnabled ?? false,
         items: {
@@ -143,6 +137,36 @@ export function POST(req: NextRequest) {
       ? client.ragioneSociale
       : client.name;
 
+    // ── "Da pagare": in attesa del primo pagamento ────────────────────────
+    // Link di primo pagamento (Stripe, prezzi iniziali) nel benvenuto (primo
+    // abbonamento del cliente) o nell'email "Attivazione nuovi servizi". Il
+    // rinnovo automatico si attiva dalla casella su /pay, non da una richiesta
+    // separata. Non bloccante: l'admin può reinviare il link dal dettaglio.
+    if (data.paymentMode === "DA_PAGARE") {
+      const firstPayment = await sendFirstPaymentLink(subscription.id, { trigger: "MANUAL" });
+      return json({ subscription, firstPayment }, 201);
+    }
+
+    // ── "Già pagato": attivazione con pagamento manuale + ricevuta ────────
+    try {
+      await recordManualActivation(subscription.id, {
+        paidAt: data.manualPayment?.paidAt,
+        note: manualPaymentNote(data.manualPayment?.method, data.manualPayment?.note),
+        recordedById: session.sub,
+      });
+    } catch (e) {
+      // L'abbonamento resta in attesa: l'admin può usare "Segna come pagato".
+      console.error(`[subscriptions] attivazione manuale fallita (sub ${subscription.id}):`, e);
+      return json(
+        {
+          subscription,
+          activationError:
+            e instanceof ActivationConflictError ? e.message : "Registrazione del pagamento non riuscita",
+        },
+        201,
+      );
+    }
+
     // L.3 — Richiesta di attivazione rinnovo automatico (se richiesto in creazione):
     // crea una AutoChargeRequest per TUTTI gli item appena creati e prepara il link.
     // La richiesta viene comunque creata anche se l'email non parte (l'admin può
@@ -167,78 +191,15 @@ export function POST(req: NextRequest) {
     }
 
     // Mail di benvenuto: solo al PRIMO abbonamento del cliente (welcomeEmailSentAt
-    // ancora null) e se ha un'email. Non bloccante: un fallimento non deve far
-    // fallire la creazione dell'abbonamento. Il timestamp viene impostato solo a
-    // invio riuscito, così un errore transitorio verrà ritentato al prossimo giro.
-    // Se richiesto, integra la sezione rinnovo automatico (nessuna mail separata).
+    // ancora null) e se ha un'email. Non bloccante. Se richiesto, integra la
+    // sezione rinnovo automatico (nessuna mail separata).
     if (!client.welcomeEmailSentAt && client.email) {
-      try {
-        // Genera il token dati (se non esiste) e prepara la sezione fatturazione.
-        let dataEditUrl: string | null = null;
-        const appUrl = process.env.APP_URL;
-        if (appUrl) {
-          const token = await ensureDataEditToken(client);
-          dataEditUrl = `${appUrl}/i-tuoi-dati/${token}`;
-        }
-        const content = buildWelcomeEmail({
-          clientName,
-          items: subscription.items.map((it) => ({
-            serviceName: it.service.name,
-            endClientName: it.endClientName,
-            priceCents: it.priceCents,
-            quantity: it.quantity,
-            currency: it.currency,
-            billingPeriod: it.billingPeriod,
-            customPeriodDays: it.customPeriodDays,
-            endDate: it.endDate,
-          })),
-          autoChargeUrl,
-          dataEditUrl,
-          billingData: billingDataFor(client),
-        });
-
-        // Lettera di benvenuto PDF come allegato. La generazione non deve MAI
-        // bloccare l'invio: in caso di errore la mail parte senza allegato.
-        // Il saluto della lettera usa SEMPRE il nome del referente (client.name),
-        // non la ragione sociale, a prescindere dal saluto usato dalla mail.
-        let attachments: { filename: string; content: Buffer }[] | undefined;
-        try {
-          const pdf = await buildWelcomeLetterPdf(client.name);
-          attachments = [
-            { filename: "Lettera_DeltaSolutions_Radar.pdf", content: pdf },
-          ];
-        } catch (e) {
-          console.error(
-            `[subscriptions] generazione lettera PDF fallita (client ${client.id}):`,
-            e,
-          );
-        }
-
-        const sent = await sendEmail(
-          content,
-          client.email,
-          {
-            type: "WELCOME",
-            trigger: "MANUAL",
-            clientId: client.id,
-            subscriptionId: subscription.id,
-            itemIds: subscription.items.map((it) => it.id),
-            dedupeKey: `welcome:${client.id}`,
-          },
-          attachments,
-        );
-        if (sent.status === "INVIATA") {
-          await prisma.client.update({
-            where: { id: client.id },
-            data: { welcomeEmailSentAt: new Date() },
-          });
-        }
-      } catch (e) {
-        console.error(
-          `[subscriptions] invio mail di benvenuto fallito (client ${client.id}):`,
-          e,
-        );
-      }
+      await sendWelcomeEmail({
+        client,
+        subscriptionId: subscription.id,
+        items: subscription.items,
+        autoChargeUrl,
+      });
     } else if (autoChargeUrl && client.email) {
       // Cliente già "onboardato" (benvenuto già inviato) ma è stato richiesto il
       // rinnovo automatico: invia la richiesta di attivazione come mail dedicata.
