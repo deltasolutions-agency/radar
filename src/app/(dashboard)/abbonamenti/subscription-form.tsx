@@ -253,6 +253,7 @@ export function SubscriptionForm() {
             services={services}
             errors={itemErrors[index] ?? {}}
             endClientSuggestions={endClientSuggestions}
+            suggestEndDate
             onChange={(patch) => patchItem(index, patch)}
           />
         </section>

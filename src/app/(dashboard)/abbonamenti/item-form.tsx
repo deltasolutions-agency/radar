@@ -144,6 +144,7 @@ export function ItemForm({
           errors={errors}
           endClientSuggestions={endClientSuggestions}
           renewalState={renewalState}
+          suggestEndDate={mode === "create"}
           onChange={(patch) => setValue((v) => ({ ...v, ...patch }))}
         />
       </section>

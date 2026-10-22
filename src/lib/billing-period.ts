@@ -22,3 +22,20 @@ export function periodDurationDays(sub: {
       return null;
   }
 }
+
+/**
+ * Data di fine del PRIMO periodo con la convenzione del rinnovo: inizio +
+ * durata − 1 giorno (es. ANNUALE 2026-10-22 → 2027-10-21). Date YYYY-MM-DD.
+ * null per PERSONALIZZATA (nessuna precompilazione) o data non valida.
+ */
+export function conventionalEndDate(
+  startYmd: string,
+  billingPeriod: string,
+): string | null {
+  if (billingPeriod !== "MENSILE" && billingPeriod !== "ANNUALE") return null;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(startYmd)) return null;
+  const start = new Date(`${startYmd}T00:00:00Z`);
+  if (Number.isNaN(start.getTime())) return null;
+  const days = periodDurationDays({ billingPeriod, customPeriodDays: null })!;
+  return new Date(start.getTime() + (days - 1) * MS_PER_DAY).toISOString().slice(0, 10);
+}

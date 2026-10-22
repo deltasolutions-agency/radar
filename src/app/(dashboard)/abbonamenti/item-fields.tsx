@@ -5,7 +5,8 @@ import {
   BILLING_PERIOD_LABELS,
   END_CLIENT_NAME_MAX,
 } from "@/lib/validations";
-import { formatEur } from "@/lib/format";
+import { formatDate, formatEur } from "@/lib/format";
+import { conventionalEndDate } from "@/lib/billing-period";
 import { upcomingRenewalPrices } from "@/lib/renewal-price";
 
 /** Valori di una riga di servizio nel form (stringhe = input controllati). */
@@ -112,6 +113,7 @@ export function ItemFields({
   onChange,
   endClientSuggestions = [],
   renewalState,
+  suggestEndDate = false,
 }: {
   idPrefix: string;
   value: ItemValues;
@@ -126,6 +128,11 @@ export function ItemFields({
     appliedAt: string | null;
     hasPastIncrease: boolean;
   };
+  /**
+   * Solo righe NUOVE: precompila la scadenza (inizio + periodo − 1 giorno) al
+   * cambio di data di inizio o periodicità e avvisa se diversa.
+   */
+  suggestEndDate?: boolean;
 }) {
   const isCustom = value.billingPeriod === "PERSONALIZZATA";
   const selectedService = services.find((s) => s.id === value.serviceId);
@@ -159,9 +166,26 @@ export function ItemFields({
     return `Prossimo rinnovo: ${next} netti · Rinnovi successivi: ${after} netti`;
   })();
 
+  /** Patch di data inizio/periodicità, con la scadenza ricalcolata se attivo. */
+  function changeStartOrPeriod(patch: Partial<ItemValues>) {
+    const startDate = patch.startDate ?? value.startDate;
+    const billingPeriod = patch.billingPeriod ?? value.billingPeriod;
+    const changed =
+      startDate !== value.startDate || billingPeriod !== value.billingPeriod;
+    const endDate = suggestEndDate && changed
+      ? conventionalEndDate(startDate, billingPeriod)
+      : null;
+    onChange(endDate ? { ...patch, endDate } : patch);
+  }
+
+  const suggestedEnd = suggestEndDate
+    ? conventionalEndDate(value.startDate, value.billingPeriod)
+    : null;
+  const endDiffers = !!suggestedEnd && !!value.endDate && value.endDate !== suggestedEnd;
+
   function onServiceChange(serviceId: string) {
     const svc = services.find((s) => s.id === serviceId);
-    onChange({
+    changeStartOrPeriod({
       serviceId,
       // Pre-popola prezzo/periodicità dallo snapshot catalogo se il prezzo è vuoto.
       priceEuro:
@@ -239,7 +263,7 @@ export function ItemFields({
             type="date"
             className="field"
             value={value.startDate}
-            onChange={(e) => onChange({ startDate: e.target.value })}
+            onChange={(e) => changeStartOrPeriod({ startDate: e.target.value })}
           />
           {errors.startDate ? (
             <p className="mt-1 text-xs text-red-600">{errors.startDate}</p>
@@ -258,6 +282,11 @@ export function ItemFields({
           />
           {errors.endDate ? (
             <p className="mt-1 text-xs text-red-600">{errors.endDate}</p>
+          ) : endDiffers ? (
+            <p className="mt-1 text-xs text-amber-700">
+              Diversa dalla convenzione (inizio + periodo − 1 giorno:{" "}
+              {formatDate(`${suggestedEnd}T00:00:00Z`)}).
+            </p>
           ) : null}
         </div>
 
@@ -356,7 +385,7 @@ export function ItemFields({
             id={`${idPrefix}-billingPeriod`}
             className="field"
             value={value.billingPeriod}
-            onChange={(e) => onChange({ billingPeriod: e.target.value })}
+            onChange={(e) => changeStartOrPeriod({ billingPeriod: e.target.value })}
           >
             {BILLING_PERIODS.map((p) => (
               <option key={p} value={p}>
