@@ -1,6 +1,7 @@
 import "server-only";
 import type { Prisma, Receipt } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { formatClientAddress } from "@/lib/address";
 import { splitVatFromGross } from "@/lib/vat";
 
 /**
@@ -9,32 +10,6 @@ import { splitVatFromGross } from "@/lib/vat";
  * all'interno di transazioni più grandi (es. confirmPaymentAndRenew).
  */
 type Db = Prisma.TransactionClient | typeof prisma;
-
-/**
- * Compone l'indirizzo completo del cliente in una singola stringa leggibile,
- * saltando i campi vuoti. Es. "Via Roma 1, 20100 Milano (MI), IT".
- */
-function formatClientAddress(client: {
-  indirizzo: string | null;
-  cap: string | null;
-  citta: string | null;
-  provincia: string | null;
-  paese: string | null;
-}): string | null {
-  const cityLine = [
-    client.cap,
-    client.citta,
-    client.provincia ? `(${client.provincia})` : null,
-  ]
-    .filter(Boolean)
-    .join(" ");
-
-  const parts = [client.indirizzo, cityLine || null, client.paese].filter(
-    Boolean,
-  );
-
-  return parts.length ? parts.join(", ") : null;
-}
 
 /**
  * Genera il numero progressivo della ricevuta per l'anno corrente.

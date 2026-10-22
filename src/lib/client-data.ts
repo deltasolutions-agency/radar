@@ -2,6 +2,7 @@ import "server-only";
 import { randomBytes } from "crypto";
 import type { Client } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { cleanAddressPart } from "@/lib/address";
 
 /**
  * Campi dei dati di fatturazione che il cliente può VISUALIZZARE e MODIFICARE
@@ -55,12 +56,20 @@ export function clientDataFieldsFor(
   }));
 }
 
-/** Coppie label/value dei dati di fatturazione, per le sezioni email. */
+const ADDRESS_KEYS: ReadonlySet<ClientDataFieldKey> = new Set(["indirizzo", "citta", "cap", "provincia"]);
+
+/**
+ * Coppie label/value dei dati di fatturazione, per le sezioni email. Le parti
+ * dell'indirizzo sono ripulite da virgole/spazi finali (cleanAddressPart).
+ */
 export function billingDataFor(
   client: Pick<Client, ClientDataFieldKey>,
 ): { label: string; value: string }[] {
   const data = pickClientData(client);
-  return CLIENT_DATA_FIELDS.map((f) => ({ label: f.label, value: data[f.key] }));
+  return CLIENT_DATA_FIELDS.map((f) => ({
+    label: f.label,
+    value: ADDRESS_KEYS.has(f.key) ? cleanAddressPart(data[f.key]) : data[f.key],
+  }));
 }
 
 /** Diff prima/dopo sui soli campi effettivamente cambiati. */

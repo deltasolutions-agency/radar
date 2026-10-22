@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { formatEur, formatDate } from "@/lib/format";
+import { normalizeAddress } from "@/lib/address";
 import { isReceiptPubliclyAccessible } from "@/lib/receipt-access";
 import { GoogleReviewCta } from "@/components/google-review-cta";
 import { ReceiptControls } from "./receipt-controls";
@@ -86,6 +87,8 @@ export default async function RicevutaPubblicaPage({
       ? { label: "Cod. fiscale", value: receipt.codiceFiscale }
       : null;
   const company = receipt.ragioneSociale?.trim();
+  // Snapshot salvato: ripulito anche per le ricevute emesse prima di formatAddress.
+  const address = normalizeAddress(receipt.clientAddress);
   const stamp = stampFor(receipt.payment);
   const cur = receipt.currency;
 
@@ -136,10 +139,10 @@ export default async function RicevutaPubblicaPage({
                     <dd>{taxId.value}</dd>
                   </>
                 ) : null}
-                {receipt.clientAddress ? (
+                {address ? (
                   <>
                     <dt>Indirizzo</dt>
-                    <dd>{receipt.clientAddress}</dd>
+                    <dd>{address}</dd>
                   </>
                 ) : null}
                 {receipt.clientEmail ? (

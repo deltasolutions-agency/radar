@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { ClientStatusBadge } from "@/components/badges";
 import { DeleteButton } from "@/components/delete-button";
 import { formatDate } from "@/lib/format";
+import { formatClientAddress } from "@/lib/address";
 import type { ClientStatusValue } from "@/lib/validations";
 import { RequestDataUpdateButton } from "./request-data-update-button";
 
@@ -29,13 +30,7 @@ export default async function ClienteDettaglioPage({
   });
   if (!client) notFound();
 
-  const address = [
-    client.indirizzo,
-    [client.cap, client.citta].filter(Boolean).join(" "),
-    [client.provincia, client.paese].filter(Boolean).join(" "),
-  ]
-    .filter((p) => p && p.trim())
-    .join(", ");
+  const address = formatClientAddress(client) ?? "";
 
   return (
     <div className="space-y-6">
