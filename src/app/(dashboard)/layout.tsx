@@ -10,5 +10,9 @@ export default async function DashboardLayout({
   const session = await getSession();
   const userLabel = session?.name ?? session?.email ?? "";
 
-  return <DashboardShell userLabel={userLabel}>{children}</DashboardShell>;
+  return (
+    <DashboardShell userLabel={userLabel} isAdmin={session?.role === "ADMIN"}>
+      {children}
+    </DashboardShell>
+  );
 }

@@ -2,6 +2,8 @@ import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { renewalChargePriceCents } from "@/lib/renewal-price";
 import { formatEur } from "@/lib/format";
+import { getAdminSession } from "@/lib/auth";
+import { invoiceDueBefore, netCollectedCents } from "@/lib/payment-ledger";
 import {
   SUBSCRIPTION_STATUSES,
   SUBSCRIPTION_STATUS_LABELS,
@@ -44,7 +46,8 @@ export default async function DashboardPage() {
     statusGroups,
     autoChargeCount,
     dueItems,
-    confirmedPayments,
+    collectedPayments,
+    toInvoiceCount,
   ] = await Promise.all([
     prisma.client.count(),
     prisma.service.count(),
@@ -71,17 +74,30 @@ export default async function DashboardPage() {
         service: { select: { renewalIncreasePercent: true } },
       },
     }),
-    // Incassi confermati degli ultimi 12 mesi.
+    // Incassi degli ultimi 12 mesi, anche stornati: il grafico mostra il netto
+    // (incassato − rimborsato) con lo stesso calcolo della sezione Pagamenti.
     prisma.payment.findMany({
       where: {
-        status: "CONFERMATO",
+        status: { in: ["CONFERMATO", "RIMBORSATO"] },
         paidAt: {
           gte: new Date(now.getFullYear(), now.getMonth() - (MONTHS_BACK - 1), 1),
         },
       },
-      select: { amountCents: true, paidAt: true },
+      select: {
+        status: true,
+        amountCents: true,
+        serviceFeeCents: true,
+        refundedServiceFeeCents: true,
+        paidAt: true,
+        items: { select: { status: true, amountCents: true } },
+      },
+    }),
+    // Pagamenti non fatturati da più di 10 giorni (stessa regola di /pagamenti).
+    prisma.payment.count({
+      where: { status: "CONFERMATO", invoicedAt: null, paidAt: { lt: invoiceDueBefore(now) } },
     }),
   ]);
+  const isAdmin = !!(await getAdminSession());
 
   // ── Metriche ────────────────────────────────────────────────────────────
   const countByStatus = new Map<string, number>(
@@ -117,11 +133,11 @@ export default async function DashboardPage() {
     });
   }
   const monthKeys = [...bucket.keys()];
-  for (const p of confirmedPayments) {
+  for (const p of collectedPayments) {
     if (!p.paidAt) continue;
     const key = `${p.paidAt.getFullYear()}-${p.paidAt.getMonth()}`;
     const idx = monthKeys.indexOf(key);
-    if (idx >= 0) monthly[idx].totalCents += p.amountCents;
+    if (idx >= 0) monthly[idx].totalCents += netCollectedCents(p);
   }
 
   const metrics = [
@@ -132,6 +148,7 @@ export default async function DashboardPage() {
     },
     { label: "Auto-charge attivi", value: String(autoChargeCount) },
   ];
+  const showInvoiceCard = isAdmin;
 
   return (
     <div className="space-y-8">
@@ -143,7 +160,7 @@ export default async function DashboardPage() {
       </div>
 
       {/* Metric card */}
-      <div className="grid gap-4 sm:grid-cols-3">
+      <div className={`grid gap-4 sm:grid-cols-2 ${showInvoiceCard ? "lg:grid-cols-4" : "lg:grid-cols-3"}`}>
         {metrics.map((m) => (
           <div key={m.label} className="card p-5">
             <div className="mono-label">{m.label}</div>
@@ -152,6 +169,18 @@ export default async function DashboardPage() {
             </div>
           </div>
         ))}
+        {showInvoiceCard ? (
+          <Link
+            href="/pagamenti?invoiced=da-fatturare"
+            className={`card p-5 transition hover:shadow-sm ${
+              toInvoiceCount > 0 ? "border-amber-300 bg-amber-50" : ""
+            }`}
+          >
+            <div className="mono-label">Pagamenti da fatturare</div>
+            <div className="mt-2 text-2xl font-semibold sm:text-3xl">{toInvoiceCount}</div>
+            <div className="mt-1 text-xs text-slate-500">non fatturati da più di 10 giorni →</div>
+          </Link>
+        ) : null}
       </div>
 
       {/* Grafici */}
@@ -161,7 +190,7 @@ export default async function DashboardPage() {
           <StatusDonut data={statusData} />
         </div>
         <div className="card p-5">
-          <h2 className="mono-label mb-2">Incassi mensili</h2>
+          <h2 className="mono-label mb-2">Incassi netti</h2>
           <IncomeBars data={monthly} />
         </div>
       </div>

@@ -80,7 +80,7 @@ export function StatusDonut({ data }: { data: StatusDatum[] }) {
   );
 }
 
-/** Grafico a barre: incassi confermati per mese. */
+/** Grafico a barre: incassi netti (incassato − rimborsato) per mese. */
 export function IncomeBars({ data }: { data: MonthlyDatum[] }) {
   const hasData = data.some((d) => d.totalCents > 0);
 
@@ -109,7 +109,7 @@ export function IncomeBars({ data }: { data: MonthlyDatum[] }) {
           width={40}
         />
         <Tooltip
-          formatter={(value) => [formatEur(Number(value)), "Incassato"]}
+          formatter={(value) => [formatEur(Number(value)), "Incasso netto"]}
           cursor={{ fill: "rgba(79,70,229,0.06)" }}
         />
         <Bar dataKey="totalCents" fill="#4f46e5" radius={[4, 4, 0, 0]} />

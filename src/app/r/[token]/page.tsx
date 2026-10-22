@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { formatEur, formatDate } from "@/lib/format";
 import { normalizeAddress } from "@/lib/address";
+import { refundStateOf } from "@/lib/payment-ledger";
 import { isReceiptPubliclyAccessible } from "@/lib/receipt-access";
 import { GoogleReviewCta } from "@/components/google-review-cta";
 import { ReceiptControls } from "./receipt-controls";
@@ -21,18 +22,13 @@ function methodLabel(method: string): string {
 }
 
 /** Timbro dallo stato del pagamento: storno totale, parziale o pagato. */
-function stampFor(payment: {
-  status: string;
-  items: { status: string }[];
-}): { label: string; refunded: boolean } {
-  const refundedItems = payment.items.filter((i) => i.status === "RIMBORSATO").length;
-  if (
-    payment.status === "RIMBORSATO" ||
-    (payment.items.length > 0 && refundedItems === payment.items.length)
-  ) {
-    return { label: "STORNATO", refunded: true };
-  }
-  if (refundedItems > 0) return { label: "STORNATO PARZ.", refunded: true };
+function stampFor(payment: Parameters<typeof refundStateOf>[0]): {
+  label: string;
+  refunded: boolean;
+} {
+  const state = refundStateOf(payment);
+  if (state === "STORNATO") return { label: "STORNATO", refunded: true };
+  if (state === "STORNATO_PARZIALE") return { label: "STORNATO PARZ.", refunded: true };
   return { label: "PAGATO", refunded: false };
 }
 

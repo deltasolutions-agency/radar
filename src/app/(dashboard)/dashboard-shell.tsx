@@ -58,6 +58,16 @@ function IconImpostazioni({ className }: IconProps) {
   );
 }
 
+function IconPagamenti({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
+      <rect x="2" y="5" width="20" height="14" rx="2" />
+      <path d="M2 10h20" />
+      <path d="M6 15h4" />
+    </svg>
+  );
+}
+
 function IconLog({ className }: IconProps) {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
@@ -75,15 +85,22 @@ const LINKS = [
   { href: "/clienti", label: "Clienti", Icon: IconClienti },
   { href: "/servizi", label: "Servizi", Icon: IconServizi },
   { href: "/abbonamenti", label: "Abbonamenti", Icon: IconAbbonamenti },
+  { href: "/pagamenti", label: "Pagamenti", Icon: IconPagamenti, adminOnly: true },
   { href: "/impostazioni", label: "Impostazioni", Icon: IconImpostazioni },
   { href: "/log", label: "Log", Icon: IconLog },
 ];
 
-function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
+function NavLinks({
+  isAdmin,
+  onNavigate,
+}: {
+  isAdmin: boolean;
+  onNavigate?: () => void;
+}) {
   const pathname = usePathname();
   return (
     <nav className="flex flex-col gap-1">
-      {LINKS.map(({ href, label, Icon }) => {
+      {LINKS.filter((l) => isAdmin || !("adminOnly" in l)).map(({ href, label, Icon }) => {
         const active = pathname === href || pathname.startsWith(`${href}/`);
         return (
           <Link
@@ -108,9 +125,12 @@ function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
 
 export function DashboardShell({
   userLabel,
+  isAdmin,
   children,
 }: {
   userLabel: string;
+  /** Mostra le voci riservate agli admin (es. Pagamenti). */
+  isAdmin: boolean;
   children: React.ReactNode;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
@@ -157,7 +177,7 @@ export function DashboardShell({
       <div className="mx-auto flex w-full max-w-7xl">
         {/* Sidebar desktop: sticky sotto l'header */}
         <aside className="sticky top-[61px] hidden h-[calc(100vh-61px)] w-60 shrink-0 overflow-y-auto border-r border-line px-3 py-5 lg:block">
-          <NavLinks />
+          <NavLinks isAdmin={isAdmin} />
         </aside>
 
         <main className="min-w-0 flex-1 px-4 py-8 sm:px-6">{children}</main>
@@ -193,7 +213,7 @@ export function DashboardShell({
               </button>
             </div>
             <div className="overflow-y-auto px-3 py-4">
-              <NavLinks onNavigate={() => setMenuOpen(false)} />
+              <NavLinks isAdmin={isAdmin} onNavigate={() => setMenuOpen(false)} />
             </div>
           </div>
         </div>

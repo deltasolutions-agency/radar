@@ -426,6 +426,15 @@ model Payment {
   recordedById String?
   recordedBy   User?   @relation("PaymentRecordedBy", fields: [recordedById], references: [id], onDelete: SetNull)
 
+  // Fatturazione (sezione Pagamenti): fattura emessa dall'admin per questo
+  // incasso e, se il pagamento fatturato viene poi stornato, nota di credito.
+  invoicedAt         DateTime?
+  invoiceNumber      String?
+  invoiceDate        DateTime?
+  creditNoteIssuedAt DateTime?
+  creditNoteNumber   String?
+  creditNoteDate     DateTime?
+
   items         PaymentItem[]
   // Ricevuta non fiscale generata alla conferma (1:1).
   receipt       Receipt?
@@ -436,6 +445,8 @@ model Payment {
 
   @@index([subscriptionId])
   @@index([status])
+  @@index([paidAt])
+  @@index([invoicedAt])
   @@map("payments")
 }
 
