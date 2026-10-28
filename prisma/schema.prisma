@@ -16,6 +16,12 @@ datasource db {
 // ENUM — stati e tipologie
 // ──────────────────────────────────────────────────────────────────────────
 
+/// Lingua delle comunicazioni al cliente (email, pagine pubbliche, PDF, Stripe).
+enum Locale {
+  IT
+  EN
+}
+
 /// Ruolo dell'utente staff. Per ora solo ADMIN; STAFF predisposto per il futuro.
 enum UserRole {
   ADMIN
@@ -160,14 +166,17 @@ model Client {
   // abilita la modifica self-service: parte true (prima modifica sempre
   // consentita), diventa false dopo il primo salvataggio, torna true solo se
   // l'admin invia una nuova richiesta di aggiornamento dati.
-  dataEditToken    String?  @unique
-  dataEditUnlocked Boolean  @default(true)
+  dataEditToken    String? @unique
+  dataEditUnlocked Boolean @default(true)
+
+  // Lingua di tutte le comunicazioni destinate al cliente.
+  locale Locale @default(IT)
 
   status ClientStatus @default(ATTIVO)
   note   String?
 
   // Riferimento al customer Stripe (per riutilizzo dei dati di pagamento).
-  stripeCustomerId String? @unique
+  stripeCustomerId             String? @unique
   // Metodo di pagamento salvato per gli addebiti automatici (SetupIntent).
   stripeDefaultPaymentMethodId String?
 
@@ -213,12 +222,12 @@ model ClientDataChangeLog {
 /// pubblico, autorizza esattamente quei servizi (itemIds), non tutti. Sostituisce
 /// il meccanismo cumulativo basato su SubscriptionItem.autoChargeSetupToken.
 model AutoChargeRequest {
-  id       String @id @default(cuid())
-  clientId String
-  client   Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  token    String @unique @default(cuid())
+  id        String    @id @default(cuid())
+  clientId  String
+  client    Client    @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  token     String    @unique @default(cuid())
   // id dei SubscriptionItem inclusi in questa specifica richiesta.
-  itemIds  String[]
+  itemIds   String[]
   // Valorizzato quando la richiesta è stata completata (carta registrata).
   usedAt    DateTime?
   createdAt DateTime  @default(now())
@@ -259,6 +268,7 @@ model ConsentLog {
   client     Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
   type       String   @default("PRIVACY_TC")
   version    String // es. "2026-07-02"
+  locale     Locale   @default(IT) // lingua in cui il testo è stato mostrato
   acceptedAt DateTime @default(now())
   ipAddress  String?
   createdAt  DateTime @default(now())
@@ -277,6 +287,10 @@ model Service {
   name        String
   type        ServiceType
   description String?
+
+  // Traduzioni opzionali per i clienti in inglese (fallback: italiano).
+  nameEn        String?
+  descriptionEn String?
 
   // Importi in centesimi per evitare problemi di arrotondamento.
   priceCents Int // prezzo di vendita
@@ -354,7 +368,7 @@ model SubscriptionItem {
 
   // Quantità del servizio in questa riga: moltiplica priceCents per ottenere
   // l'importo effettivo della riga (es. 3 caselle email a 10€ = 30€).
-  quantity  Int                @default(1)
+  quantity Int @default(1)
 
   // Cliente finale (facoltativo) per le agenzie che subappaltano: nome del
   // cliente dell'agenzia a cui si riferisce questo servizio. Max 120 caratteri.
@@ -418,20 +432,20 @@ model Payment {
   subscription   Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
 
   // Rinnovo (default) o primo pagamento di attivazione.
-  kind        PaymentKind @default(RENEWAL)
-  amountCents Int // somma dei PaymentItem + eventuale costo di servizio
+  kind                    PaymentKind   @default(RENEWAL)
+  amountCents             Int // somma dei PaymentItem + eventuale costo di servizio
   // Costo di servizio Radar (1,5%) applicato SOLO ai pagamenti Stripe quando
   // Subscription.serviceFeeEnabled è true. NON è un PaymentItem: è un importo
   // aggiuntivo incluso in amountCents ma non stornabile singolarmente.
-  serviceFeeCents Int       @default(0)
+  serviceFeeCents         Int           @default(0)
   // Quota di serviceFeeCents già resa al cliente tramite storni (parziali o
   // totali). Consente di calcolare il residuo di costo di servizio ancora
   // rimborsabile su storni parziali sequenziali dello stesso pagamento.
-  refundedServiceFeeCents Int @default(0)
-  currency    String        @default("eur")
-  method      PaymentMethod
+  refundedServiceFeeCents Int           @default(0)
+  currency                String        @default("eur")
+  method                  PaymentMethod
   // Stato aggregato indicativo: la fonte di verità granulare è PaymentItem.status.
-  status      PaymentStatus @default(IN_ATTESA)
+  status                  PaymentStatus @default(IN_ATTESA)
 
   paidAt DateTime?
 
@@ -496,9 +510,9 @@ model PaymentItem {
   periodEnd   DateTime?
 
   // Snapshot pre-rinnovo per questo item specifico (per ripristino su storno).
-  previousEndDate       DateTime?
-  previousPriceCents    Int?
-  previousLastRenewalAt DateTime?
+  previousEndDate                  DateTime?
+  previousPriceCents               Int?
+  previousLastRenewalAt            DateTime?
   // Snapshot dell'indicatore aumento ONCE prima del rinnovo e flag "questo
   // pagamento ha applicato l'aumento ONCE": lo storno ripristina entrambi.
   previousRenewalIncreaseAppliedAt DateTime?
@@ -539,15 +553,15 @@ model Receipt {
   clientEmail    String?
   clientAddress  String? // indirizzo completo formattato
 
-  amountCents Int // totale pagato (imponibile + IVA, incluso costo di servizio)
+  amountCents        Int // totale pagato (imponibile + IVA, incluso costo di servizio)
   // Scorporo IVA 22%: imponibile = round(amountCents / 1.22), IVA = totale − imponibile.
-  taxableAmountCents Int @default(0)
-  vatAmountCents     Int @default(0)
+  taxableAmountCents Int           @default(0)
+  vatAmountCents     Int           @default(0)
   // Costo di servizio Radar (1,5%) incluso nel totale, mostrato come riga a parte.
-  serviceFeeCents    Int @default(0)
-  currency    String        @default("eur")
-  method      PaymentMethod
-  paidAt      DateTime
+  serviceFeeCents    Int           @default(0)
+  currency           String        @default("eur")
+  method             PaymentMethod
+  paidAt             DateTime
 
   // Se valorizzato, la finestra di accesso pubblico (10gg) riparte da qui
   // invece che da issuedAt (riattivazione manuale dell'admin).
@@ -565,18 +579,18 @@ model Receipt {
 
 /// Singola voce di servizio all'interno di una ricevuta (snapshot immutabile).
 model ReceiptLine {
-  id          String    @id @default(cuid())
-  receiptId   String
-  receipt     Receipt   @relation(fields: [receiptId], references: [id], onDelete: Cascade)
-  serviceName String
-  description String?
+  id            String    @id @default(cuid())
+  receiptId     String
+  receipt       Receipt   @relation(fields: [receiptId], references: [id], onDelete: Cascade)
+  serviceName   String
+  description   String?
   // Snapshot del cliente finale della riga al momento della ricevuta.
   endClientName String?
-  periodStart DateTime?
-  periodEnd   DateTime?
+  periodStart   DateTime?
+  periodEnd     DateTime?
   // Quantità (snapshot) e importo TOTALE della riga (unitario × quantità).
-  quantity    Int       @default(1)
-  amountCents Int
+  quantity      Int       @default(1)
+  amountCents   Int
 
   @@index([receiptId])
   @@map("receipt_lines")
@@ -590,25 +604,25 @@ model ReceiptLine {
 /// reminder, rese configurabili. I testi email personalizzati sono in
 /// ReminderTemplate (una riga per NotificationType).
 model ReminderSettings {
-  id                  String @id @default("singleton")
+  id                           String  @id @default("singleton")
   // Giorni-mancanti alla scadenza per i promemoria di periodi lunghi (annuali).
-  thresholdsLongDays  Int[]  @default([30, 15, 7])
+  thresholdsLongDays           Int[]   @default([30, 15, 7])
   // Idem, riscalati per periodi corti (mensili).
-  thresholdsShortDays Int[]  @default([10, 5, 1])
+  thresholdsShortDays          Int[]   @default([10, 5, 1])
   // Giorni-dopo-la-scadenza in cui inviare un SOLLECITO.
-  overdueDays         Int[]  @default([0, 1, 2, 7, 10])
+  overdueDays                  Int[]   @default([0, 1, 2, 7, 10])
   // Giorno-dopo-la-scadenza in cui scatta la cessazione per morosità.
-  cessationDay        Int    @default(11)
+  cessationDay                 Int     @default(11)
   // Ore dalla creazione di una AutoChargeRequest in cui sollecitare l'attivazione
   // (soglia intermedia = reminder al cliente; ultima soglia = escalation admin).
-  autoChargeReminderHours Int[] @default([12, 24])
+  autoChargeReminderHours      Int[]   @default([12, 24])
   // Ritardo massimo (giorni dalla scadenza) entro cui il cron auto-charge
   // addebita una riga; oltre → esclusa e segnalata all'admin. Range 0–10.
-  autoChargeMaxDelayDays Int @default(3)
+  autoChargeMaxDelayDays       Int     @default(3)
   // Solleciti del primo pagamento: giorni dall'invio del link in cui scrivere
   // al cliente, e giorno dell'avviso all'admin (nessuna cessazione automatica).
-  firstPaymentReminderDays  Int[] @default([3, 7])
-  firstPaymentAdminAlertDay Int   @default(10)
+  firstPaymentReminderDays     Int[]   @default([3, 7])
+  firstPaymentAdminAlertDay    Int     @default(10)
   // DEPRECATA (fase19): il bonifico non è più un'opzione di pagamento per i
   // clienti. Colonna mantenuta solo per non fare una migration distruttiva:
   // NON va letta né scritta da nessuna parte del codice.
@@ -619,15 +633,17 @@ model ReminderSettings {
   @@map("reminder_settings")
 }
 
-/// Override testuale (oggetto/corpo) di una email di reminder, per tipo.
-/// Campi null = usa il testo di default (REMINDER_DEFAULTS in email-templates).
+/// Override testuale (oggetto/corpo) di una email di reminder, per tipo e lingua.
+/// Campi null = usa il testo di default della lingua (dizionario i18n).
 model ReminderTemplate {
-  type    NotificationType @id
+  type    NotificationType
+  locale  Locale           @default(IT)
   subject String?
   body    String?
 
   updatedAt DateTime @updatedAt
 
+  @@id([type, locale])
   @@map("reminder_templates")
 }
 
@@ -719,9 +735,9 @@ model EmailLog {
   bcc     String[]
   replyTo String?
 
-  subject String
-  html    String  @db.Text
-  text    String? @db.Text
+  subject         String
+  html            String   @db.Text
+  text            String?  @db.Text
   // Nomi degli allegati inviati (il contenuto non viene conservato).
   attachmentNames String[]
 
@@ -774,12 +790,12 @@ model CronRun {
   triggeredBy String?
   startedAt   DateTime      @default(now())
   finishedAt  DateTime?
-  candidates Int       @default(0)
-  sent       Int       @default(0)
-  skipped    Int       @default(0)
-  failed     Int       @default(0)
-  error      String?   @db.Text
-  details    Json?
+  candidates  Int           @default(0)
+  sent        Int           @default(0)
+  skipped     Int           @default(0)
+  failed      Int           @default(0)
+  error       String?       @db.Text
+  details     Json?
 
   @@index([name, startedAt])
   @@map("cron_runs")
@@ -803,9 +819,9 @@ model AdminActionLog {
 
 // Interruttore e lock di esecuzione per ciascun cron (gestiti dalla dashboard).
 model CronSetting {
-  name      String   @id // reminders | auto-charge | autocharge-reminders
-  enabled   Boolean  @default(true)
-  updatedAt DateTime @updatedAt
+  name      String    @id // reminders | auto-charge | autocharge-reminders
+  enabled   Boolean   @default(true)
+  updatedAt DateTime  @updatedAt
   updatedBy String?
   // Lock anti-concorrenza: valorizzato durante un'esecuzione; scade dopo 15 min.
   lockedAt  DateTime?
