@@ -1,6 +1,8 @@
 "use client";
 
 import { useState } from "react";
+import { tr, type Lang } from "@/lib/i18n";
+import { legalHref } from "@/lib/legal";
 import { activateAutoCharge } from "./actions";
 
 /**
@@ -10,9 +12,11 @@ import { activateAutoCharge } from "./actions";
 export function ActivateForm({
   token,
   needsConsent,
+  lang = "it",
 }: {
   token: string;
   needsConsent: boolean;
+  lang?: Lang;
 }) {
   const [accepted, setAccepted] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -31,23 +35,23 @@ export function ActivateForm({
             onChange={(e) => setAccepted(e.target.checked)}
           />
           <span>
-            Ho letto e accetto la{" "}
+            {tr(lang, { it: "Ho letto e accetto la", en: "I have read and accept the" })}{" "}
             <a
-              href="/privacy"
+              href={legalHref("/privacy", lang)}
               target="_blank"
               rel="noopener noreferrer"
               className="text-brand underline"
             >
               Privacy Policy
             </a>{" "}
-            e i{" "}
+            {tr(lang, { it: "e i", en: "and the" })}{" "}
             <a
-              href="/termini"
+              href={legalHref("/termini", lang)}
               target="_blank"
               rel="noopener noreferrer"
               className="text-brand underline"
             >
-              Termini e Condizioni
+              {tr(lang, { it: "Termini e Condizioni", en: "Terms and Conditions" })}
             </a>
           </span>
         </label>
@@ -59,8 +63,11 @@ export function ActivateForm({
         disabled={(needsConsent && !accepted) || submitting}
       >
         {submitting
-          ? "Attendere…"
-          : "Attiva rinnovo automatico e registra carta"}
+          ? tr(lang, { it: "Attendere…", en: "Please wait…" })
+          : tr(lang, {
+              it: "Attiva rinnovo automatico e registra carta",
+              en: "Activate automatic renewal and save card",
+            })}
       </button>
     </form>
   );

@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { getStripe } from "@/lib/stripe";
 import { CURRENT_CONSENT_VERSION } from "@/lib/legal";
 import { clientIp } from "@/lib/request-ip";
+import { langOf, localeOf } from "@/lib/i18n";
 import {
   canRegenerateCheckout,
   createAutoChargeCheckoutSession,
@@ -62,6 +63,8 @@ export async function proceedToPayment(formData: FormData): Promise<void> {
         clientId: client.id,
         version: CURRENT_CONSENT_VERSION,
         ipAddress: clientIp(),
+        // Lingua in cui il testo legale è stato mostrato (lingua del cliente).
+        locale: localeOf(langOf(client.locale)),
       },
     });
   }

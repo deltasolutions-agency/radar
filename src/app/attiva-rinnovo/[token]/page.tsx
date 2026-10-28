@@ -9,6 +9,8 @@ import { addVatToNet } from "@/lib/vat";
 import { clientDataFieldsFor, ensureDataEditToken } from "@/lib/client-data";
 import { GoogleReviewCta } from "@/components/google-review-cta";
 import { DataEditForm } from "@/app/i-tuoi-dati/[token]/data-edit-form";
+import { langOf, localizedServiceName, tr, type Lang } from "@/lib/i18n";
+import { HtmlLang } from "@/components/html-lang";
 import { ActivateForm } from "./activate-form";
 
 export const dynamic = "force-dynamic";
@@ -16,9 +18,16 @@ export const dynamic = "force-dynamic";
 const LOGO_URL =
   "/logo-delta-solutions.png";
 
-function Shell({ children }: { children: React.ReactNode }) {
+function Shell({
+  children,
+  lang = "it",
+}: {
+  children: React.ReactNode;
+  lang?: Lang;
+}) {
   return (
     <main className="mx-auto max-w-md px-6 py-16">
+      <HtmlLang lang={lang} />
       <div className="mb-6 flex items-center gap-2.5">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src={LOGO_URL} alt="Delta Solutions" className="h-7 w-auto" />
@@ -29,9 +38,17 @@ function Shell({ children }: { children: React.ReactNode }) {
   );
 }
 
-function Message({ title, body }: { title: string; body: string }) {
+function Message({
+  title,
+  body,
+  lang = "it",
+}: {
+  title: string;
+  body: string;
+  lang?: Lang;
+}) {
   return (
-    <Shell>
+    <Shell lang={lang}>
       <h1 className="text-lg font-semibold tracking-tight">{title}</h1>
       <p className="mt-2 text-sm text-slate-600">{body}</p>
     </Shell>
@@ -69,11 +86,14 @@ export default async function AttivaRinnovoPage({
     );
   }
 
+  // Lingua del cliente della richiesta.
+  const lang: Lang = langOf(request.client.locale);
+
   // Carta registrata con successo → solo conferma + CTA recensione (nessun
   // elenco servizi o prezzo: il cliente ha già deciso e attivato).
   if (searchParams.done) {
     return (
-      <Shell>
+      <Shell lang={lang}>
         <div className="text-center">
           <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-emerald-100">
             <svg
@@ -91,16 +111,21 @@ export default async function AttivaRinnovoPage({
             </svg>
           </div>
           <h1 className="mt-4 text-xl font-semibold tracking-tight text-ink">
-            Rinnovo automatico attivato con successo
+            {tr(lang, {
+              it: "Rinnovo automatico attivato con successo",
+              en: "Automatic renewal successfully activated",
+            })}
           </h1>
           <p className="mt-2 text-sm text-slate-600">
-            La carta è stata registrata e il rinnovo automatico è ora attivo.
-            Riceverai le conferme di pagamento via email.
+            {tr(lang, {
+              it: "La carta è stata registrata e il rinnovo automatico è ora attivo. Riceverai le conferme di pagamento via email.",
+              en: "Your card has been saved and automatic renewal is now active. You will receive payment confirmations by email.",
+            })}
           </p>
         </div>
 
         <div className="mt-6">
-          <GoogleReviewCta />
+          <GoogleReviewCta lang={lang} />
         </div>
       </Shell>
     );
@@ -110,8 +135,12 @@ export default async function AttivaRinnovoPage({
   if (request.usedAt) {
     return (
       <Message
-        title="Link già utilizzato"
-        body="Questa richiesta di attivazione è già stata completata. Se hai bisogno di modificare il rinnovo automatico scrivici a hello@deltasolutions.agency."
+        lang={lang}
+        title={tr(lang, { it: "Link già utilizzato", en: "Link already used" })}
+        body={tr(lang, {
+          it: "Questa richiesta di attivazione è già stata completata. Se hai bisogno di modificare il rinnovo automatico scrivici a hello@deltasolutions.agency.",
+          en: "This activation request has already been completed. If you need to change your automatic renewal, write to us at hello@deltasolutions.agency.",
+        })}
       />
     );
   }
@@ -128,8 +157,12 @@ export default async function AttivaRinnovoPage({
   if (items.length === 0) {
     return (
       <Message
-        title="Link non valido"
-        body="I servizi collegati a questa richiesta non sono più disponibili. Contatta hello@deltasolutions.agency."
+        lang={lang}
+        title={tr(lang, { it: "Link non valido", en: "Invalid link" })}
+        body={tr(lang, {
+          it: "I servizi collegati a questa richiesta non sono più disponibili. Contatta hello@deltasolutions.agency.",
+          en: "The services linked to this request are no longer available. Please contact hello@deltasolutions.agency.",
+        })}
       />
     );
   }
@@ -141,7 +174,7 @@ export default async function AttivaRinnovoPage({
 
   // Sezione dati di fatturazione (sola lettura + eventuale modifica).
   const dataEditToken = await ensureDataEditToken(client);
-  const dataFields = clientDataFieldsFor(client);
+  const dataFields = clientDataFieldsFor(client, lang);
 
   // Riepilogo IVA aggregato: somma per riga (coerente con l'addebito reale).
   let totalNet = 0;
@@ -157,18 +190,27 @@ export default async function AttivaRinnovoPage({
   const listCurrency = items[0]?.currency ?? "eur";
 
   return (
-    <Shell>
+    <Shell lang={lang}>
       <h1 className="text-lg font-semibold tracking-tight">
-        Attiva il rinnovo automatico
+        {tr(lang, {
+          it: "Attiva il rinnovo automatico",
+          en: "Activate automatic renewal",
+        })}
       </h1>
       <p className="mt-1 text-sm text-slate-500">{client.name}</p>
 
       <div className="mt-5 rounded-xl border border-line-soft bg-canvas/50 p-4">
         <h2 className="text-sm font-semibold tracking-tight text-ink">
-          I tuoi dati di fatturazione
+          {tr(lang, {
+            it: "I tuoi dati di fatturazione",
+            en: "Your billing details",
+          })}
         </h2>
         <p className="mt-1 text-xs text-slate-500">
-          Dai un&apos;occhiata: se è tutto corretto non devi fare nulla.
+          {tr(lang, {
+            it: "Dai un'occhiata: se è tutto corretto non devi fare nulla.",
+            en: "Take a look: if everything is correct, you don't need to do anything.",
+          })}
         </p>
         <div className="mt-3">
           <DataEditForm
@@ -176,18 +218,22 @@ export default async function AttivaRinnovoPage({
             token={dataEditToken}
             unlocked={client.dataEditUnlocked}
             fields={dataFields}
+            lang={lang}
           />
         </div>
         <p className="mt-3 border-t border-line-soft pt-3 text-[11px] leading-relaxed text-slate-400">
-          Confermando questi dati, dichiari che sono corretti. Delta Solutions
-          Agency non si assume responsabilità per l&apos;accuratezza delle
-          informazioni fornite dal cliente.
+          {tr(lang, {
+            it: "Confermando questi dati, dichiari che sono corretti. Delta Solutions Agency non si assume responsabilità per l'accuratezza delle informazioni fornite dal cliente.",
+            en: "By confirming these details, you declare that they are correct. Delta Solutions Agency accepts no responsibility for the accuracy of the information provided by the client.",
+          })}
         </p>
       </div>
 
       <p className="mt-6 text-sm text-slate-600">
-        Registrando la carta autorizzi l&apos;addebito automatico ricorrente per
-        i seguenti servizi, ciascuno alla propria scadenza e periodicità:
+        {tr(lang, {
+          it: "Registrando la carta autorizzi l'addebito automatico ricorrente per i seguenti servizi, ciascuno alla propria scadenza e periodicità:",
+          en: "By saving your card, you authorise recurring automatic charges for the following services, each at its own expiry date and billing frequency:",
+        })}
       </p>
 
       <ul className="mt-4 space-y-2 border-t border-line-soft pt-4 text-sm">
@@ -195,21 +241,26 @@ export default async function AttivaRinnovoPage({
           <li key={it.id} className="flex items-start justify-between gap-4">
             <div>
               <p className="text-ink">
-                {it.service.name}
+                {localizedServiceName(it.service, lang)}
                 {it.quantity > 1 ? (
                   <span className="text-slate-500"> ×{it.quantity}</span>
                 ) : null}
               </p>
-              <EndClientLabel name={it.endClientName} />
+              <EndClientLabel name={it.endClientName} lang={lang} />
               <p className="text-xs text-slate-500">
                 {formatBillingPeriod(
                   it.billingPeriod as BillingPeriodValue,
                   it.customPeriodDays,
+                  lang,
                 )}
               </p>
             </div>
             <span className="shrink-0 font-mono text-ink">
-              {formatEur(renewalChargePriceCents(it) * it.quantity, it.currency)}
+              {formatEur(
+                renewalChargePriceCents(it) * it.quantity,
+                it.currency,
+                lang,
+              )}
             </span>
           </li>
         ))}
@@ -218,59 +269,83 @@ export default async function AttivaRinnovoPage({
       {/* Riepilogo IVA (imponibile / IVA / totale) coerente con l'addebito. */}
       <dl className="space-y-1 border-y border-line-soft py-4 text-sm">
         <div className="flex items-center justify-between">
-          <dt className="text-slate-500">Imponibile</dt>
+          <dt className="text-slate-500">
+            {tr(lang, { it: "Imponibile", en: "Taxable amount" })}
+          </dt>
           <dd className="font-mono text-ink">
-            {formatEur(totalNet, listCurrency)}
+            {formatEur(totalNet, listCurrency, lang)}
           </dd>
         </div>
         <div className="flex items-center justify-between">
-          <dt className="text-slate-500">IVA (22%)</dt>
+          <dt className="text-slate-500">
+            {tr(lang, { it: "IVA (22%)", en: "VAT (22%)" })}
+          </dt>
           <dd className="font-mono text-ink">
-            {formatEur(totalVat, listCurrency)}
+            {formatEur(totalVat, listCurrency, lang)}
           </dd>
         </div>
         <div className="mt-1 flex items-center justify-between border-t border-line-soft pt-2">
-          <dt className="font-medium text-ink">Totale</dt>
+          <dt className="font-medium text-ink">
+            {tr(lang, { it: "Totale", en: "Total" })}
+          </dt>
           <dd className="font-mono text-base font-semibold text-ink">
-            {formatEur(totalGross, listCurrency)}
+            {formatEur(totalGross, listCurrency, lang)}
           </dd>
         </div>
       </dl>
       <p className="mt-2 text-xs text-slate-400">
-        Puoi revocare l&apos;autorizzazione in qualsiasi momento scrivendo a
-        hello@deltasolutions.agency.
+        {tr(lang, {
+          it: "Puoi revocare l'autorizzazione in qualsiasi momento scrivendo a hello@deltasolutions.agency.",
+          en: "You can revoke this authorisation at any time by writing to hello@deltasolutions.agency.",
+        })}
       </p>
 
       {searchParams.annullato ? (
         <p className="mt-4 rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-800">
-          Registrazione annullata. Puoi riprovare qui sotto.
+          {tr(lang, {
+            it: "Registrazione annullata. Puoi riprovare qui sotto.",
+            en: "Card registration cancelled. You can try again below.",
+          })}
         </p>
       ) : null}
       {searchParams.error === "stripe" ? (
         <p className="mt-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">
-          Si è verificato un problema con Stripe. Riprova o scrivi a
-          hello@deltasolutions.agency.
+          {tr(lang, {
+            it: "Si è verificato un problema con Stripe. Riprova o scrivi a hello@deltasolutions.agency.",
+            en: "There was a problem with Stripe. Please try again or write to hello@deltasolutions.agency.",
+          })}
         </p>
       ) : null}
       {searchParams.error === "config" ? (
         <p className="mt-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">
-          Configurazione non disponibile. Contatta hello@deltasolutions.agency.
+          {tr(lang, {
+            it: "Configurazione non disponibile. Contatta hello@deltasolutions.agency.",
+            en: "Configuration unavailable. Please contact hello@deltasolutions.agency.",
+          })}
         </p>
       ) : null}
       {searchParams.error === "consent" ? (
         <p className="mt-4 rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-800">
-          Per procedere devi accettare la Privacy Policy e i Termini e
-          Condizioni.
+          {tr(lang, {
+            it: "Per procedere devi accettare la Privacy Policy e i Termini e Condizioni.",
+            en: "To proceed, you must accept the Privacy Policy and the Terms and Conditions.",
+          })}
         </p>
       ) : null}
 
       <div className="mt-5">
-        <ActivateForm token={params.token} needsConsent={needsConsent} />
+        <ActivateForm
+          token={params.token}
+          needsConsent={needsConsent}
+          lang={lang}
+        />
       </div>
 
       <p className="mt-4 text-center text-xs text-slate-400">
-        Registrazione carta sicura tramite Stripe · revocabile in qualsiasi
-        momento
+        {tr(lang, {
+          it: "Registrazione carta sicura tramite Stripe · revocabile in qualsiasi momento",
+          en: "Secure card registration via Stripe · revocable at any time",
+        })}
       </p>
     </Shell>
   );

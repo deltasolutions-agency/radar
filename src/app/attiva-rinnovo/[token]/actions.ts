@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { CURRENT_CONSENT_VERSION } from "@/lib/legal";
 import { clientIp } from "@/lib/request-ip";
+import { langOf, localeOf } from "@/lib/i18n";
 import { createSetupCheckoutUrl } from "@/lib/setup-checkout";
 
 /**
@@ -40,6 +41,8 @@ export async function activateAutoCharge(formData: FormData): Promise<void> {
         clientId: client.id,
         version: CURRENT_CONSENT_VERSION,
         ipAddress: clientIp(),
+        // Lingua in cui il testo legale è stato mostrato (lingua del cliente).
+        locale: localeOf(langOf(client.locale)),
       },
     });
   }
