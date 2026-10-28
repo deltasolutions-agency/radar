@@ -1,12 +1,14 @@
+import { tr, type Lang } from "@/lib/i18n";
+
 const GOOGLE_REVIEW_URL = "https://g.page/r/CdpvuufBNl3PEBM/review";
 
 /** Cinque stelle piene (decorative). */
-function Stars() {
+function Stars({ lang }: { lang: Lang }) {
   return (
     <div
       className="flex justify-center gap-1"
       role="img"
-      aria-label="Cinque stelle"
+      aria-label={tr(lang, { it: "Cinque stelle", en: "Five stars" })}
     >
       {Array.from({ length: 5 }).map((_, i) => (
         <svg
@@ -36,16 +38,31 @@ function Stars() {
  * senso su carta.
  */
 export function GoogleReviewCta({
-  title = "Ti va di lasciarci una recensione?",
-  description = "Bastano 30 secondi e per noi fa una grande differenza. Raccontare la tua esperienza aiuta altri a scegliere Delta Solutions.",
+  title,
+  description,
   variant = "prominent",
   showStars = true,
+  lang = "it",
 }: {
   title?: string;
   description?: string;
   variant?: "prominent" | "subtle";
   showStars?: boolean;
+  /** Lingua dei testi di default e del pulsante (default "it"). */
+  lang?: Lang;
 }) {
+  const heading =
+    title ??
+    tr(lang, {
+      it: "Ti va di lasciarci una recensione?",
+      en: "Would you like to leave us a review?",
+    });
+  const body =
+    description ??
+    tr(lang, {
+      it: "Bastano 30 secondi e per noi fa una grande differenza. Raccontare la tua esperienza aiuta altri a scegliere Delta Solutions.",
+      en: "It only takes 30 seconds and makes a big difference to us. Sharing your experience helps others choose Delta Solutions.",
+    });
   const boxClass =
     variant === "prominent"
       ? "rounded-2xl border border-line bg-gradient-to-b from-canvas to-white p-6 text-center"
@@ -53,11 +70,11 @@ export function GoogleReviewCta({
 
   return (
     <div className={`google-review-cta print:hidden ${boxClass}`}>
-      {showStars ? <Stars /> : null}
+      {showStars ? <Stars lang={lang} /> : null}
       <h2 className="mt-3 text-base font-semibold tracking-tight text-ink">
-        {title}
+        {heading}
       </h2>
-      <p className="mt-1.5 text-sm text-slate-600">{description}</p>
+      <p className="mt-1.5 text-sm text-slate-600">{body}</p>
       <a
         href={GOOGLE_REVIEW_URL}
         target="_blank"
@@ -70,7 +87,7 @@ export function GoogleReviewCta({
             d="M21.35 11.1H12v2.9h5.35c-.25 1.4-1.6 4.1-5.35 4.1a5.9 5.9 0 1 1 0-11.8c1.7 0 2.85.72 3.5 1.34l2.4-2.32A9.3 9.3 0 0 0 12 3a9 9 0 1 0 0 18c5.2 0 8.65-3.65 8.65-8.8 0-.6-.07-1.05-.3-2.1z"
           />
         </svg>
-        Lasciaci un tuo feedback
+        {tr(lang, { it: "Lasciaci un tuo feedback", en: "Leave us your feedback" })}
       </a>
     </div>
   );

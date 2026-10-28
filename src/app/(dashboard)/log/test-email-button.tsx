@@ -8,12 +8,17 @@ export function TestEmailButton() {
   const router = useRouter();
   const [pending, setPending] = useState(false);
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
+  const [lang, setLang] = useState<"it" | "en">("it");
 
   async function send() {
     setPending(true);
     setMessage(null);
     try {
-      const res = await fetch("/api/email-logs/test", { method: "POST" });
+      const res = await fetch("/api/email-logs/test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ lang }),
+      });
       const body = await res.json().catch(() => ({}));
       setMessage(
         res.ok
@@ -29,6 +34,19 @@ export function TestEmailButton() {
 
   return (
     <div className="flex flex-wrap items-center gap-3">
+      <label htmlFor="test-email-lang" className="sr-only">
+        Lingua dell&apos;email di test
+      </label>
+      <select
+        id="test-email-lang"
+        className="field w-auto py-1.5"
+        value={lang}
+        onChange={(e) => setLang(e.target.value === "en" ? "en" : "it")}
+        disabled={pending}
+      >
+        <option value="it">Italiano</option>
+        <option value="en">English</option>
+      </select>
       <button type="button" className="btn-ghost" disabled={pending} onClick={send}>
         {pending ? "Invio…" : "Invia email di test"}
       </button>

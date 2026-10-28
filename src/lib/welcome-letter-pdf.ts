@@ -9,6 +9,7 @@ import {
   type PDFPage,
   type RGB,
 } from "pdf-lib";
+import { tr, type Lang, type Localized } from "@/lib/i18n";
 
 /**
  * Genera in memoria (Node, pdf-lib — nessun LibreOffice/docx a runtime) la
@@ -36,54 +37,118 @@ const BODY = hex("#1F2733");
 // ── Testo della lettera (costanti revisionabili) ───────────────────────────
 // Copy approvata riusata dalla mail di benvenuto (buildWelcomeEmail) + sezioni
 // descritte nella specifica. Modificare qui per aggiornare la lettera.
-const TITLE = "Un nuovo nome, un nuovo modo di gestire i tuoi servizi";
+// Ogni testo è affiancato IT/EN: la lingua è quella del cliente.
+const TITLE: Localized = {
+  it: "Un nuovo nome, un nuovo modo di gestire i tuoi servizi",
+  en: "A new name, a new way to manage your services",
+};
 
-const INTRO =
-  "Ti diamo il benvenuto! Deltaweb è ora Delta Solutions Agency: cambiano il nome e l'immagine, ma restano lo stesso team e la stessa cura dei tuoi servizi. Da oggi la gestione di scadenze, rinnovi e pagamenti passa attraverso Radar, la nostra piattaforma dedicata.";
+const INTRO: Localized = {
+  it: "Ti diamo il benvenuto! Deltaweb è ora Delta Solutions Agency: cambiano il nome e l'immagine, ma restano lo stesso team e la stessa cura dei tuoi servizi. Da oggi la gestione di scadenze, rinnovi e pagamenti passa attraverso Radar, la nostra piattaforma dedicata.",
+  en: "Welcome! Deltaweb is now Delta Solutions Agency: the name and look are changing, but the team and the care we take of your services remain the same. From today, expiry dates, renewals and payments are managed through Radar, our dedicated platform.",
+};
 
-const RADAR_LEAD = "Con Radar hai tutto in un unico posto:";
-const RADAR_BULLETS = [
-  "Promemoria automatici prima di ogni scadenza, così non rischi mai di dimenticare un rinnovo.",
-  "Link di pagamento sicuri, per rinnovare i tuoi servizi in pochi clic.",
-  "Ricevute dei tuoi rinnovi sempre disponibili e ordinate.",
-  "Un riepilogo chiaro dei tuoi servizi e delle relative scadenze.",
-];
+const RADAR_LEAD: Localized = {
+  it: "Con Radar hai tutto in un unico posto:",
+  en: "With Radar you have everything in one place:",
+};
+const RADAR_BULLETS: Localized<string[]> = {
+  it: [
+    "Promemoria automatici prima di ogni scadenza, così non rischi mai di dimenticare un rinnovo.",
+    "Link di pagamento sicuri, per rinnovare i tuoi servizi in pochi clic.",
+    "Ricevute dei tuoi rinnovi sempre disponibili e ordinate.",
+    "Un riepilogo chiaro dei tuoi servizi e delle relative scadenze.",
+  ],
+  en: [
+    "Automatic reminders before every expiry date, so you never risk forgetting a renewal.",
+    "Secure payment links, to renew your services in just a few clicks.",
+    "Receipts for your renewals, always available and well organised.",
+    "A clear overview of your services and their expiry dates.",
+  ],
+};
 
-const NO_ACTION =
-  "Non devi fare nulla: continuiamo a occuparci noi dei tuoi servizi come sempre. Ti contatteremo solo quando ci sarà una scadenza da rinnovare, con tutte le istruzioni necessarie.";
+const NO_ACTION: Localized = {
+  it: "Non devi fare nulla: continuiamo a occuparci noi dei tuoi servizi come sempre. Ti contatteremo solo quando ci sarà una scadenza da rinnovare, con tutte le istruzioni necessarie.",
+  en: "You don't need to do anything: we will keep looking after your services as always. We will only contact you when a service is due for renewal, with all the instructions you need.",
+};
 
-const CONTACTS =
-  "Per qualsiasi domanda o necessità puoi scriverci in qualsiasi momento a hello@deltasolutions.agency: siamo a tua disposizione.";
+const CONTACTS: Localized = {
+  it: "Per qualsiasi domanda o necessità puoi scriverci in qualsiasi momento a hello@deltasolutions.agency: siamo a tua disposizione.",
+  en: "If you have any questions or needs, you can write to us at any time at hello@deltasolutions.agency: we are here to help.",
+};
 
-const THANKS = "Grazie per la fiducia che continui a riporre in noi.";
+const THANKS: Localized = {
+  it: "Grazie per la fiducia che continui a riporre in noi.",
+  en: "Thank you for the trust you continue to place in us.",
+};
 
-const SECURITY_LABEL = "SICUREZZA";
-const SECURITY_TITLE = "Nessuna carta di credito richiesta ora";
-const SECURITY_BODY =
-  "Questa è solo una comunicazione di benvenuto: non ti stiamo chiedendo alcun pagamento né i dati della tua carta. Quando un servizio sarà in scadenza riceverai da noi un link di pagamento sicuro, sempre riconoscibile e riferito ai tuoi servizi.";
-const SECURITY_ITALIC =
-  "Se ricevi richieste di pagamento sospette o inattese, non procedere e scrivici subito a hello@deltasolutions.agency.";
+const SECURITY_LABEL: Localized = { it: "SICUREZZA", en: "SECURITY" };
+const SECURITY_TITLE: Localized = {
+  it: "Nessuna carta di credito richiesta ora",
+  en: "No credit card required now",
+};
+const SECURITY_BODY: Localized = {
+  it: "Questa è solo una comunicazione di benvenuto: non ti stiamo chiedendo alcun pagamento né i dati della tua carta. Quando un servizio sarà in scadenza riceverai da noi un link di pagamento sicuro, sempre riconoscibile e riferito ai tuoi servizi.",
+  en: "This is just a welcome message: we are not asking you for any payment or for your card details. When a service is about to expire, you will receive a secure payment link from us, always recognisable and referring to your services.",
+};
+const SECURITY_ITALIC: Localized = {
+  it: "Se ricevi richieste di pagamento sospette o inattese, non procedere e scrivici subito a hello@deltasolutions.agency.",
+  en: "If you receive suspicious or unexpected payment requests, do not proceed and write to us immediately at hello@deltasolutions.agency.",
+};
+
+const GREETING: Localized<(name: string) => string> = {
+  it: (name) => `Gentile ${name},`,
+  en: (name) => `Dear ${name},`,
+};
+const CLOSING: Localized = { it: "Cordiali saluti,", en: "Kind regards," };
 
 const SIGN_NAME = "Andrea Trinca";
 const SIGN_ORG = "Delta Solutions Agency";
-const BRAND_LINE_1 =
-  "Brand di proprietà di Andrea Trinca — P.IVA IT13983231005";
-const BRAND_LINE_2 = "PEC a.trinca@pec.it — hello@deltasolutions.agency";
+const BRAND_LINE_1: Localized = {
+  it: "Brand di proprietà di Andrea Trinca — P.IVA IT13983231005",
+  en: "Brand owned by Andrea Trinca — VAT number IT13983231005",
+};
+const BRAND_LINE_2: Localized = {
+  it: "PEC a.trinca@pec.it — hello@deltasolutions.agency",
+  en: "PEC (certified email) a.trinca@pec.it — hello@deltasolutions.agency",
+};
 
-const MESI = [
-  "gennaio",
-  "febbraio",
-  "marzo",
-  "aprile",
-  "maggio",
-  "giugno",
-  "luglio",
-  "agosto",
-  "settembre",
-  "ottobre",
-  "novembre",
-  "dicembre",
-];
+const MONTHS: Localized<string[]> = {
+  it: [
+    "gennaio",
+    "febbraio",
+    "marzo",
+    "aprile",
+    "maggio",
+    "giugno",
+    "luglio",
+    "agosto",
+    "settembre",
+    "ottobre",
+    "novembre",
+    "dicembre",
+  ],
+  en: [
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December",
+  ],
+};
+
+/** Luogo e data: "Roma, 6 luglio 2026" / "Rome, 6 July 2026". */
+function formatPlaceDate(d: Date, lang: Lang): string {
+  const city = tr(lang, { it: "Roma", en: "Rome" });
+  return `${city}, ${d.getDate()} ${tr(lang, MONTHS)[d.getMonth()]} ${d.getFullYear()}`;
+}
 
 function hex(h: string): RGB {
   const n = h.replace("#", "");
@@ -92,11 +157,6 @@ function hex(h: string): RGB {
     parseInt(n.slice(2, 4), 16) / 255,
     parseInt(n.slice(4, 6), 16) / 255,
   );
-}
-
-/** Data odierna in italiano esteso, es. "6 luglio 2026". */
-function formatItalianDate(d: Date): string {
-  return `${d.getDate()} ${MESI[d.getMonth()]} ${d.getFullYear()}`;
 }
 
 /** Spezza `text` in righe che non superano `maxWidth` con quel font/size. */
@@ -132,7 +192,10 @@ async function readLogoBytes(): Promise<Uint8Array | null> {
   }
 }
 
-export async function buildWelcomeLetterPdf(clientName: string): Promise<Buffer> {
+export async function buildWelcomeLetterPdf(
+  clientName: string,
+  lang: Lang = "it",
+): Promise<Buffer> {
   const doc = await PDFDocument.create();
   const page = doc.addPage([595.28, 841.89]); // A4
   const { width: pageW, height: pageH } = page.getSize();
@@ -176,7 +239,7 @@ export async function buildWelcomeLetterPdf(clientName: string): Promise<Buffer>
 
   // ── Riga brand/ownership, allineata a destra ─────────────────────────────
   const brandSize = 8;
-  for (const line of [BRAND_LINE_1, BRAND_LINE_2]) {
+  for (const line of [tr(lang, BRAND_LINE_1), tr(lang, BRAND_LINE_2)]) {
     const w = font.widthOfTextAtSize(line, brandSize);
     page.drawText(line, {
       x: pageW - marginX - w,
@@ -190,7 +253,7 @@ export async function buildWelcomeLetterPdf(clientName: string): Promise<Buffer>
   y -= 14;
 
   // ── Data (Roma, ...) allineata a destra ──────────────────────────────────
-  const dateStr = `Roma, ${formatItalianDate(new Date())}`;
+  const dateStr = formatPlaceDate(new Date(), lang);
   const dateSize = 10;
   const dateW = font.widthOfTextAtSize(dateStr, dateSize);
   page.drawText(dateStr, {
@@ -204,7 +267,7 @@ export async function buildWelcomeLetterPdf(clientName: string): Promise<Buffer>
 
   // ── Titolo ───────────────────────────────────────────────────────────────
   const titleSize = 17;
-  for (const line of wrapText(TITLE, fontBold, titleSize, contentW)) {
+  for (const line of wrapText(tr(lang, TITLE), fontBold, titleSize, contentW)) {
     page.drawText(line, { x: marginX, y: y - titleSize, size: titleSize, font: fontBold, color: INK });
     y -= titleSize + 4;
   }
@@ -227,13 +290,13 @@ export async function buildWelcomeLetterPdf(clientName: string): Promise<Buffer>
     y -= opt.gapAfter ?? 8;
   };
 
-  paragraph(`Gentile ${clientName},`, { gapAfter: 6 });
-  paragraph(INTRO, { gapAfter: 8 });
-  paragraph(RADAR_LEAD, { gapAfter: 4 });
+  paragraph(tr(lang, GREETING)(clientName), { gapAfter: 6 });
+  paragraph(tr(lang, INTRO), { gapAfter: 8 });
+  paragraph(tr(lang, RADAR_LEAD), { gapAfter: 4 });
 
   // Bullet list (indentata, con pallino).
   const bulletIndent = 14;
-  for (const b of RADAR_BULLETS) {
+  for (const b of tr(lang, RADAR_BULLETS)) {
     page.drawText("•", { x: marginX, y: y - bodySize, size: bodySize, font, color: BLUE });
     const lines = wrapText(b, font, bodySize, contentW - bulletIndent);
     for (const line of lines) {
@@ -250,9 +313,9 @@ export async function buildWelcomeLetterPdf(clientName: string): Promise<Buffer>
   }
   y -= 8;
 
-  paragraph(NO_ACTION, { gapAfter: 8 });
-  paragraph(CONTACTS, { gapAfter: 8 });
-  paragraph(THANKS, { gapAfter: 14 });
+  paragraph(tr(lang, NO_ACTION), { gapAfter: 8 });
+  paragraph(tr(lang, CONTACTS), { gapAfter: 8 });
+  paragraph(tr(lang, THANKS), { gapAfter: 14 });
 
   // ── Card disclaimer sicurezza ─────────────────────────────────────────────
   const cardPadX = 14;
@@ -262,8 +325,8 @@ export async function buildWelcomeLetterPdf(clientName: string): Promise<Buffer>
   const secTitleSize = 11;
 
   // Pre-calcolo altezza della card per disegnare prima sfondo/bordi.
-  const bodyLines = wrapText(SECURITY_BODY, font, bodySize, cardInnerW);
-  const italicLines = wrapText(SECURITY_ITALIC, fontItalic, bodySize, cardInnerW);
+  const bodyLines = wrapText(tr(lang, SECURITY_BODY), font, bodySize, cardInnerW);
+  const italicLines = wrapText(tr(lang, SECURITY_ITALIC), fontItalic, bodySize, cardInnerW);
   const cardH =
     cardPadY * 2 +
     (labelSize + 6) +
@@ -288,8 +351,8 @@ export async function buildWelcomeLetterPdf(clientName: string): Promise<Buffer>
   page.drawRectangle({ x: marginX, y: cardBottom, width: 4, height: cardH, color: BLUE });
 
   let cy = cardTop - cardPadY;
-  // Etichetta "SICUREZZA" (spaziata)
-  page.drawText(SECURITY_LABEL.split("").join(" "), {
+  // Etichetta "SICUREZZA"/"SECURITY" (spaziata)
+  page.drawText(tr(lang, SECURITY_LABEL).split("").join(" "), {
     x: marginX + cardPadX,
     y: cy - labelSize,
     size: labelSize,
@@ -298,7 +361,7 @@ export async function buildWelcomeLetterPdf(clientName: string): Promise<Buffer>
   });
   cy -= labelSize + 6;
   // Titolo card
-  page.drawText(SECURITY_TITLE, {
+  page.drawText(tr(lang, SECURITY_TITLE), {
     x: marginX + cardPadX,
     y: cy - secTitleSize,
     size: secTitleSize,
@@ -327,7 +390,7 @@ export async function buildWelcomeLetterPdf(clientName: string): Promise<Buffer>
   y = cardBottom - 22;
 
   // ── Chiusura / firma ──────────────────────────────────────────────────────
-  page.drawText("Cordiali saluti,", { x: marginX, y: y - bodySize, size: bodySize, font, color: BODY });
+  page.drawText(tr(lang, CLOSING), { x: marginX, y: y - bodySize, size: bodySize, font, color: BODY });
   y -= lead + 4;
   page.drawText(SIGN_NAME, { x: marginX, y: y - 11, size: 11, font: fontBold, color: INK });
   y -= 15;

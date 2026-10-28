@@ -16,6 +16,8 @@ type ServiceValues = {
   name: string;
   type: string;
   description: string;
+  nameEn: string;
+  descriptionEn: string;
   priceEuro: string;
   costEuro: string;
   billingPeriod: string;
@@ -29,6 +31,8 @@ const EMPTY: ServiceValues = {
   name: "",
   type: "HOSTING",
   description: "",
+  nameEn: "",
+  descriptionEn: "",
   priceEuro: "",
   costEuro: "",
   billingPeriod: "ANNUALE",
@@ -76,6 +80,8 @@ export function ServiceForm({
       name: values.name,
       type: values.type,
       description: values.description,
+      nameEn: values.nameEn,
+      descriptionEn: values.descriptionEn,
       priceCents: Number.isNaN(priceCents) ? undefined : priceCents,
       costCents: Number.isNaN(costCents) ? 0 : costCents,
       currency: "eur",
@@ -206,6 +212,44 @@ export function ServiceForm({
             value={values.description}
             onChange={(e) => setV("description", e.target.value)}
           />
+        </div>
+      </section>
+
+      <section className="card space-y-4 p-6">
+        <h2 className="mono-label">Versione inglese</h2>
+        <p className="text-xs text-slate-500">
+          Usati per i clienti in inglese; se vuoti si usa l&apos;italiano.
+        </p>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div>
+            <label htmlFor="nameEn" className="field-label">
+              Nome (EN)
+            </label>
+            <input
+              id="nameEn"
+              className="field"
+              value={values.nameEn}
+              onChange={(e) => setV("nameEn", e.target.value)}
+            />
+            {errors.nameEn ? (
+              <p className="mt-1 text-xs text-red-600">{errors.nameEn}</p>
+            ) : null}
+          </div>
+        </div>
+        <div>
+          <label htmlFor="descriptionEn" className="field-label">
+            Descrizione (EN)
+          </label>
+          <textarea
+            id="descriptionEn"
+            rows={3}
+            className="field"
+            value={values.descriptionEn}
+            onChange={(e) => setV("descriptionEn", e.target.value)}
+          />
+          {errors.descriptionEn ? (
+            <p className="mt-1 text-xs text-red-600">{errors.descriptionEn}</p>
+          ) : null}
         </div>
       </section>
 

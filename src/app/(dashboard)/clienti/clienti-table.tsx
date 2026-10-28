@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import { ClientStatusBadge } from "@/components/badges";
 import type { ClientStatusValue } from "@/lib/validations";
+import { LocaleBadge } from "./locale-badge";
 
 export type ClientRow = {
   id: string;
@@ -12,6 +13,7 @@ export type ClientRow = {
   email: string;
   phone: string | null;
   status: string;
+  locale: string;
 };
 
 /**
@@ -80,12 +82,15 @@ export function ClientiTable({ clients }: { clients: ClientRow[] }) {
                     className="border-b border-line-soft transition last:border-0 hover:bg-canvas"
                   >
                     <td className="px-5 py-3">
-                      <Link
-                        href={`/clienti/${c.id}`}
-                        className="font-medium text-ink hover:underline"
-                      >
-                        {c.name}
-                      </Link>
+                      <div className="flex items-center gap-2">
+                        <Link
+                          href={`/clienti/${c.id}`}
+                          className="font-medium text-ink hover:underline"
+                        >
+                          {c.name}
+                        </Link>
+                        <LocaleBadge locale={c.locale} />
+                      </div>
                       {c.ragioneSociale ? (
                         <div className="text-xs text-slate-500">
                           {c.ragioneSociale}

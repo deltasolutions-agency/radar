@@ -3,11 +3,16 @@ import { sendEmail } from "@/lib/send-email";
 import { buildReminderEmail } from "@/lib/email-templates";
 import { loadReminderTemplates } from "@/lib/reminder-settings";
 import { EXAMPLE_TOKEN } from "@/lib/example-link";
+import { langFromParam, tr } from "@/lib/i18n";
 
 // POST /api/email-logs/test — invia all'admin collegato un reminder DI ESEMPIO
 // (dati fittizi, cliente finale valorizzato) tramite sendEmail, tipo OTHER.
-export function POST() {
+// Body facoltativo { lang: "it" | "en" } (default italiano): stessi testi e
+// override che riceverebbe un cliente in quella lingua.
+export function POST(req: Request) {
   return withApi(async () => {
+    const body = (await req.json().catch(() => ({}))) as { lang?: string };
+    const lang = langFromParam(body?.lang);
     const session = await requireAdmin();
     const recipient = session.email || process.env.ADMIN_EMAIL;
     if (!recipient) return error("Nessun destinatario configurato", 400);
@@ -16,14 +21,16 @@ export function POST() {
     const endDate = new Date();
     endDate.setUTCDate(endDate.getUTCDate() + 7);
     endDate.setUTCHours(0, 0, 0, 0);
+    const hosting = tr(lang, { it: "Hosting WordPress", en: "WordPress Hosting" });
+    const domain = tr(lang, { it: "Dominio .it", en: ".it domain" });
     const content = buildReminderEmail(
       "PROMEMORIA_7",
       {
         subscriptionId: "esempio",
-        clientName: "Agenzia Esempio Srl",
+        clientName: tr(lang, { it: "Agenzia Esempio Srl", en: "Example Agency Ltd" }),
         items: [
-          { serviceName: "Hosting WordPress", endClientName: "Bar Sport di Mario Rossi" },
-          { serviceName: "Dominio .it", endClientName: "Pizzeria Da Gino" },
+          { serviceName: hosting, endClientName: "Bar Sport di Mario Rossi" },
+          { serviceName: domain, endClientName: "Pizzeria Da Gino" },
         ],
         endDate,
         diffDays: 7,
@@ -38,13 +45,15 @@ export function POST() {
           currency: "eur",
           serviceFeeEnabled: true,
           terms: [
-            { serviceName: "Hosting WordPress", billingPeriod: "ANNUALE", priceLocked: false },
-            { serviceName: "Dominio .it", billingPeriod: "ANNUALE", priceLocked: false },
+            { serviceName: hosting, billingPeriod: "ANNUALE", priceLocked: false },
+            { serviceName: domain, billingPeriod: "ANNUALE", priceLocked: false },
           ],
           payUrl: `${appUrl}/pay/${EXAMPLE_TOKEN}`,
           autoChargeUrl: `${appUrl}/attiva-rinnovo/${EXAMPLE_TOKEN}`,
         },
-        override: (await loadReminderTemplates()).PROMEMORIA_7,
+        // Solo l'override della lingua scelta (come nel cron).
+        override: (await loadReminderTemplates())[lang].PROMEMORIA_7,
+        lang,
       },
     );
     const res = await sendEmail(

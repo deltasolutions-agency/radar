@@ -3,6 +3,11 @@ import type { Prisma, Receipt } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { formatClientAddress } from "@/lib/address";
 import { splitVatFromGross } from "@/lib/vat";
+import {
+  langOf,
+  localizedServiceDescription,
+  localizedServiceName,
+} from "@/lib/i18n";
 
 /**
  * Client Prisma utilizzabile sia come istanza globale sia come client di
@@ -75,6 +80,9 @@ export async function createReceiptForPayment(
 
   const paidAt = payment.paidAt ?? new Date();
   const { client } = payment.subscription;
+  // Nome/descrizione dei servizi nella lingua del cliente AL MOMENTO
+  // dell'emissione (snapshot immutabile, come il resto della ricevuta).
+  const lang = langOf(client.locale);
 
   // Ogni PaymentItem.amountCents è il LORDO del servizio (IVA inclusa). Sulla
   // ricevuta la riga mostra il NETTO (imponibile): scorporo per riga e salvo il
@@ -87,8 +95,8 @@ export async function createReceiptForPayment(
     taxableCents += split.taxableCents;
     vatCents += split.vatCents;
     return {
-      serviceName: pi.subscriptionItem.service.name,
-      description: pi.subscriptionItem.service.description,
+      serviceName: localizedServiceName(pi.subscriptionItem.service, lang),
+      description: localizedServiceDescription(pi.subscriptionItem.service, lang),
       endClientName: pi.subscriptionItem.endClientName,
       periodStart: pi.periodStart,
       periodEnd: pi.periodEnd,

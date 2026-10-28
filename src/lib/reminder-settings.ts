@@ -2,6 +2,7 @@ import "server-only";
 import type { NotificationType } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import type { ReminderOverride } from "@/lib/email-templates";
+import { langOf, type Lang } from "@/lib/i18n";
 
 /** Soglie temporali risolte dei reminder (con i default di fabbrica). */
 export type ReminderThresholds = {
@@ -99,26 +100,32 @@ export async function loadReminderThresholds(): Promise<ReminderThresholds> {
   }
 }
 
-/** Mappa type → override testuale, dai record ReminderTemplate. */
+/** Mappa type → override testuale, dai record ReminderTemplate (una lingua). */
 export type ReminderTemplateMap = Partial<
   Record<NotificationType, ReminderOverride>
 >;
 
 /**
- * Carica gli override testuali per tipo (subject/body). Non lancia mai: in caso
- * di errore ritorna una mappa vuota (→ tutti i default).
+ * Override testuali per lingua. Ogni lingua ha i PROPRI override: un cliente EN
+ * riceve solo l'override EN (se presente) o i default EN, mai l'override IT.
  */
-export async function loadReminderTemplates(): Promise<ReminderTemplateMap> {
+export type ReminderTemplatesByLang = Record<Lang, ReminderTemplateMap>;
+
+/**
+ * Carica gli override testuali per (tipo, lingua) (subject/body). Non lancia
+ * mai: in caso di errore ritorna mappe vuote (→ tutti i default).
+ */
+export async function loadReminderTemplates(): Promise<ReminderTemplatesByLang> {
+  const out: ReminderTemplatesByLang = { it: {}, en: {} };
   try {
     const rows = await prisma.reminderTemplate.findMany();
-    const map: ReminderTemplateMap = {};
     for (const r of rows) {
-      map[r.type] = { subject: r.subject, body: r.body };
+      out[langOf(r.locale)][r.type] = { subject: r.subject, body: r.body };
     }
-    return map;
+    return out;
   } catch (e) {
     console.error("[reminder-settings] load template fallito, uso default:", e);
-    return {};
+    return { it: {}, en: {} };
   }
 }
 

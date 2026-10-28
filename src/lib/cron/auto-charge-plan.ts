@@ -7,7 +7,8 @@ import { computeServiceFeeCents } from "@/lib/service-fee";
 import { addVatToNet } from "@/lib/vat";
 import { withEndClient } from "@/lib/end-client";
 import { renewalChargePriceCents } from "@/lib/renewal-price";
-import { MS_PER_DAY, idsHash, serviceLabel, ymd } from "@/lib/cron/common";
+import { MS_PER_DAY, idsHash, ymd } from "@/lib/cron/common";
+import { langOf, localizedServiceName, tr } from "@/lib/i18n";
 
 // PIANO del cron auto-charge: SOLA LETTURA. Condiviso da /api/cron/auto-charge
 // (esecuzione reale e ?dryRun=1) e da scripts/cron-preview.ts.
@@ -87,10 +88,18 @@ export type AutoChargePlan = {
   charges: PlannedCharge[];
 };
 
-/** Descrizione PaymentIntent: "Rinnovo automatico: Servizio – Cliente finale, ...". */
+/**
+ * Descrizione PaymentIntent: "Rinnovo automatico: Servizio – Cliente finale, ..."
+ * (EN: "Automatic renewal: …"), nella lingua del cliente dell'abbonamento.
+ */
 export function autoChargeDescription(items: AutoChargeItem[]): string {
-  const names = items.map((it) => withEndClient(serviceLabel(it), it.endClientName));
-  return `Rinnovo automatico: ${names.join(", ")}`.slice(0, 500);
+  const lang = langOf(items[0]?.subscription.client.locale);
+  const names = items.map((it) => {
+    const name = localizedServiceName(it.service, lang);
+    return withEndClient(it.quantity > 1 ? `${name} ×${it.quantity}` : name, it.endClientName);
+  });
+  const prefix = tr(lang, { it: "Rinnovo automatico", en: "Automatic renewal" });
+  return `${prefix}: ${names.join(", ")}`.slice(0, 500);
 }
 
 const include = {

@@ -3,6 +3,7 @@ import type Stripe from "stripe";
 import { prisma } from "@/lib/prisma";
 import { getStripe } from "@/lib/stripe";
 import { confirmPaymentAndRenew } from "@/lib/confirm-payment";
+import { langOf, stripeLocale } from "@/lib/i18n";
 
 // Il webhook deve leggere il RAW body per la verifica firma: nessun parsing
 // JSON prima di constructEvent. Forziamo il runtime Node (Stripe SDK non è
@@ -64,6 +65,7 @@ async function activateAutoChargeFromSession(
               email: true,
               name: true,
               stripeCustomerId: true,
+              locale: true,
             },
           },
         },
@@ -83,6 +85,8 @@ async function activateAutoChargeFromSession(
     const customer = await stripe.customers.create({
       email: client.email,
       name: client.name,
+      // Lingua delle comunicazioni Stripe al cliente (ricevute, avvisi).
+      preferred_locales: [stripeLocale(langOf(client.locale))],
     });
     customerId = customer.id;
     await stripe.paymentMethods

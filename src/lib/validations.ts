@@ -31,6 +31,10 @@ export type BillingPeriodValue = (typeof BILLING_PERIODS)[number];
 export const CLIENT_STATUSES = ["ATTIVO", "SOSPESO", "CESSATO"] as const;
 export type ClientStatusValue = (typeof CLIENT_STATUSES)[number];
 
+/** Lingua delle comunicazioni al cliente (enum Prisma Locale). */
+export const CLIENT_LOCALES = ["IT", "EN"] as const;
+export type ClientLocaleValue = (typeof CLIENT_LOCALES)[number];
+
 // Etichette leggibili per la UI.
 export const SERVICE_TYPE_LABELS: Record<ServiceTypeValue, string> = {
   DOMINIO: "Dominio",
@@ -47,15 +51,22 @@ export const BILLING_PERIOD_LABELS: Record<BillingPeriodValue, string> = {
   PERSONALIZZATA: "Personalizzata",
 };
 
-/** Periodicità leggibile: "Annuale", "Mensile" o "Ogni N giorni". */
+const BILLING_PERIOD_LABELS_EN: Record<BillingPeriodValue, string> = {
+  MENSILE: "Monthly",
+  ANNUALE: "Yearly",
+  PERSONALIZZATA: "Custom",
+};
+
+/** Periodicità leggibile: "Annuale", "Mensile" o "Ogni N giorni" (o in inglese). */
 export function formatBillingPeriod(
   billingPeriod: BillingPeriodValue,
   customPeriodDays: number | null,
+  lang: "it" | "en" = "it",
 ): string {
   if (billingPeriod === "PERSONALIZZATA" && customPeriodDays) {
-    return `Ogni ${customPeriodDays} giorni`;
+    return lang === "en" ? `Every ${customPeriodDays} days` : `Ogni ${customPeriodDays} giorni`;
   }
-  return BILLING_PERIOD_LABELS[billingPeriod];
+  return (lang === "en" ? BILLING_PERIOD_LABELS_EN : BILLING_PERIOD_LABELS)[billingPeriod];
 }
 
 export const CLIENT_STATUS_LABELS: Record<ClientStatusValue, string> = {
@@ -67,6 +78,9 @@ export const CLIENT_STATUS_LABELS: Record<ClientStatusValue, string> = {
 /** Converte "" in undefined così i campi opzionali vuoti non finiscono nel DB. */
 const emptyToUndef = (v: unknown) =>
   typeof v === "string" && v.trim() === "" ? undefined : v;
+
+const emptyToNull = (v: unknown) =>
+  typeof v === "string" && v.trim() === "" ? null : v;
 
 const optionalString = z.preprocess(
   emptyToUndef,
@@ -99,6 +113,10 @@ export const clientCreateSchema = z.object({
     z.string().trim().email("PEC non valida").max(200).optional(),
   ),
   status: z.enum(CLIENT_STATUSES).default("ATTIVO"),
+  // Lingua di email, pagine di pagamento, PDF e Stripe.
+  locale: z.enum(CLIENT_LOCALES, {
+    errorMap: () => ({ message: "Lingua non valida" }),
+  }).default("IT"),
   note: z.preprocess(emptyToUndef, z.string().trim().max(5000).optional()),
 });
 
@@ -138,6 +156,15 @@ const serviceObject = z.object({
   description: z.preprocess(
     emptyToUndef,
     z.string().trim().max(5000).optional(),
+  ),
+  // Versioni inglesi (clienti EN): stringa vuota → null (si usa l'italiano).
+  nameEn: z.preprocess(
+    emptyToNull,
+    z.string().trim().max(200).nullable().optional(),
+  ),
+  descriptionEn: z.preprocess(
+    emptyToNull,
+    z.string().trim().max(5000).nullable().optional(),
   ),
   // Importi in centesimi (interi).
   priceCents: z

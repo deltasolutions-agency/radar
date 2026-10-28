@@ -7,6 +7,8 @@ import { formatDate } from "@/lib/format";
 import { formatClientAddress } from "@/lib/address";
 import type { ClientStatusValue } from "@/lib/validations";
 import { RequestDataUpdateButton } from "./request-data-update-button";
+import { LocaleBadge } from "../locale-badge";
+import { LOCALE_LABELS } from "@/lib/i18n";
 
 export const dynamic = "force-dynamic";
 
@@ -44,6 +46,7 @@ export default async function ClienteDettaglioPage({
               {client.name}
             </h1>
             <ClientStatusBadge status={client.status as ClientStatusValue} />
+            <LocaleBadge locale={client.locale} />
           </div>
           <div className="flex items-center gap-2">
             <RequestDataUpdateButton clientId={client.id} />
@@ -66,6 +69,7 @@ export default async function ClienteDettaglioPage({
             <Row label="Nome / Referente" value={client.name} />
             <Row label="Email" value={client.email} />
             <Row label="Telefono" value={client.phone} />
+            <Row label="Lingua comunicazioni" value={LOCALE_LABELS[client.locale]} />
           </dl>
         </section>
 

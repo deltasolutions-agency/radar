@@ -2,6 +2,29 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { tr, type Lang, type Localized } from "@/lib/i18n";
+
+/** Messaggi per i codici stabili dell'API self-update. */
+const ERROR_MESSAGES: Record<string, Localized> = {
+  TOKEN_MISSING: { it: "Token mancante", en: "Missing token" },
+  INVALID_LINK: { it: "Link non valido", en: "Invalid link" },
+  EDIT_LOCKED: {
+    it: "Modifica non disponibile, richiedi un nuovo link",
+    en: "Editing is not available, please request a new link",
+  },
+  INVALID_DATA: { it: "Dati non validi", en: "Invalid data" },
+  INVALID_PEC: { it: "Dati non validi", en: "Invalid data" },
+  INTERNAL: { it: "Errore interno", en: "Internal error" },
+};
+const SUCCESS_MESSAGES: Record<string, Localized> = {
+  UPDATED: { it: "Dati aggiornati", en: "Details updated" },
+  NO_CHANGES: { it: "Nessuna modifica da salvare", en: "No changes to save" },
+};
+const FIELD_MESSAGES: Record<string, Localized> = {
+  INVALID_PEC: { it: "PEC non valida", en: "Invalid PEC address" },
+  TOO_LONG: { it: "Valore troppo lungo", en: "Value too long" },
+  INVALID: { it: "Valore non valido", en: "Invalid value" },
+};
 
 export type EditableField = {
   key: string;
@@ -26,11 +49,13 @@ export function DataEditForm({
   token,
   unlocked,
   fields,
+  lang = "it",
 }: {
   clientId: string;
   token: string;
   unlocked: boolean;
   fields: EditableField[];
+  lang?: Lang;
 }) {
   const router = useRouter();
   const [editing, setEditing] = useState(false);
@@ -59,19 +84,55 @@ export function DataEditForm({
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
         if (res.status === 400 && body.details) {
-          setErrors(body.details);
+          // IT: messaggi originali dell'API; EN: tradotti dai codici per campo.
+          const details = body.details as Record<string, string>;
+          const codes = (body.fieldCodes ?? {}) as Record<string, string>;
+          setErrors(
+            lang === "it"
+              ? details
+              : Object.fromEntries(
+                  Object.keys(details).map((k) => [
+                    k,
+                    FIELD_MESSAGES[codes[k]]
+                      ? tr(lang, FIELD_MESSAGES[codes[k]])
+                      : details[k],
+                  ]),
+                ),
+          );
         } else {
-          setFormError(body.error ?? "Salvataggio non riuscito");
+          const known = ERROR_MESSAGES[body.error as string];
+          setFormError(
+            known
+              ? tr(lang, known)
+              : lang === "it" && typeof body.message === "string"
+                ? body.message
+                : tr(lang, {
+                    it: "Salvataggio non riuscito",
+                    en: "Saving failed",
+                  }),
+          );
         }
         setPending(false);
         return;
       }
-      setDone(body.message ?? "Dati aggiornati");
+      const ok = SUCCESS_MESSAGES[body.code as string];
+      setDone(
+        ok
+          ? tr(lang, ok)
+          : lang === "it" && typeof body.message === "string"
+            ? body.message
+            : tr(lang, { it: "Dati aggiornati", en: "Details updated" }),
+      );
       setEditing(false);
       setPending(false);
       router.refresh();
     } catch {
-      setFormError("Errore di rete durante il salvataggio");
+      setFormError(
+        tr(lang, {
+          it: "Errore di rete durante il salvataggio",
+          en: "Network error while saving",
+        }),
+      );
       setPending(false);
     }
   }
@@ -81,7 +142,10 @@ export function DataEditForm({
       <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3">
         <p className="text-sm font-medium text-emerald-800">{done}</p>
         <p className="mt-1 text-xs text-emerald-700">
-          Grazie. Abbiamo ricevuto i tuoi dati aggiornati.
+          {tr(lang, {
+            it: "Grazie. Abbiamo ricevuto i tuoi dati aggiornati.",
+            en: "Thank you. We have received your updated details.",
+          })}
         </p>
       </div>
     );
@@ -111,12 +175,14 @@ export function DataEditForm({
             className="btn-primary mt-5"
             onClick={() => setEditing(true)}
           >
-            Modifica
+            {tr(lang, { it: "Modifica", en: "Edit" })}
           </button>
         ) : (
           <p className="mt-5 rounded-lg bg-slate-50 px-4 py-3 text-sm text-slate-600">
-            Hai già aggiornato i tuoi dati di recente. Per un&apos;ulteriore
-            modifica, scrivi a{" "}
+            {tr(lang, {
+              it: "Hai già aggiornato i tuoi dati di recente. Per un'ulteriore modifica, scrivi a",
+              en: "You have already updated your details recently. For any further changes, write to",
+            })}{" "}
             <a
               href="mailto:hello@deltasolutions.agency"
               className="text-brand underline"
@@ -162,7 +228,9 @@ export function DataEditForm({
 
       <div className="flex gap-2">
         <button type="submit" className="btn-primary" disabled={pending}>
-          {pending ? "Salvataggio…" : "Salva modifiche"}
+          {pending
+            ? tr(lang, { it: "Salvataggio…", en: "Saving…" })
+            : tr(lang, { it: "Salva modifiche", en: "Save changes" })}
         </button>
         <button
           type="button"
@@ -177,7 +245,7 @@ export function DataEditForm({
             );
           }}
         >
-          Annulla
+          {tr(lang, { it: "Annulla", en: "Cancel" })}
         </button>
       </div>
     </form>

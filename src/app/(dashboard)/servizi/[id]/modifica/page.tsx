@@ -40,6 +40,8 @@ export default async function ModificaServizioPage({
           name: service.name,
           type: service.type,
           description: service.description ?? "",
+          nameEn: service.nameEn ?? "",
+          descriptionEn: service.descriptionEn ?? "",
           priceEuro: centsToEuro(service.priceCents),
           costEuro: centsToEuro(service.costCents),
           billingPeriod: service.billingPeriod,

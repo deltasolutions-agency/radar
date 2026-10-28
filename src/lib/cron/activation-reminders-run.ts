@@ -8,6 +8,7 @@ import {
   type ActivationRequestInfo,
 } from "@/lib/email-templates";
 import { formatDate } from "@/lib/format";
+import { langOf, localizedServiceName, type Lang } from "@/lib/i18n";
 import type { CronResult } from "@/lib/cron/common";
 import {
   ACTIVATION_MAX_ATTEMPTS,
@@ -32,7 +33,37 @@ function groupDetail(g: ActivationGroup, extra: Record<string, unknown> = {}) {
   };
 }
 
-function requestInfos(g: ActivationGroup, plan: ActivationPlan, appUrl: string): ActivationRequestInfo[] {
+/**
+ * Nomi dei servizi nella lingua del cliente (il piano li espone in italiano):
+ * per i clienti EN si ricaricano nameEn delle righe coinvolte.
+ */
+async function localizedItems(
+  plan: ActivationPlan,
+  itemIds: string[],
+  lang: Lang,
+): Promise<ActivationPlan["itemsById"]> {
+  if (lang === "it" || itemIds.length === 0) return plan.itemsById;
+  const rows = await prisma.subscriptionItem.findMany({
+    where: { id: { in: itemIds } },
+    select: { id: true, quantity: true, endClientName: true, service: { select: { name: true, nameEn: true } } },
+  });
+  const map = new Map(plan.itemsById);
+  for (const r of rows) {
+    const name = localizedServiceName(r.service, lang);
+    map.set(r.id, {
+      serviceName: r.quantity > 1 ? `${name} ×${r.quantity}` : name,
+      endClientName: r.endClientName,
+    });
+  }
+  return map;
+}
+
+function requestInfos(
+  g: ActivationGroup,
+  plan: ActivationPlan,
+  appUrl: string,
+  itemsById: ActivationPlan["itemsById"] = plan.itemsById,
+): ActivationRequestInfo[] {
   // Una voce per richiesta (una richiesta può avere più soglie dovute insieme).
   const seen = new Set<string>();
   const out: ActivationRequestInfo[] = [];
@@ -43,7 +74,7 @@ function requestInfos(g: ActivationGroup, plan: ActivationPlan, appUrl: string):
       activationUrl: `${appUrl}/attiva-rinnovo/${m.request.token}`,
       requestedAt: m.request.createdAt,
       items: m.request.itemIds
-        .map((id) => plan.itemsById.get(id))
+        .map((id) => itemsById.get(id))
         .filter((x): x is { serviceName: string; endClientName: string | null } => !!x),
     });
   }
@@ -123,8 +154,16 @@ export async function runActivationReminders({
         details.push(groupDetail(g, { outcome: "NOT_SENDABLE" }));
         continue;
       }
-      const requests = requestInfos(g, plan, appUrl ?? "");
       const itemIds = [...new Set(g.marks.flatMap((m) => m.request.itemIds))];
+      // Escalation admin in italiano; sollecito cliente nella sua lingua.
+      const lang: Lang =
+        g.kind === "ADMIN_ESCALATION" ? "it" : langOf(g.marks[0]?.request.client.locale);
+      const requests = requestInfos(
+        g,
+        plan,
+        appUrl ?? "",
+        await localizedItems(plan, itemIds, lang),
+      );
       const res =
         g.kind === "ADMIN_ESCALATION"
           ? await sendEmail(
@@ -133,7 +172,7 @@ export async function runActivationReminders({
               { type: "ADMIN_ESCALATION", trigger: "CRON", clientId: g.clientId, itemIds, dedupeKey: g.dedupeKey },
             )
           : await sendEmail(
-              buildAutoChargeReminderEmail({ clientName: g.clientName, requests }),
+              buildAutoChargeReminderEmail({ clientName: g.clientName, requests, lang }),
               g.clientEmail!,
               {
                 type: "AUTOCHARGE_ACTIVATION_REMINDER",

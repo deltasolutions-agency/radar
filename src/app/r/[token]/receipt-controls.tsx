@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef } from "react";
+import { tr, type Lang } from "@/lib/i18n";
 
 const PAPER_ID = "rcpt-paper";
 
@@ -9,7 +10,7 @@ const PAPER_ID = "rcpt-paper";
  * caricamento. Lo scontrino è renderizzato dal server component: qui si
  * aggiunge/rimuove solo la classe .printing.
  */
-export function ReceiptControls() {
+export function ReceiptControls({ lang = "it" }: { lang?: Lang }) {
   const timer = useRef<number | undefined>(undefined);
 
   const start = useCallback((delay: number) => {
@@ -30,10 +31,10 @@ export function ReceiptControls() {
   return (
     <div className="rcpt-actions">
       <button type="button" className="rcpt-btn rcpt-btn-ghost" onClick={() => start(80)}>
-        Ristampa
+        {tr(lang, { it: "Ristampa", en: "Reprint" })}
       </button>
       <button type="button" className="rcpt-btn rcpt-btn-primary" onClick={() => window.print()}>
-        Stampa / PDF
+        {tr(lang, { it: "Stampa / PDF", en: "Print / PDF" })}
       </button>
     </div>
   );

@@ -7,7 +7,9 @@ import {
   clientCreateSchema,
   CLIENT_STATUSES,
   CLIENT_STATUS_LABELS,
+  CLIENT_LOCALES,
 } from "@/lib/validations";
+import { LOCALE_LABELS } from "@/lib/i18n";
 
 type ClientValues = {
   id?: string;
@@ -25,6 +27,7 @@ type ClientValues = {
   sdi: string;
   pec: string;
   status: string;
+  locale: string;
   note: string;
 };
 
@@ -43,6 +46,7 @@ const EMPTY: ClientValues = {
   sdi: "",
   pec: "",
   status: "ATTIVO",
+  locale: "IT",
   note: "",
 };
 
@@ -201,6 +205,29 @@ export function ClientForm({
                 </option>
               ))}
             </select>
+          </div>
+          <div>
+            <label htmlFor="locale" className="field-label">
+              Lingua comunicazioni
+            </label>
+            <select
+              id="locale"
+              value={values.locale}
+              onChange={(e) => set("locale")(e.target.value)}
+              className="field"
+            >
+              {CLIENT_LOCALES.map((l) => (
+                <option key={l} value={l}>
+                  {LOCALE_LABELS[l]}
+                </option>
+              ))}
+            </select>
+            <p className="mt-1 text-xs text-slate-500">
+              Email, pagine di pagamento, PDF e Stripe saranno in questa lingua.
+            </p>
+            {errors.locale ? (
+              <p className="mt-1 text-xs text-red-600">{errors.locale}</p>
+            ) : null}
           </div>
         </div>
       </section>

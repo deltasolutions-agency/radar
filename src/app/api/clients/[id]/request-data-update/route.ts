@@ -4,6 +4,7 @@ import { json, error, withApi, requireSession } from "@/lib/api";
 import { ensureDataEditToken, billingDataFor } from "@/lib/client-data";
 import { sendEmail } from "@/lib/send-email";
 import { buildDataUpdateRequestEmail } from "@/lib/email-templates";
+import { langOf } from "@/lib/i18n";
 
 type Params = { params: { id: string } };
 
@@ -43,10 +44,12 @@ export function POST(_req: NextRequest, { params }: Params) {
     const clientName = client.ragioneSociale?.trim()
       ? client.ragioneSociale
       : client.name;
+    const lang = langOf(client.locale);
     const content = buildDataUpdateRequestEmail({
       clientName,
-      billingData: billingDataFor(client),
+      billingData: billingDataFor(client, lang),
       dataEditUrl,
+      lang,
     });
     const sent = await sendEmail(content, client.email, {
       type: "DATA_UPDATE_REQUEST",

@@ -42,3 +42,6 @@ logs/
 
 # script di sviluppo locali (fixture, test usa-e-getta)
 scripts/_*
+
+# anteprime locali (email, PDF)
+/tmp/
