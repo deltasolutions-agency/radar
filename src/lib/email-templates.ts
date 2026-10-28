@@ -66,6 +66,19 @@ function contactLineText(lang: Lang): string {
   });
 }
 
+/** "Per qualsiasi domanda scrivici a <mailto>." (HTML, su una riga). */
+function contactMailtoHtml(lang: Lang): string {
+  return `${tr(lang, { it: "Per qualsiasi domanda scrivici a", en: "If you have any questions, write to us at" })} <a href="mailto:hello@deltasolutions.agency" style="color:#4f46e5">hello@deltasolutions.agency</a>.`;
+}
+
+/** Paragrafo finale "Per qualsiasi domanda…" (HTML multilinea delle email cliente). */
+function contactFooterHtml(lang: Lang): string {
+  return `<p style="font-size:13px;color:#64748b;line-height:1.6">
+        ${tr(lang, { it: "Per qualsiasi domanda scrivici a", en: "If you have any questions, write to us at" })}
+        <a href="mailto:${CONTACT_EMAIL}" style="color:#4f46e5">${CONTACT_EMAIL}</a>.
+      </p>`;
+}
+
 /** Firma testuale delle email cliente. */
 function teamSignature(lang: Lang): string {
   return tr(lang, {
@@ -1163,6 +1176,7 @@ function firstPaymentBlockHtml(b: FirstPaymentBlock, lang: Lang = "it"): string 
 // e richiesta di verifica dati. Il disclaimer è identico in entrambe.
 // ──────────────────────────────────────────────────────────────────────────
 
+/** Dato di fatturazione: l'etichetta è già nella lingua del cliente (billingDataFor). */
 export type BillingDatum = { label: string; value: string };
 
 export const BILLING_DATA_DISCLAIMER =
@@ -1172,27 +1186,6 @@ export const BILLING_DATA_DISCLAIMER_BY_LANG: Record<Lang, string> = {
   it: BILLING_DATA_DISCLAIMER,
   en: "You can review these details at any time from this link. If something is not correct, you can change it once: after saving, any further change must be requested by writing to us at hello@deltasolutions.agency.",
 };
-
-/**
- * Etichette dei dati di fatturazione in inglese. Le etichette arrivano da
- * billingDataFor (in italiano): per i clienti EN vengono tradotte qui; quelle
- * non riconosciute restano invariate.
- */
-const BILLING_LABELS_EN: Record<string, string> = {
-  "Ragione sociale": "Company name",
-  "Partita IVA": "VAT number",
-  "Codice fiscale": "Tax code",
-  Indirizzo: "Address",
-  "Città": "City",
-  CAP: "Postcode",
-  Provincia: "Province",
-  "Codice SDI": "SDI code (e-invoicing)",
-  PEC: "PEC (certified email)",
-};
-
-function billingLabel(label: string, lang: Lang): string {
-  return lang === "en" ? (BILLING_LABELS_EN[label] ?? label) : label;
-}
 
 const dashValue = (v: string) => (v.trim() ? v : "—");
 
@@ -1210,7 +1203,7 @@ function billingDataSectionText(
   return [
     "",
     `${billingDataHeading(lang)}:`,
-    ...data.map((d) => `- ${billingLabel(d.label, lang)}: ${dashValue(d.value)}`),
+    ...data.map((d) => `- ${d.label}: ${dashValue(d.value)}`),
     "",
     `${ctaLabel}: ${url}`,
     "",
@@ -1229,7 +1222,7 @@ function billingDataSectionHtml(
     .map(
       (d) => `
         <tr>
-          <td style="padding:4px 12px 4px 0;color:#64748b;white-space:nowrap">${h(billingLabel(d.label, lang))}</td>
+          <td style="padding:4px 12px 4px 0;color:#64748b;white-space:nowrap">${h(d.label)}</td>
           <td style="padding:4px 0;color:#1e293b">${h(dashValue(d.value))}</td>
         </tr>`,
     )
@@ -1651,6 +1644,8 @@ export type RefundConfirmationData = {
   currency?: string;
   /** true se lo storno è totale (tutto il pagamento), false se parziale. */
   isTotal: boolean;
+  /** Lingua del cliente (default "it"). */
+  lang?: Lang;
 };
 
 /**
@@ -1661,63 +1656,84 @@ export type RefundConfirmationData = {
 export function buildRefundConfirmationEmail(
   d: RefundConfirmationData,
 ): EmailContent {
+  const lang: Lang = d.lang ?? "it";
   const currency = d.currency ?? "eur";
-  const total = formatEur(d.totalCents, currency);
-  const label = servicesLabel(d.items);
+  const total = formatEur(d.totalCents, currency, lang);
+  const label = servicesLabel(d.items, lang);
   const anyReverted = d.items.some((it) => it.renewalReverted);
 
-  const subject = `Radar — Rimborso effettuato: ${label}`;
-  const intro = `Abbiamo effettuato un rimborso ${
-    d.isTotal ? "totale" : "parziale"
-  } sul tuo pagamento. Di seguito il dettaglio.`;
+  const subject = tr(lang, {
+    it: `Radar — Rimborso effettuato: ${label}`,
+    en: `Radar — Refund issued: ${label}`,
+  });
+  const intro = tr(lang, {
+    it: `Abbiamo effettuato un rimborso ${
+      d.isTotal ? "totale" : "parziale"
+    } sul tuo pagamento. Di seguito il dettaglio.`,
+    en: `We have issued a ${
+      d.isTotal ? "full" : "partial"
+    } refund on your payment. Please find the details below.`,
+  });
 
   const renewalNote = anyReverted
-    ? "Il rinnovo dei servizi rimborsati contrassegnati è stato annullato: la scadenza è tornata a quella precedente."
+    ? tr(lang, {
+        it: "Il rinnovo dei servizi rimborsati contrassegnati è stato annullato: la scadenza è tornata a quella precedente.",
+        en: "The renewal of the refunded services marked above has been cancelled: their expiry date has gone back to the previous one.",
+      })
     : null;
 
   const serviceFeeCents = d.serviceFeeCents ?? 0;
 
   const itemLinesText = d.items.map(
     (it) =>
-      `- ${serviceLineText(it.serviceName, it.endClientName)}: ${formatEur(it.amountCents, currency)}${
-        it.renewalReverted ? " (rinnovo annullato)" : ""
+      `- ${serviceLineText(it.serviceName, it.endClientName, lang)}: ${formatEur(it.amountCents, currency, lang)}${
+        it.renewalReverted
+          ? tr(lang, { it: " (rinnovo annullato)", en: " (renewal cancelled)" })
+          : ""
       }`,
   );
   if (serviceFeeCents > 0) {
     itemLinesText.push(
-      `- Costi di servizio (quota proporzionale): ${formatEur(
+      `- ${tr(lang, { it: "Costi di servizio (quota proporzionale)", en: "Radar service costs (proportional share)" })}: ${formatEur(
         serviceFeeCents,
         currency,
+        lang,
       )}`,
     );
   }
 
+  const bankNote = tr(lang, {
+    it: "Il rimborso sarà visibile sul tuo metodo di pagamento entro qualche giorno lavorativo, secondo i tempi della tua banca.",
+    en: "The refund will appear on your payment method within a few working days, depending on your bank's processing times.",
+  });
+  const totalLabel = tr(lang, { it: "Totale rimborsato", en: "Total refunded" });
+
   const text = [
-    `Ciao ${d.clientName},`,
+    helloText(d.clientName, lang),
     "",
     intro,
     "",
-    "Servizi rimborsati:",
+    tr(lang, { it: "Servizi rimborsati:", en: "Refunded services:" }),
     ...itemLinesText,
     "",
-    `Totale rimborsato: ${total}`,
+    `${totalLabel}: ${total}`,
     ...(renewalNote ? ["", renewalNote] : []),
     "",
-    "Il rimborso sarà visibile sul tuo metodo di pagamento entro qualche giorno lavorativo, secondo i tempi della tua banca.",
+    bankNote,
     "",
-    "Per qualsiasi domanda scrivici a hello@deltasolutions.agency.",
+    contactLineText(lang),
   ].join("\n");
 
   const itemRowsHtml = d.items
     .map(
       (it) => `
         <tr>
-          <td style="padding:6px 12px 6px 0;border-bottom:1px solid #f1f5f9">${serviceCellHtml(it.serviceName, it.endClientName)}${
+          <td style="padding:6px 12px 6px 0;border-bottom:1px solid #f1f5f9">${serviceCellHtml(it.serviceName, it.endClientName, lang)}${
             it.renewalReverted
-              ? ` <span style="color:#94a3b8;font-size:12px">— rinnovo annullato</span>`
+              ? ` <span style="color:#94a3b8;font-size:12px">— ${tr(lang, { it: "rinnovo annullato", en: "renewal cancelled" })}</span>`
               : ""
           }</td>
-          <td style="padding:6px 0;border-bottom:1px solid #f1f5f9;text-align:right;white-space:nowrap">${formatEur(it.amountCents, currency)}</td>
+          <td style="padding:6px 0;border-bottom:1px solid #f1f5f9;text-align:right;white-space:nowrap">${formatEur(it.amountCents, currency, lang)}</td>
         </tr>`,
     )
     .join("");
@@ -1726,22 +1742,22 @@ export function buildRefundConfirmationEmail(
     serviceFeeCents > 0
       ? `
         <tr>
-          <td style="padding:6px 12px 6px 0;border-bottom:1px solid #f1f5f9">Costi di servizio <span style="color:#94a3b8;font-size:12px">— quota proporzionale</span></td>
-          <td style="padding:6px 0;border-bottom:1px solid #f1f5f9;text-align:right;white-space:nowrap">${formatEur(serviceFeeCents, currency)}</td>
+          <td style="padding:6px 12px 6px 0;border-bottom:1px solid #f1f5f9">${tr(lang, { it: "Costi di servizio", en: "Radar service costs" })} <span style="color:#94a3b8;font-size:12px">— ${tr(lang, { it: "quota proporzionale", en: "proportional share" })}</span></td>
+          <td style="padding:6px 0;border-bottom:1px solid #f1f5f9;text-align:right;white-space:nowrap">${formatEur(serviceFeeCents, currency, lang)}</td>
         </tr>`
       : "";
 
   const html = `
     <div style="max-width:560px;margin:0 auto;font-family:sans-serif;color:#1e293b;background-color:#ffffff;padding:24px;border-radius:12px">
       ${emailHeaderHtml()}
-      <h2 style="font-size:18px;margin:0 0 8px">Rimborso effettuato</h2>
-      <p style="font-size:14px;line-height:1.5">Ciao ${h(d.clientName)},</p>
+      <h2 style="font-size:18px;margin:0 0 8px">${tr(lang, { it: "Rimborso effettuato", en: "Refund issued" })}</h2>
+      <p style="font-size:14px;line-height:1.5">${helloText(h(d.clientName), lang)}</p>
       <p style="font-size:14px;line-height:1.5">${intro}</p>
       <table style="border-collapse:collapse;width:100%;font-family:sans-serif;font-size:14px;color:#1e293b;margin:8px 0">
         <tbody>${itemRowsHtml}${serviceFeeRowHtml}</tbody>
         <tfoot>
           <tr>
-            <td style="padding:8px 12px 0 0;font-weight:600">Totale rimborsato</td>
+            <td style="padding:8px 12px 0 0;font-weight:600">${totalLabel}</td>
             <td style="padding:8px 0 0;font-weight:600;text-align:right">${total}</td>
           </tr>
         </tfoot>
@@ -1751,8 +1767,8 @@ export function buildRefundConfirmationEmail(
           ? `<p style="font-size:13px;color:#64748b;line-height:1.5">${renewalNote}</p>`
           : ""
       }
-      <p style="font-size:13px;color:#64748b;line-height:1.5">Il rimborso sarà visibile sul tuo metodo di pagamento entro qualche giorno lavorativo, secondo i tempi della tua banca.</p>
-      <p style="font-size:13px;color:#64748b;line-height:1.5">Per qualsiasi domanda scrivici a <a href="mailto:hello@deltasolutions.agency" style="color:#4f46e5">hello@deltasolutions.agency</a>.</p>
+      <p style="font-size:13px;color:#64748b;line-height:1.5">${bankNote}</p>
+      <p style="font-size:13px;color:#64748b;line-height:1.5">${contactMailtoHtml(lang)}</p>
       <hr style="border:none;border-top:1px solid #e2e8f0;margin:24px 0" />
       <p style="font-size:12px;color:#94a3b8">Radar — Delta Solutions</p>
     </div>`;
@@ -1848,10 +1864,15 @@ export type PaymentLinkEmailData = {
   currency?: string;
   /** URL della pagina di pagamento (gate consenso) o Checkout reale. */
   checkoutUrl: string;
+  /** Lingua del cliente (default "it"). */
+  lang?: Lang;
 };
 
 /** Il link /pay rigenera la sessione Stripe al click: resta valido fino al pagamento. */
-const PAYMENT_LINK_VALIDITY_NOTE = "Il link resta valido fino al pagamento.";
+const PAYMENT_LINK_VALIDITY_NOTE: Record<Lang, string> = {
+  it: "Il link resta valido fino al pagamento.",
+  en: "The link remains valid until payment is made.",
+};
 
 /**
  * Email al cliente con il link di pagamento Stripe. Rivolta al cliente:
@@ -1860,43 +1881,55 @@ const PAYMENT_LINK_VALIDITY_NOTE = "Il link resta valido fino al pagamento.";
  * /pay dopo il click. Contiene SOLO il link di pagamento, mai link interni.
  */
 export function buildPaymentLinkEmail(d: PaymentLinkEmailData): EmailContent {
+  const lang: Lang = d.lang ?? "it";
   const currency = d.currency ?? "eur";
-  const label = servicesLabel(d.items);
+  const label = servicesLabel(d.items, lang);
   const netTotal = formatEur(
     d.items.reduce((sum, it) => sum + it.amountCents, 0),
     currency,
+    lang,
   );
 
-  const subject = `Radar — Link di pagamento: ${label}`;
-  const intro =
-    "Puoi completare il pagamento del tuo abbonamento tramite il link sicuro qui sotto.";
+  const subject = tr(lang, {
+    it: `Radar — Link di pagamento: ${label}`,
+    en: `Radar — Payment link: ${label}`,
+  });
+  const intro = tr(lang, {
+    it: "Puoi completare il pagamento del tuo abbonamento tramite il link sicuro qui sotto.",
+    en: "You can complete the payment for your subscription using the secure link below.",
+  });
+  const until = (date: Date) =>
+    tr(lang, {
+      it: `fino al ${formatDate(date)}`,
+      en: `until ${formatDate(date, "en")}`,
+    });
 
   const itemLinesText = d.items.map((it) => {
-    const per = it.periodEnd ? ` (fino al ${formatDate(it.periodEnd)})` : "";
-    return `- ${serviceLineText(it.serviceName, it.endClientName)}: ${formatEur(it.amountCents, currency)}*${per}`;
+    const per = it.periodEnd ? ` (${until(it.periodEnd)})` : "";
+    return `- ${serviceLineText(it.serviceName, it.endClientName, lang)}: ${formatEur(it.amountCents, currency, lang)}*${per}`;
   });
 
   const text = [
     intro,
     "",
-    "Servizi:",
+    tr(lang, { it: "Servizi:", en: "Services:" }),
     ...itemLinesText,
-    "* Prezzi IVA esclusa.",
+    pricesExclVatNote(lang),
     "",
-    `${NET_ONLY_LABEL}: ${netTotal}`,
-    NET_ONLY_NOTE,
+    `${NET_ONLY_LABEL[lang]}: ${netTotal}`,
+    NET_ONLY_NOTE[lang],
     "",
-    `Paga ora: ${d.checkoutUrl}`,
+    `${payNowLabel(lang)}: ${d.checkoutUrl}`,
     "",
-    PAYMENT_LINK_VALIDITY_NOTE,
+    PAYMENT_LINK_VALIDITY_NOTE[lang],
   ].join("\n");
 
   const itemRowsHtml = d.items
     .map(
       (it) => `
         <tr>
-          <td style="padding:6px 12px 6px 0;border-bottom:1px solid #f1f5f9">${serviceCellHtml(it.serviceName, it.endClientName)}${it.periodEnd ? `<br/><span style="color:#94a3b8;font-size:12px">fino al ${formatDate(it.periodEnd)}</span>` : ""}</td>
-          <td style="padding:6px 0;border-bottom:1px solid #f1f5f9;text-align:right;white-space:nowrap">${formatEur(it.amountCents, currency)}*</td>
+          <td style="padding:6px 12px 6px 0;border-bottom:1px solid #f1f5f9">${serviceCellHtml(it.serviceName, it.endClientName, lang)}${it.periodEnd ? `<br/><span style="color:#94a3b8;font-size:12px">${until(it.periodEnd)}</span>` : ""}</td>
+          <td style="padding:6px 0;border-bottom:1px solid #f1f5f9;text-align:right;white-space:nowrap">${formatEur(it.amountCents, currency, lang)}*</td>
         </tr>`,
     )
     .join("");
@@ -1904,23 +1937,23 @@ export function buildPaymentLinkEmail(d: PaymentLinkEmailData): EmailContent {
   const html = `
     <div style="max-width:560px;margin:0 auto;font-family:sans-serif;color:#1e293b;background-color:#ffffff;padding:24px;border-radius:12px">
       ${emailHeaderHtml()}
-      <h2 style="font-size:18px;margin:0 0 8px">Link di pagamento</h2>
+      <h2 style="font-size:18px;margin:0 0 8px">${tr(lang, { it: "Link di pagamento", en: "Payment link" })}</h2>
       <p style="font-size:14px;line-height:1.5">${intro}</p>
       <table style="border-collapse:collapse;width:100%;font-family:sans-serif;font-size:14px;color:#1e293b">
         <tbody>${itemRowsHtml}</tbody>
         <tfoot>
           <tr>
-            <td style="padding:8px 12px 0 0;font-weight:600">${NET_ONLY_LABEL}</td>
+            <td style="padding:8px 12px 0 0;font-weight:600">${NET_ONLY_LABEL[lang]}</td>
             <td style="padding:8px 0 0;text-align:right;white-space:nowrap;font-weight:600">${netTotal}</td>
           </tr>
         </tfoot>
       </table>
-      <p style="font-size:11px;color:#94a3b8;margin:6px 0 0">* Prezzi IVA esclusa.</p>
-      <p style="font-size:12px;color:#94a3b8;margin:4px 0 0">${NET_ONLY_NOTE}</p>
+      <p style="font-size:11px;color:#94a3b8;margin:6px 0 0">${pricesExclVatNote(lang)}</p>
+      <p style="font-size:12px;color:#94a3b8;margin:4px 0 0">${NET_ONLY_NOTE[lang]}</p>
       <p style="margin:20px 0">
-        <a href="${h(d.checkoutUrl)}" style="display:inline-block;background:#4f46e5;color:#ffffff;text-decoration:none;font-family:sans-serif;font-size:14px;font-weight:600;padding:12px 20px;border-radius:8px">Paga ora →</a>
+        <a href="${h(d.checkoutUrl)}" style="display:inline-block;background:#4f46e5;color:#ffffff;text-decoration:none;font-family:sans-serif;font-size:14px;font-weight:600;padding:12px 20px;border-radius:8px">${payNowLabel(lang)} →</a>
       </p>
-      <p style="font-size:12px;color:#64748b">${PAYMENT_LINK_VALIDITY_NOTE}</p>
+      <p style="font-size:12px;color:#64748b">${PAYMENT_LINK_VALIDITY_NOTE[lang]}</p>
       <hr style="border:none;border-top:1px solid #e2e8f0;margin:24px 0" />
       <p style="font-size:12px;color:#94a3b8">Radar — Delta Solutions</p>
     </div>`;
@@ -2012,6 +2045,8 @@ export type DataUpdateRequestData = {
   clientName: string;
   billingData: BillingDatum[];
   dataEditUrl: string;
+  /** Lingua del cliente (default "it"). */
+  lang?: Lang;
 };
 
 /**
@@ -2022,33 +2057,36 @@ export type DataUpdateRequestData = {
 export function buildDataUpdateRequestEmail(
   d: DataUpdateRequestData,
 ): EmailContent {
-  const subject = "Delta Solutions — verifica i tuoi dati di fatturazione";
-  const intro =
-    "Delta Solutions ti chiede di verificare i tuoi dati di fatturazione: controlla che siano corretti e, se serve, aggiornali dal link qui sotto.";
-  const ctaLabel = "Verifica i tuoi dati";
+  const lang: Lang = d.lang ?? "it";
+  const subject = tr(lang, {
+    it: "Delta Solutions — verifica i tuoi dati di fatturazione",
+    en: "Delta Solutions — please check your billing details",
+  });
+  const intro = tr(lang, {
+    it: "Delta Solutions ti chiede di verificare i tuoi dati di fatturazione: controlla che siano corretti e, se serve, aggiornali dal link qui sotto.",
+    en: "Delta Solutions kindly asks you to check your billing details: please make sure they are correct and, if needed, update them using the link below.",
+  });
+  const ctaLabel = tr(lang, { it: "Verifica i tuoi dati", en: "Check your details" });
 
   const text = [
-    `Ciao ${d.clientName},`,
+    helloText(d.clientName, lang),
     "",
     intro,
-    ...billingDataSectionText(d.billingData, d.dataEditUrl, ctaLabel),
+    ...billingDataSectionText(d.billingData, d.dataEditUrl, ctaLabel, lang),
     "",
-    `Per qualsiasi domanda scrivici a ${CONTACT_EMAIL}.`,
+    contactLineText(lang),
     "",
-    "Il team di Delta Solutions Agency",
+    teamSignature(lang),
   ].join("\n");
 
   const html = `
     <div style="max-width:560px;margin:0 auto;font-family:sans-serif;color:#1e293b;background-color:#ffffff;padding:24px;border-radius:12px">
       ${emailHeaderHtml()}
-      <h2 style="font-size:18px;margin:0 0 8px">Verifica i tuoi dati di fatturazione</h2>
-      <p style="font-size:14px;line-height:1.5">Ciao ${h(d.clientName)},</p>
+      <h2 style="font-size:18px;margin:0 0 8px">${tr(lang, { it: "Verifica i tuoi dati di fatturazione", en: "Check your billing details" })}</h2>
+      <p style="font-size:14px;line-height:1.5">${helloText(h(d.clientName), lang)}</p>
       <p style="font-size:14px;line-height:1.5">${intro}</p>
-      ${billingDataSectionHtml(d.billingData, d.dataEditUrl, ctaLabel)}
-      <p style="font-size:13px;color:#64748b;line-height:1.6">
-        Per qualsiasi domanda scrivici a
-        <a href="mailto:${CONTACT_EMAIL}" style="color:#4f46e5">${CONTACT_EMAIL}</a>.
-      </p>
+      ${billingDataSectionHtml(d.billingData, d.dataEditUrl, ctaLabel, lang)}
+      ${contactFooterHtml(lang)}
       <hr style="border:none;border-top:1px solid #e2e8f0;margin:24px 0" />
       <p style="font-size:12px;color:#94a3b8">Radar — Delta Solutions Agency</p>
     </div>`;
@@ -2077,65 +2115,86 @@ export function buildAutoChargeUpcomingEmail(d: {
   serviceFeeCents: number;
   totalCents: number;
   currency?: string;
+  /** Lingua del cliente (default "it"). */
+  lang?: Lang;
 }): EmailContent {
+  const lang: Lang = d.lang ?? "it";
   const currency = d.currency ?? "eur";
-  const dateStr = formatDate(d.endDate);
+  const dateStr = formatDate(d.endDate, lang);
+  const money = (c: number) => formatEur(c, currency, lang);
 
-  const subject = `Radar — Prossimo addebito automatico: ${servicesLabel(d.items)}`;
+  const subject = tr(lang, {
+    it: `Radar — Prossimo addebito automatico: ${servicesLabel(d.items, lang)}`,
+    en: `Radar — Upcoming automatic charge: ${servicesLabel(d.items, lang)}`,
+  });
   const intro =
     d.items.length === 1
-      ? `Il ${dateStr} verrà addebitato automaticamente sulla carta registrata per il rinnovo di ${d.items[0].serviceName}.`
-      : `Il ${dateStr} verrà addebitato automaticamente sulla carta registrata per il rinnovo dei servizi elencati qui sotto.`;
+      ? tr(lang, {
+          it: `Il ${dateStr} verrà addebitato automaticamente sulla carta registrata per il rinnovo di ${d.items[0].serviceName}.`,
+          en: `On ${dateStr} the renewal of ${d.items[0].serviceName} will be charged automatically to your registered card.`,
+        })
+      : tr(lang, {
+          it: `Il ${dateStr} verrà addebitato automaticamente sulla carta registrata per il rinnovo dei servizi elencati qui sotto.`,
+          en: `On ${dateStr} the renewal of the services listed below will be charged automatically to your registered card.`,
+        });
   const showLines = d.items.length > 1 || d.items.some((it) => it.endClientName);
   const serviceLinesText = showLines
     ? [
         "",
-        "Servizi:",
-        ...d.items.map((it) => `- ${serviceLineText(it.serviceName, it.endClientName)}`),
+        tr(lang, { it: "Servizi:", en: "Services:" }),
+        ...d.items.map((it) => `- ${serviceLineText(it.serviceName, it.endClientName, lang)}`),
       ]
     : [];
   const serviceRowsHtml = showLines
     ? `<ul style="font-family:sans-serif;font-size:14px;color:#1e293b;padding-left:18px;margin:8px 0">${d.items
-        .map((it) => `<li style="margin-bottom:4px">${serviceCellHtml(it.serviceName, it.endClientName)}</li>`)
+        .map((it) => `<li style="margin-bottom:4px">${serviceCellHtml(it.serviceName, it.endClientName, lang)}</li>`)
         .join("")}</ul>`
     : "";
 
+  const L = {
+    net: tr(lang, { it: "Imponibile", en: "Taxable amount" }),
+    vat: tr(lang, { it: "IVA (22%)", en: "VAT (22%)" }),
+    fee: tr(lang, { it: "Costi di servizio (1,5%)", en: "Radar service costs (1.5%)" }),
+    total: tr(lang, { it: "Totale addebitato", en: "Total charged" }),
+  };
+
   const feeTextLine =
-    d.serviceFeeCents > 0
-      ? [`Costi di servizio (1,5%): ${formatEur(d.serviceFeeCents, currency)}`]
-      : [];
+    d.serviceFeeCents > 0 ? [`${L.fee}: ${money(d.serviceFeeCents)}`] : [];
   const text = [
     intro,
     ...serviceLinesText,
     "",
-    `Imponibile: ${formatEur(d.netCents, currency)}`,
-    `IVA (22%): ${formatEur(d.vatCents, currency)}`,
+    `${L.net}: ${money(d.netCents)}`,
+    `${L.vat}: ${money(d.vatCents)}`,
     ...feeTextLine,
-    `Totale addebitato: ${formatEur(d.totalCents, currency)}`,
+    `${L.total}: ${money(d.totalCents)}`,
     "",
-    "Se vuoi disattivare il rinnovo automatico, scrivici a hello@deltasolutions.agency.",
+    tr(lang, {
+      it: "Se vuoi disattivare il rinnovo automatico, scrivici a hello@deltasolutions.agency.",
+      en: "If you would like to turn off automatic renewal, write to us at hello@deltasolutions.agency.",
+    }),
   ].join("\n");
 
   const feeRowHtml =
     d.serviceFeeCents > 0
-      ? `<tr><td style="padding:2px 0;color:#64748b">Costi di servizio (1,5%)</td><td style="padding:2px 0;text-align:right;font-family:'Space Mono','Courier New',monospace">${formatEur(d.serviceFeeCents, currency)}</td></tr>`
+      ? `<tr><td style="padding:2px 0;color:#64748b">${L.fee}</td><td style="padding:2px 0;text-align:right;font-family:'Space Mono','Courier New',monospace">${money(d.serviceFeeCents)}</td></tr>`
       : "";
 
   const html = `
     <div style="max-width:560px;margin:0 auto;font-family:sans-serif;color:#1e293b;background-color:#ffffff;padding:24px;border-radius:12px">
       ${emailHeaderHtml()}
-      <h2 style="font-size:18px;margin:0 0 8px">Prossimo addebito automatico</h2>
+      <h2 style="font-size:18px;margin:0 0 8px">${tr(lang, { it: "Prossimo addebito automatico", en: "Upcoming automatic charge" })}</h2>
       <p style="font-size:14px;line-height:1.5">${h(intro)}</p>
       ${serviceRowsHtml}
       <div style="margin:16px 0;border:1px solid #E2DED6;border-left:4px solid #2B7FFF;border-radius:8px;background:#FAFAFA;padding:14px 16px">
         <table style="border-collapse:collapse;width:100%;font-family:sans-serif;font-size:14px;color:#4A463F">
-          <tr><td style="padding:2px 0;color:#64748b">Imponibile</td><td style="padding:2px 0;text-align:right;font-family:'Space Mono','Courier New',monospace">${formatEur(d.netCents, currency)}</td></tr>
-          <tr><td style="padding:2px 0;color:#64748b">IVA (22%)</td><td style="padding:2px 0;text-align:right;font-family:'Space Mono','Courier New',monospace">${formatEur(d.vatCents, currency)}</td></tr>
+          <tr><td style="padding:2px 0;color:#64748b">${L.net}</td><td style="padding:2px 0;text-align:right;font-family:'Space Mono','Courier New',monospace">${money(d.netCents)}</td></tr>
+          <tr><td style="padding:2px 0;color:#64748b">${L.vat}</td><td style="padding:2px 0;text-align:right;font-family:'Space Mono','Courier New',monospace">${money(d.vatCents)}</td></tr>
           ${feeRowHtml}
-          <tr><td style="border-top:1px solid #E2DED6;padding:8px 0 0;font-weight:700;color:#12161F">Totale addebitato</td><td style="border-top:1px solid #E2DED6;padding:8px 0 0;text-align:right;font-weight:700;color:#12161F;font-family:'Space Mono','Courier New',monospace">${formatEur(d.totalCents, currency)}</td></tr>
+          <tr><td style="border-top:1px solid #E2DED6;padding:8px 0 0;font-weight:700;color:#12161F">${L.total}</td><td style="border-top:1px solid #E2DED6;padding:8px 0 0;text-align:right;font-weight:700;color:#12161F;font-family:'Space Mono','Courier New',monospace">${money(d.totalCents)}</td></tr>
         </table>
       </div>
-      <p style="font-size:13px;color:#64748b;line-height:1.6">Se vuoi disattivare il rinnovo automatico, scrivici a <a href="mailto:hello@deltasolutions.agency" style="color:#4f46e5">hello@deltasolutions.agency</a>.</p>
+      <p style="font-size:13px;color:#64748b;line-height:1.6">${tr(lang, { it: "Se vuoi disattivare il rinnovo automatico, scrivici a", en: "If you would like to turn off automatic renewal, write to us at" })} <a href="mailto:hello@deltasolutions.agency" style="color:#4f46e5">hello@deltasolutions.agency</a>.</p>
       <hr style="border:none;border-top:1px solid #e2e8f0;margin:24px 0" />
       <p style="font-size:12px;color:#94a3b8">Radar — Delta Solutions</p>
     </div>`;
@@ -2198,39 +2257,51 @@ export type FirstPaymentEmailItem = {
   endDate: Date;
 };
 
-function firstPaymentItemsText(items: FirstPaymentEmailItem[], currency: string): string[] {
+function fromToText(start: Date, end: Date, lang: Lang): string {
+  return tr(lang, {
+    it: `dal ${formatDate(start)} al ${formatDate(end)}`,
+    en: `from ${formatDate(start, "en")} to ${formatDate(end, "en")}`,
+  });
+}
+
+function firstPaymentItemsText(
+  items: FirstPaymentEmailItem[],
+  currency: string,
+  lang: Lang = "it",
+): string[] {
   return items.map(
     (it) =>
-      `- ${serviceLineText(it.serviceName, it.endClientName)} — dal ${formatDate(it.startDate)} al ${formatDate(it.endDate)} — ${formatEur(it.netCents, currency)}*`,
+      `- ${serviceLineText(it.serviceName, it.endClientName, lang)} — ${fromToText(it.startDate, it.endDate, lang)} — ${formatEur(it.netCents, currency, lang)}*`,
   );
 }
 
-function firstPaymentItemsHtml(items: FirstPaymentEmailItem[], currency: string): string {
+function firstPaymentItemsHtml(
+  items: FirstPaymentEmailItem[],
+  currency: string,
+  lang: Lang = "it",
+): string {
   const rows = items
     .map(
       (it) => `
         <tr>
-          <td style="padding:6px 12px 6px 0;border-bottom:1px solid #f1f5f9">${serviceCellHtml(it.serviceName, it.endClientName)}<br/><span style="color:#94a3b8;font-size:12px">dal ${formatDate(it.startDate)} al ${formatDate(it.endDate)}</span></td>
-          <td style="padding:6px 0;border-bottom:1px solid #f1f5f9;text-align:right;white-space:nowrap">${formatEur(it.netCents, currency)}*</td>
+          <td style="padding:6px 12px 6px 0;border-bottom:1px solid #f1f5f9">${serviceCellHtml(it.serviceName, it.endClientName, lang)}<br/><span style="color:#94a3b8;font-size:12px">${fromToText(it.startDate, it.endDate, lang)}</span></td>
+          <td style="padding:6px 0;border-bottom:1px solid #f1f5f9;text-align:right;white-space:nowrap">${formatEur(it.netCents, currency, lang)}*</td>
         </tr>`,
     )
     .join("");
   return `<table style="border-collapse:collapse;width:100%;font-family:sans-serif;font-size:14px;color:#1e293b;margin:8px 0">
         <tbody>${rows}</tbody>
       </table>
-      <p style="font-size:11px;color:#94a3b8;margin:0 0 12px">* Prezzi IVA esclusa.</p>`;
+      <p style="font-size:11px;color:#94a3b8;margin:0 0 12px">${pricesExclVatNote(lang)}</p>`;
 }
 
-function clientEmailHtml(title: string, body: string): string {
+function clientEmailHtml(title: string, body: string, lang: Lang = "it"): string {
   return `
     <div style="max-width:560px;margin:0 auto;font-family:sans-serif;color:#1e293b;background-color:#ffffff;padding:24px;border-radius:12px">
       ${emailHeaderHtml()}
       <h2 style="font-size:18px;margin:0 0 8px">${title}</h2>
       ${body}
-      <p style="font-size:13px;color:#64748b;line-height:1.6">
-        Per qualsiasi domanda scrivici a
-        <a href="mailto:${CONTACT_EMAIL}" style="color:#4f46e5">${CONTACT_EMAIL}</a>.
-      </p>
+      ${contactFooterHtml(lang)}
       <hr style="border:none;border-top:1px solid #e2e8f0;margin:24px 0" />
       <p style="font-size:12px;color:#94a3b8">Radar — Delta Solutions Agency</p>
     </div>`;
@@ -2241,6 +2312,8 @@ export type FirstPaymentEmailData = {
   items: FirstPaymentEmailItem[];
   currency: string;
   payment: FirstPaymentBlock;
+  /** Lingua del cliente (default "it"). */
+  lang?: Lang;
 };
 
 /**
@@ -2249,29 +2322,36 @@ export type FirstPaymentEmailData = {
  * Solo imponibile in email; IVA e commissione sulla pagina /pay.
  */
 export function buildFirstPaymentEmail(d: FirstPaymentEmailData): EmailContent {
-  const subject = "Attivazione nuovi servizi — Delta Solutions Agency";
-  const intro =
-    "abbiamo preparato l'attivazione dei servizi qui sotto. Per renderli attivi è sufficiente completare il primo pagamento.";
+  const lang: Lang = d.lang ?? "it";
+  const subject = tr(lang, {
+    it: "Attivazione nuovi servizi — Delta Solutions Agency",
+    en: "Activation of new services — Delta Solutions Agency",
+  });
+  const intro = tr(lang, {
+    it: "abbiamo preparato l'attivazione dei servizi qui sotto. Per renderli attivi è sufficiente completare il primo pagamento.",
+    en: "we have prepared the activation of the services below. To make them active, simply complete the first payment.",
+  });
   const text = [
-    `Ciao ${d.clientName},`,
+    helloText(d.clientName, lang),
     "",
     intro,
     "",
-    "Servizi da attivare:",
-    ...firstPaymentItemsText(d.items, d.currency),
-    "* Prezzi IVA esclusa.",
-    ...firstPaymentBlockText(d.payment),
+    tr(lang, { it: "Servizi da attivare:", en: "Services to be activated:" }),
+    ...firstPaymentItemsText(d.items, d.currency, lang),
+    pricesExclVatNote(lang),
+    ...firstPaymentBlockText(d.payment, lang),
     "",
-    `Per qualsiasi domanda scrivici a ${CONTACT_EMAIL}.`,
+    contactLineText(lang),
     "",
-    "Il team di Delta Solutions Agency",
+    teamSignature(lang),
   ].join("\n");
   const html = clientEmailHtml(
-    "Attivazione nuovi servizi",
-    `<p style="font-size:14px;line-height:1.5">Ciao ${h(d.clientName)},</p>
+    tr(lang, { it: "Attivazione nuovi servizi", en: "Activation of new services" }),
+    `<p style="font-size:14px;line-height:1.5">${helloText(h(d.clientName), lang)}</p>
       <p style="font-size:14px;line-height:1.5">${intro}</p>
-      ${firstPaymentItemsHtml(d.items, d.currency)}
-      ${firstPaymentBlockHtml(d.payment)}`,
+      ${firstPaymentItemsHtml(d.items, d.currency, lang)}
+      ${firstPaymentBlockHtml(d.payment, lang)}`,
+    lang,
   );
   return { subject, text, html };
 }
@@ -2280,31 +2360,45 @@ export function buildFirstPaymentEmail(d: FirstPaymentEmailData): EmailContent {
 export function buildFirstPaymentReminderEmail(
   d: FirstPaymentEmailData & { daysSinceLink: number },
 ): EmailContent {
-  const subject = "Promemoria: attivazione dei tuoi servizi in attesa di pagamento";
-  const intro =
-    "ti ricordiamo che l'attivazione dei servizi qui sotto è in attesa del primo pagamento. Puoi completarlo in pochi passaggi dal link sicuro.";
+  const lang: Lang = d.lang ?? "it";
+  const subject = tr(lang, {
+    it: "Promemoria: attivazione dei tuoi servizi in attesa di pagamento",
+    en: "Reminder: activation of your services is awaiting payment",
+  });
+  const intro = tr(lang, {
+    it: "ti ricordiamo che l'attivazione dei servizi qui sotto è in attesa del primo pagamento. Puoi completarlo in pochi passaggi dal link sicuro.",
+    en: "this is a reminder that the activation of the services below is awaiting the first payment. You can complete it in a few steps using the secure link.",
+  });
+  const alreadyPaid = tr(lang, {
+    it: "Se hai già pagato, ignora questo messaggio.",
+    en: "If you have already paid, please ignore this message.",
+  });
   const text = [
-    `Ciao ${d.clientName},`,
+    helloText(d.clientName, lang),
     "",
     intro,
     "",
-    "Servizi da attivare:",
-    ...firstPaymentItemsText(d.items, d.currency),
-    "* Prezzi IVA esclusa.",
-    ...firstPaymentBlockText(d.payment),
+    tr(lang, { it: "Servizi da attivare:", en: "Services to be activated:" }),
+    ...firstPaymentItemsText(d.items, d.currency, lang),
+    pricesExclVatNote(lang),
+    ...firstPaymentBlockText(d.payment, lang),
     "",
-    "Se hai già pagato, ignora questo messaggio.",
-    `Per qualsiasi domanda scrivici a ${CONTACT_EMAIL}.`,
+    alreadyPaid,
+    contactLineText(lang),
     "",
-    "Il team di Delta Solutions Agency",
+    teamSignature(lang),
   ].join("\n");
   const html = clientEmailHtml(
-    "Attivazione in attesa di pagamento",
-    `<p style="font-size:14px;line-height:1.5">Ciao ${h(d.clientName)},</p>
+    tr(lang, {
+      it: "Attivazione in attesa di pagamento",
+      en: "Activation awaiting payment",
+    }),
+    `<p style="font-size:14px;line-height:1.5">${helloText(h(d.clientName), lang)}</p>
       <p style="font-size:14px;line-height:1.5">${intro}</p>
-      ${firstPaymentItemsHtml(d.items, d.currency)}
-      ${firstPaymentBlockHtml(d.payment)}
-      <p style="font-size:13px;color:#64748b">Se hai già pagato, ignora questo messaggio.</p>`,
+      ${firstPaymentItemsHtml(d.items, d.currency, lang)}
+      ${firstPaymentBlockHtml(d.payment, lang)}
+      <p style="font-size:13px;color:#64748b">${alreadyPaid}</p>`,
+    lang,
   );
   return { subject, text, html };
 }
@@ -2329,7 +2423,7 @@ export function buildFirstPaymentAdminAlertEmail(d: {
     `Cliente: ${d.clientName}${d.clientEmail ? ` <${d.clientEmail}>` : ""}`,
     "Servizi:",
     ...firstPaymentItemsText(d.items, d.currency),
-    `${NET_ONLY_LABEL}: ${formatEur(net, d.currency)}`,
+    `${NET_ONLY_LABEL.it}: ${formatEur(net, d.currency)}`,
     "",
     `Dettaglio: ${detail}`,
   ].join("\n");
@@ -2340,7 +2434,7 @@ export function buildFirstPaymentAdminAlertEmail(d: {
       <p style="font-size:14px;line-height:1.5">${h(intro)}</p>
       <p style="font-size:14px;margin:0 0 8px"><span style="color:#64748b">Cliente:</span> ${h(d.clientName)}${d.clientEmail ? ` &lt;${h(d.clientEmail)}&gt;` : ""}</p>
       ${firstPaymentItemsHtml(d.items, d.currency)}
-      <p style="font-size:14px"><span style="color:#64748b">${NET_ONLY_LABEL}:</span> <strong>${formatEur(net, d.currency)}</strong></p>
+      <p style="font-size:14px"><span style="color:#64748b">${NET_ONLY_LABEL.it}:</span> <strong>${formatEur(net, d.currency)}</strong></p>
       <p style="font-size:14px"><a href="${detail}" style="color:#4f46e5">Apri il dettaglio dell'abbonamento →</a></p>
       <hr style="border:none;border-top:1px solid #e2e8f0;margin:24px 0" />
       <p style="font-size:12px;color:#94a3b8">Radar — Delta Solutions</p>

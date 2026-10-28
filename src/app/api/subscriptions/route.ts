@@ -12,6 +12,7 @@ import { computeItemStatus } from "@/lib/subscription-status";
 import { sendEmail } from "@/lib/send-email";
 import { buildAutoChargeRequestEmail } from "@/lib/email-templates";
 import { formatEur } from "@/lib/format";
+import { langOf, localizedServiceName } from "@/lib/i18n";
 import { sendWelcomeEmail, WELCOME_CLIENT_SELECT } from "@/lib/welcome-email";
 import {
   ActivationConflictError,
@@ -204,24 +205,28 @@ export function POST(req: NextRequest) {
       // Cliente già "onboardato" (benvenuto già inviato) ma è stato richiesto il
       // rinnovo automatico: invia la richiesta di attivazione come mail dedicata.
       try {
+        const lang = langOf(client.locale);
         const content = buildAutoChargeRequestEmail({
-          items: subscription.items.map((it) => ({
-            serviceName:
-              it.quantity > 1
-                ? `${it.service.name} ×${it.quantity}`
-                : it.service.name,
-            endClientName: it.endClientName,
-            // Importo del prossimo rinnovo (aumento incluso se dovuto).
-            amountLabel: formatEur(
-              renewalChargePriceCents(it) * it.quantity,
-              it.currency,
-            ),
-            periodicityLabel: formatBillingPeriod(
-              it.billingPeriod as BillingPeriodValue,
-              it.customPeriodDays,
-            ),
-          })),
+          items: subscription.items.map((it) => {
+            const name = localizedServiceName(it.service, lang);
+            return {
+              serviceName: it.quantity > 1 ? `${name} ×${it.quantity}` : name,
+              endClientName: it.endClientName,
+              // Importo del prossimo rinnovo (aumento incluso se dovuto).
+              amountLabel: formatEur(
+                renewalChargePriceCents(it) * it.quantity,
+                it.currency,
+                lang,
+              ),
+              periodicityLabel: formatBillingPeriod(
+                it.billingPeriod as BillingPeriodValue,
+                it.customPeriodDays,
+                lang,
+              ),
+            };
+          }),
           activationUrl: autoChargeUrl,
+          lang,
         });
         await sendEmail(content, client.email, {
           type: "AUTOCHARGE_REQUEST",

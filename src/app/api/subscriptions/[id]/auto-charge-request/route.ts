@@ -7,6 +7,7 @@ import { sendEmail } from "@/lib/send-email";
 import { buildAutoChargeRequestEmail } from "@/lib/email-templates";
 import { formatEur } from "@/lib/format";
 import { formatBillingPeriod, type BillingPeriodValue } from "@/lib/validations";
+import { langOf, localizedServiceName } from "@/lib/i18n";
 
 type Params = { params: { id: string } };
 
@@ -85,19 +86,24 @@ export function POST(req: NextRequest, { params }: Params) {
     });
 
     const activationUrl = `${appUrl}/attiva-rinnovo/${request.token}`;
+    const lang = langOf(client.locale);
     const content = buildAutoChargeRequestEmail({
-      items: subscription.items.map((it) => ({
-        serviceName:
-          it.quantity > 1 ? `${it.service.name} ×${it.quantity}` : it.service.name,
-        endClientName: it.endClientName,
-        // Importo del prossimo rinnovo (aumento incluso se dovuto).
-        amountLabel: formatEur(renewalChargePriceCents(it) * it.quantity, it.currency),
-        periodicityLabel: formatBillingPeriod(
-          it.billingPeriod as BillingPeriodValue,
-          it.customPeriodDays,
-        ),
-      })),
+      items: subscription.items.map((it) => {
+        const name = localizedServiceName(it.service, lang);
+        return {
+          serviceName: it.quantity > 1 ? `${name} ×${it.quantity}` : name,
+          endClientName: it.endClientName,
+          // Importo del prossimo rinnovo (aumento incluso se dovuto).
+          amountLabel: formatEur(renewalChargePriceCents(it) * it.quantity, it.currency, lang),
+          periodicityLabel: formatBillingPeriod(
+            it.billingPeriod as BillingPeriodValue,
+            it.customPeriodDays,
+            lang,
+          ),
+        };
+      }),
       activationUrl,
+      lang,
     });
 
     const sent = await sendEmail(content, client.email, {

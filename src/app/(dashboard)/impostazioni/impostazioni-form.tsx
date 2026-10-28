@@ -3,8 +3,17 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 
+type TemplateLang = "it" | "en";
+
+const TEMPLATE_LANG_LABELS: Record<TemplateLang, string> = {
+  it: "Italiano",
+  en: "English",
+};
+
 export type TemplateField = {
   type: string;
+  /** Lingua del testo: ogni lingua ha oggetto, corpo e default propri. */
+  lang: TemplateLang;
   label: string;
   defaultSubject: string;
   defaultBody: string;
@@ -39,8 +48,8 @@ export function ImpostazioniForm({
   placeholders,
 }: {
   initial: ImpostazioniInitial;
-  /** Legenda dei segnaposto dei template reminder. */
-  placeholders: { token: string; description: string }[];
+  /** Legenda dei segnaposto dei template reminder, per lingua. */
+  placeholders: Record<TemplateLang, { token: string; description: string }[]>;
 }) {
   const router = useRouter();
   const [longDays, setLongDays] = useState(initial.thresholdsLongDays);
@@ -56,14 +65,28 @@ export function ImpostazioniForm({
     initial.firstPaymentAdminAlertDay,
   );
   const [templates, setTemplates] = useState(initial.templates);
+  const [templateLang, setTemplateLang] = useState<TemplateLang>("it");
 
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
-  function patchTemplate(type: string, patch: Partial<TemplateField>) {
+  function patchTemplate(
+    type: string,
+    lang: TemplateLang,
+    patch: Partial<TemplateField>,
+  ) {
     setTemplates((ts) =>
-      ts.map((t) => (t.type === type ? { ...t, ...patch } : t)),
+      ts.map((t) => (t.type === type && t.lang === lang ? { ...t, ...patch } : t)),
+    );
+  }
+
+  /** Override di una lingua: { TYPE: { subject, body } } (vuoto = default). */
+  function templatesFor(lang: TemplateLang) {
+    return Object.fromEntries(
+      templates
+        .filter((t) => t.lang === lang)
+        .map((t) => [t.type, { subject: t.subject || null, body: t.body || null }]),
     );
   }
 
@@ -82,12 +105,7 @@ export function ImpostazioniForm({
       autoChargeMaxDelayDays: Math.min(10, Math.max(0, parseInt(maxDelay, 10) || 0)),
       firstPaymentReminderDays: parseIntList(firstPaymentDays).filter((n) => n >= 1),
       firstPaymentAdminAlertDay: Math.max(1, parseInt(firstPaymentAdminDay, 10) || 10),
-      templates: Object.fromEntries(
-        templates.map((t) => [
-          t.type,
-          { subject: t.subject || null, body: t.body || null },
-        ]),
-      ),
+      templatesByLocale: { it: templatesFor("it"), en: templatesFor("en") },
     };
 
     try {
@@ -266,10 +284,12 @@ export function ImpostazioniForm({
             stessa email si usa automaticamente la versione al plurale). Un
             testo personalizzato vale sia per uno sia per più servizi: usa{" "}
             <code className="font-mono text-[11px]">{"{serviceLines}"}</code>{" "}
-            per elencarli. Segnaposto disponibili:
+            per elencarli. Ai clienti in inglese arrivano solo i testi della
+            scheda English (o, se vuoti, i predefiniti in inglese). Segnaposto
+            disponibili:
           </p>
           <ul className="mt-1 space-y-0.5 text-xs text-slate-500">
-            {placeholders.map((p) => (
+            {placeholders[templateLang].map((p) => (
               <li key={p.token}>
                 <code className="font-mono text-[11px] text-ink">{p.token}</code>{" "}
                 — {p.description}
@@ -278,42 +298,79 @@ export function ImpostazioniForm({
           </ul>
         </div>
 
+        {/* Selettore lingua dei testi (stesso stile delle schede del Log). */}
+        <div
+          role="tablist"
+          aria-label="Lingua dei testi email"
+          className="flex gap-1 border-b border-line text-sm"
+        >
+          {(Object.keys(TEMPLATE_LANG_LABELS) as TemplateLang[]).map((lang) => {
+            const active = templateLang === lang;
+            const customized = templates.some(
+              (t) => t.lang === lang && (t.subject || t.body),
+            );
+            return (
+              <button
+                key={lang}
+                type="button"
+                role="tab"
+                aria-selected={active}
+                onClick={() => setTemplateLang(lang)}
+                className={`-mb-px border-b-2 px-4 py-2 font-medium transition ${
+                  active
+                    ? "border-brand text-ink"
+                    : "border-transparent text-slate-500 hover:text-ink"
+                }`}
+              >
+                {TEMPLATE_LANG_LABELS[lang]}
+                {customized ? (
+                  <span className="ml-2 font-mono text-[10px] uppercase tracking-wide text-brand">
+                    personalizzato
+                  </span>
+                ) : null}
+              </button>
+            );
+          })}
+        </div>
+
         <div className="space-y-6">
-          {templates.map((t) => (
+          {templates
+            .filter((t) => t.lang === templateLang)
+            .map((t) => (
             <div
-              key={t.type}
+              key={`${t.type}-${t.lang}`}
               className="space-y-3 border-t border-line-soft pt-5 first:border-0 first:pt-0"
             >
               <h3 className="text-sm font-medium text-ink">{t.label}</h3>
               <div>
                 <label
-                  htmlFor={`subj-${t.type}`}
+                  htmlFor={`subj-${t.type}-${t.lang}`}
                   className="field-label"
                 >
                   Oggetto
                 </label>
                 <input
-                  id={`subj-${t.type}`}
+                  id={`subj-${t.type}-${t.lang}`}
                   className="field"
                   value={t.subject}
                   placeholder={t.defaultSubject}
                   onChange={(e) =>
-                    patchTemplate(t.type, { subject: e.target.value })
+                    patchTemplate(t.type, t.lang, { subject: e.target.value })
                   }
                 />
               </div>
               <div>
-                <label htmlFor={`body-${t.type}`} className="field-label">
+                <label htmlFor={`body-${t.type}-${t.lang}`} className="field-label">
                   Corpo
                 </label>
                 <textarea
-                  id={`body-${t.type}`}
+                  id={`body-${t.type}-${t.lang}`}
                   rows={3}
                   className="field"
                   value={t.body}
                   placeholder={t.defaultBody}
                   onChange={(e) =>
-                    patchTemplate(t.type, { body: e.target.value })
+                    patchTemplate(t.type, t.lang, { body: e.target.value })
                   }
                 />
               </div>

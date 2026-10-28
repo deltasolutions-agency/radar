@@ -1,5 +1,6 @@
 import type { NextRequest } from "next/server";
 import { z } from "zod";
+import type { Locale, NotificationType } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { json, error, withApi, requireSession } from "@/lib/api";
 import { SETTINGS_SINGLETON_ID } from "@/lib/reminder-settings";
@@ -37,7 +38,15 @@ const bodySchema = z.object({
     .transform((arr) => [...new Set(arr)].sort((a, b) => a - b))
     .optional(),
   firstPaymentAdminAlertDay: z.number().int().min(1).max(365).optional(),
+  // Override per tipo, in italiano (retro-compatibile) …
   templates: z.record(z.string(), overrideSchema).optional(),
+  // … e per lingua: { it: { TYPE: {subject, body} }, en: { … } }.
+  templatesByLocale: z
+    .object({
+      it: z.record(z.string(), overrideSchema).optional(),
+      en: z.record(z.string(), overrideSchema).optional(),
+    })
+    .optional(),
 });
 
 // PATCH /api/settings/reminders — upsert soglie (singleton) + override testuali.
@@ -87,25 +96,29 @@ export function PATCH(req: NextRequest) {
       update: settingsData,
     });
 
-    // ── Override testuali (una riga per tipo) ─────────────────────────────
-    if (data.templates) {
-      const allowed = new Set<string>(REMINDER_CONFIGURABLE_TYPES);
-      for (const [type, ov] of Object.entries(data.templates)) {
+    // ── Override testuali (una riga per tipo e lingua) ────────────────────
+    const byLocale: [Locale, Record<string, z.infer<typeof overrideSchema>> | undefined][] = [
+      ["IT", data.templatesByLocale?.it ?? data.templates],
+      ["EN", data.templatesByLocale?.en],
+    ];
+    const allowed = new Set<string>(REMINDER_CONFIGURABLE_TYPES);
+    for (const [locale, templates] of byLocale) {
+      if (!templates) continue;
+      for (const [type, ov] of Object.entries(templates)) {
         if (!allowed.has(type)) continue; // ignora tipi non configurabili
-        // Stringhe vuote → null (torna al default).
+        const t = type as NotificationType;
+        // Stringhe vuote → null (torna al default della lingua).
         const subject = ov.subject?.trim() ? ov.subject.trim() : null;
         const body = ov.body?.trim() ? ov.body.trim() : null;
 
         if (subject === null && body === null) {
           // Nessun override: rimuovi l'eventuale record esistente.
-          await prisma.reminderTemplate.deleteMany({
-            where: { type: type as never },
-          });
+          await prisma.reminderTemplate.deleteMany({ where: { type: t, locale } });
           continue;
         }
         await prisma.reminderTemplate.upsert({
-          where: { type: type as never },
-          create: { type: type as never, subject, body },
+          where: { type_locale: { type: t, locale } },
+          create: { type: t, locale, subject, body },
           update: { subject, body },
         });
       }

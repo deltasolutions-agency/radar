@@ -1,5 +1,6 @@
 import "server-only";
 import type { EmailTrigger, Service, SubscriptionItem } from "@prisma/client";
+import { langOf, localizedServiceName, type Lang } from "@/lib/i18n";
 import { prisma } from "@/lib/prisma";
 import { getStripe } from "@/lib/stripe";
 import { sendEmail } from "@/lib/send-email";
@@ -47,7 +48,12 @@ export function toActivationCheckoutItem(it: ItemWithService): SubscriptionItemF
     endDate: it.endDate,
     billingPeriod: it.billingPeriod,
     customPeriodDays: it.customPeriodDays,
-    service: { name: it.service.name, description: it.service.description },
+    service: {
+      name: it.service.name,
+      description: it.service.description,
+      nameEn: it.service.nameEn,
+      descriptionEn: it.service.descriptionEn,
+    },
     endClientName: it.endClientName,
     period: { start: it.startDate, end: it.endDate },
   };
@@ -58,15 +64,21 @@ function activationItems<T extends { status: string }>(items: T[]): T[] {
   return items.filter((it) => it.status !== "CESSATO");
 }
 
-/** Voci per le email del primo pagamento. */
-export function firstPaymentEmailItems(items: ItemWithService[]): FirstPaymentEmailItem[] {
-  return items.map((it) => ({
-    serviceName: it.quantity > 1 ? `${it.service.name} ×${it.quantity}` : it.service.name,
-    endClientName: it.endClientName,
-    netCents: activationNetCents(it),
-    startDate: it.startDate,
-    endDate: it.endDate,
-  }));
+/** Voci per le email del primo pagamento (nomi nella lingua del cliente). */
+export function firstPaymentEmailItems(
+  items: ItemWithService[],
+  lang: Lang = "it",
+): FirstPaymentEmailItem[] {
+  return items.map((it) => {
+    const name = localizedServiceName(it.service, lang);
+    return {
+      serviceName: it.quantity > 1 ? `${name} ×${it.quantity}` : name,
+      endClientName: it.endClientName,
+      netCents: activationNetCents(it),
+      startDate: it.startDate,
+      endDate: it.endDate,
+    };
+  });
 }
 
 /**
@@ -263,12 +275,14 @@ export async function sendFirstPaymentLink(
   } else {
     emailKind = "FIRST_PAYMENT_LINK";
     const clientName = sub.client.ragioneSociale?.trim() ? sub.client.ragioneSociale : sub.client.name;
+    const lang = langOf(sub.client.locale);
     const res = await sendEmail(
       buildFirstPaymentEmail({
         clientName,
-        items: firstPaymentEmailItems(items),
+        items: firstPaymentEmailItems(items, lang),
         currency: block.currency,
         payment: block,
+        lang,
       }),
       sub.client.email,
       {

@@ -14,11 +14,14 @@ import { renewalOutcome } from "@/lib/renewal-price";
 import { formatDate } from "@/lib/format";
 import { romeYmd } from "@/lib/rome-time";
 import { computeItemStatus } from "@/lib/subscription-status";
+import { langOf, localizedServiceName } from "@/lib/i18n";
 
 /** Esito del rinnovo di una singola riga (SubscriptionItem) del pagamento. */
 export type ConfirmPaymentItemResult = {
   subscriptionItem: SubscriptionItem;
   serviceName: string;
+  /** Nome inglese del servizio (Service.nameEn), per l'email al cliente EN. */
+  serviceNameEn?: string | null;
   endClientName: string | null;
   amountCents: number;
   /** Nuova scadenza della riga dopo il rinnovo (o quella corrente se saltato). */
@@ -99,6 +102,7 @@ export async function confirmPaymentAndRenew(
         return {
           subscriptionItem: itemOnly,
           serviceName: service.name,
+          serviceNameEn: service.nameEn,
           endClientName: itemOnly.endClientName,
           amountCents: pi.amountCents,
           newEndDate: itemOnly.endDate,
@@ -135,6 +139,7 @@ export async function confirmPaymentAndRenew(
         items.push({
           subscriptionItem: activatedItem,
           serviceName: service.name,
+          serviceNameEn: service.nameEn,
           endClientName: itemOnly.endClientName,
           amountCents: pi.amountCents,
           newEndDate: itemOnly.endDate,
@@ -202,6 +207,7 @@ export async function confirmPaymentAndRenew(
       items.push({
         subscriptionItem: updatedItem,
         serviceName: service.name,
+        serviceNameEn: service.nameEn,
         endClientName: itemOnly.endClientName,
         amountCents: pi.amountCents,
         newEndDate,
@@ -277,7 +283,10 @@ async function sendConfirmationEmail(
   const receipt = result.receipt;
   const subscriptionId = result.payment.subscriptionId;
   const sub = await prisma.subscription
-    .findUnique({ where: { id: subscriptionId }, select: { clientId: true } })
+    .findUnique({
+      where: { id: subscriptionId },
+      select: { clientId: true, client: { select: { locale: true } } },
+    })
     .catch(() => null);
   const logMeta = {
     trigger,
@@ -318,12 +327,26 @@ async function sendConfirmationEmail(
   });
 
   // Invio al cliente (email dallo snapshot ricevuta): mai link dashboard admin.
+  // Nella lingua del cliente, con i nomi dei servizi localizzati.
   if (receipt.clientEmail) {
+    const lang = langOf(sub?.client.locale);
+    const clientItems = result.items.map((i, idx) => ({
+      ...commonData.items[idx],
+      serviceName: localizedServiceName(
+        { name: i.serviceName, nameEn: i.serviceNameEn },
+        lang,
+      ),
+    }));
     await deliverConfirmation({
       paymentId,
       dedupeKey: `${paymentId}-client`,
       recipient: receipt.clientEmail,
-      content: buildConfirmationEmail({ ...commonData, audience: "client" }),
+      content: buildConfirmationEmail({
+        ...commonData,
+        items: clientItems,
+        audience: "client",
+        lang,
+      }),
       logMeta,
     });
   }

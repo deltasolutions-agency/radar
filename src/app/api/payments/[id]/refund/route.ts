@@ -5,6 +5,7 @@ import { getStripe } from "@/lib/stripe";
 import { computeItemStatus } from "@/lib/subscription-status";
 import { sendEmail } from "@/lib/send-email";
 import { buildRefundConfirmationEmail } from "@/lib/email-templates";
+import { langOf, localizedServiceName } from "@/lib/i18n";
 
 type Params = { params: { id: string } };
 
@@ -267,9 +268,18 @@ export function POST(req: NextRequest, { params }: Params) {
         const clientName = client.ragioneSociale?.trim()
           ? client.ragioneSociale
           : client.name;
+        // Lingua del cliente: nomi dei servizi localizzati (refundedDetails ha
+        // lo stesso ordine di `selected`; la risposta admin resta in italiano).
+        const lang = langOf(client.locale);
         const content = buildRefundConfirmationEmail({
           clientName,
-          items: result.refundedDetails,
+          lang,
+          items: result.refundedDetails.map((it, i) => ({
+            ...it,
+            serviceName: selected[i]
+              ? localizedServiceName(selected[i].subscriptionItem.service, lang)
+              : it.serviceName,
+          })),
           totalCents: result.refundAmountCents,
           serviceFeeCents: refundServiceFeeCents,
           currency: payment.currency,

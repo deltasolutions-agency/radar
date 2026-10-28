@@ -14,8 +14,9 @@ import { logUnsentEmail, sendEmail } from "@/lib/send-email";
 import { purgeOldEmailLogs } from "@/lib/email-log-retention";
 import {
   loadReminderTemplates,
-  type ReminderTemplateMap,
+  type ReminderTemplatesByLang,
 } from "@/lib/reminder-settings";
+import { langOf, localizedServiceName, type Lang } from "@/lib/i18n";
 import { formatDate, formatEur } from "@/lib/format";
 import { withEndClient } from "@/lib/end-client";
 import { itemSummary, serviceLabel, type CronResult } from "@/lib/cron/common";
@@ -156,10 +157,13 @@ async function ensureAutoChargeUrl(g: PlannedGroup, appUrl: string): Promise<str
  */
 async function buildGroupEmail(
   g: PlannedGroup,
-  templates: ReminderTemplateMap,
+  templates: ReminderTemplatesByLang,
 ): Promise<{ content: EmailContent; payLinkError?: string }> {
+  // Lingua del cliente destinatario (tutte le righe del gruppo sono dello
+  // stesso abbonamento, quindi dello stesso cliente).
+  const lang: Lang = langOf(g.items[0]?.subscription.client.locale);
   const items = g.items.map((it) => ({
-    serviceName: it.service.name,
+    serviceName: localizedServiceName(it.service, lang),
     endClientName: it.endClientName,
   }));
   if (g.kind === "PREAVVISO") {
@@ -173,6 +177,7 @@ async function buildGroupEmail(
         serviceFeeCents: g.amounts.serviceFeeCents,
         totalCents: g.amounts.totalCents,
         currency: g.currency,
+        lang,
       }),
     };
   }
@@ -188,7 +193,7 @@ async function buildGroupEmail(
       currency: g.currency,
       serviceFeeEnabled: g.serviceFeeEnabled,
       terms: g.items.map((it) => ({
-        serviceName: it.service.name,
+        serviceName: localizedServiceName(it.service, lang),
         billingPeriod: it.billingPeriod,
         priceLocked: it.renewalIncreaseMode === "ONCE",
       })),
@@ -207,7 +212,9 @@ async function buildGroupEmail(
       endDate: g.endDate,
       diffDays: g.diffDays,
     },
-    { audience: "client", clientRenewal, override: templates[g.type] },
+    // Override SOLO della lingua del cliente: un testo IT non arriva mai a un
+    // cliente EN (senza override EN valgono i default EN).
+    { audience: "client", clientRenewal, override: templates[lang][g.type], lang },
   );
   return { content, payLinkError };
 }

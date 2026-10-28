@@ -7,10 +7,11 @@ import {
 } from "@/lib/reminder-settings";
 import {
   REMINDER_CONFIGURABLE_TYPES,
-  REMINDER_CLIENT_DEFAULTS,
-  REMINDER_PLACEHOLDERS,
+  REMINDER_CLIENT_DEFAULTS_BY_LANG,
+  REMINDER_PLACEHOLDERS_BY_LANG,
   type ReminderConfigurableType,
 } from "@/lib/email-templates";
+import { LANGS } from "@/lib/i18n";
 import { ImpostazioniForm, type TemplateField } from "./impostazioni-form";
 
 export const dynamic = "force-dynamic";
@@ -38,19 +39,21 @@ export default async function ImpostazioniPage() {
     loadFirstPaymentSettings(),
   ]);
 
-  const templateFields: TemplateField[] = REMINDER_CONFIGURABLE_TYPES.map(
-    (type) => {
-      const def = REMINDER_CLIENT_DEFAULTS[type];
-      const current = templates[type];
+  // Un campo per (tipo, lingua): ogni lingua ha oggetto, corpo e default propri.
+  const templateFields: TemplateField[] = LANGS.flatMap((lang) =>
+    REMINDER_CONFIGURABLE_TYPES.map((type) => {
+      const def = REMINDER_CLIENT_DEFAULTS_BY_LANG[lang][type];
+      const current = templates[lang][type];
       return {
         type,
+        lang,
         label: TYPE_LABELS[type],
         defaultSubject: def.subject,
         defaultBody: def.body,
         subject: current?.subject ?? "",
         body: current?.body ?? "",
       };
-    },
+    }),
   );
 
   return (
@@ -63,7 +66,7 @@ export default async function ImpostazioniPage() {
       </div>
 
       <ImpostazioniForm
-        placeholders={REMINDER_PLACEHOLDERS}
+        placeholders={REMINDER_PLACEHOLDERS_BY_LANG}
         initial={{
           thresholdsLongDays: thresholds.thresholdsLongDays.join(", "),
           thresholdsShortDays: thresholds.thresholdsShortDays.join(", "),

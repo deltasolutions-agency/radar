@@ -1,10 +1,11 @@
 import "server-only";
-import type { EmailTrigger, Service, SubscriptionItem } from "@prisma/client";
+import type { EmailTrigger, Locale, Service, SubscriptionItem } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { sendEmail } from "@/lib/send-email";
 import { buildWelcomeEmail, type FirstPaymentBlock } from "@/lib/email-templates";
 import { ensureDataEditToken, billingDataFor } from "@/lib/client-data";
 import { buildWelcomeLetterPdf } from "@/lib/welcome-letter-pdf";
+import { langOf, localizedServiceName } from "@/lib/i18n";
 
 /** Cliente con i campi usati dalla mail di benvenuto. */
 export type WelcomeClient = {
@@ -21,6 +22,8 @@ export type WelcomeClient = {
   sdi: string | null;
   pec: string | null;
   dataEditToken: string | null;
+  /** Lingua del cliente (IT/EN). */
+  locale: Locale;
 };
 
 export const WELCOME_CLIENT_SELECT = {
@@ -38,6 +41,7 @@ export const WELCOME_CLIENT_SELECT = {
   provincia: true,
   sdi: true,
   pec: true,
+  locale: true,
 } as const;
 
 /**
@@ -58,6 +62,7 @@ export async function sendWelcomeEmail(params: {
   const { client, items } = params;
   try {
     const clientName = client.ragioneSociale?.trim() ? client.ragioneSociale : client.name;
+    const lang = langOf(client.locale);
     // Genera il token dati (se non esiste) e prepara la sezione fatturazione.
     let dataEditUrl: string | null = null;
     const appUrl = process.env.APP_URL;
@@ -68,7 +73,7 @@ export async function sendWelcomeEmail(params: {
     const content = buildWelcomeEmail({
       clientName,
       items: items.map((it) => ({
-        serviceName: it.service.name,
+        serviceName: localizedServiceName(it.service, lang),
         endClientName: it.endClientName,
         priceCents: it.priceCents,
         quantity: it.quantity,
@@ -79,8 +84,9 @@ export async function sendWelcomeEmail(params: {
       })),
       autoChargeUrl: params.autoChargeUrl,
       dataEditUrl,
-      billingData: billingDataFor(client),
+      billingData: billingDataFor(client, lang),
       firstPayment: params.firstPayment ?? null,
+      lang,
     });
 
     // Lettera di benvenuto PDF come allegato. La generazione non deve MAI
@@ -89,8 +95,14 @@ export async function sendWelcomeEmail(params: {
     // non la ragione sociale, a prescindere dal saluto usato dalla mail.
     let attachments: { filename: string; content: Buffer }[] | undefined;
     try {
-      const pdf = await buildWelcomeLetterPdf(client.name);
-      attachments = [{ filename: "Lettera_DeltaSolutions_Radar.pdf", content: pdf }];
+      const pdf = await buildWelcomeLetterPdf(client.name, lang);
+      attachments = [
+        {
+          filename:
+            lang === "en" ? "Welcome_DeltaSolutions_Radar.pdf" : "Lettera_DeltaSolutions_Radar.pdf",
+          content: pdf,
+        },
+      ];
     } catch (e) {
       console.error(`[welcome] generazione lettera PDF fallita (client ${client.id}):`, e);
     }
