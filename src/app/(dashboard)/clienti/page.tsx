@@ -14,6 +14,7 @@ export default async function ClientiPage() {
       email: true,
       phone: true,
       status: true,
+      locale: true,
     },
   });
 

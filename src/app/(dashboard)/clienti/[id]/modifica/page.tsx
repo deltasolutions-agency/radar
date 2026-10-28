@@ -44,6 +44,7 @@ export default async function ModificaClientePage({
           sdi: client.sdi ?? "",
           pec: client.pec ?? "",
           status: client.status,
+          locale: client.locale,
           note: client.note ?? "",
         }}
       />

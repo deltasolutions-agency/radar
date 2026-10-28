@@ -16,6 +16,14 @@ import { MS_PER_DAY, periodDurationDays } from "@/lib/billing-period";
 import { computeServiceFeeCents } from "@/lib/service-fee";
 import { addVatToNet } from "@/lib/vat";
 import { withEndClient } from "@/lib/end-client";
+import {
+  langOf,
+  localizedServiceDescription,
+  localizedServiceName,
+  stripeLocale,
+  tr,
+  type Lang,
+} from "@/lib/i18n";
 
 // Durata di validità della Checkout Session. Stripe impone un MASSIMO di 24h
 // da expires_at: usiamo 23h per lasciare margine contro arrotondamenti/latenza
@@ -32,7 +40,12 @@ export type SubscriptionItemForCheckout = {
   endDate: Date;
   billingPeriod: BillingPeriod;
   customPeriodDays: number | null;
-  service: { name: string; description: string | null };
+  service: {
+    name: string;
+    description: string | null;
+    nameEn?: string | null;
+    descriptionEn?: string | null;
+  };
   /** Cliente finale della riga: aggiunto al nome su Stripe e nell'email. */
   endClientName: string | null;
   /**
@@ -58,9 +71,44 @@ export function toCheckoutItem(
     endDate: it.endDate,
     billingPeriod: it.billingPeriod,
     customPeriodDays: it.customPeriodDays,
-    service: { name: it.service.name, description: it.service.description },
+    service: {
+      name: it.service.name,
+      description: it.service.description,
+      nameEn: it.service.nameEn,
+      descriptionEn: it.service.descriptionEn,
+    },
     endClientName: it.endClientName,
   };
+}
+
+/** Riga extra "Costi di servizio Radar" nella lingua del cliente (importo invariato). */
+function serviceFeeProductData(lang: Lang): { name: string; description: string } {
+  return {
+    name: tr(lang, { it: "Costi di servizio Radar", en: "Radar service costs" }),
+    description: tr(lang, {
+      it: "Commissione di gestione pagamento (1,5%)",
+      en: "Payment handling fee (1.5%)",
+    }),
+  };
+}
+
+/** Suffisso `lang=en` per gli URL di /pay/grazie (nessuno per l'italiano). */
+function thanksUrl(appUrl: string, lang: Lang, cancelled: boolean): string {
+  const params: string[] = [];
+  if (cancelled) params.push("annullato=1");
+  if (lang === "en") params.push("lang=en");
+  return `${appUrl}/pay/grazie${params.length ? `?${params.join("&")}` : ""}`;
+}
+
+/** Nome riga Stripe: servizio localizzato (×N) + " – cliente finale". */
+function checkoutLineName(
+  service: { name: string; nameEn?: string | null },
+  quantity: number,
+  endClientName: string | null,
+  lang: Lang,
+): string {
+  const name = localizedServiceName(service, lang);
+  return withEndClient(quantity > 1 ? `${name} ×${quantity}` : name, endClientName);
 }
 
 /**
@@ -118,6 +166,24 @@ export async function createCheckoutPayment(
 
   const stripe = getStripe();
 
+  // Lingua del cliente (Stripe Checkout, righe, URL di ritorno, email).
+  const sub = await prisma.subscription.findUnique({
+    where: { id: subscriptionId },
+    select: { clientId: true, client: { select: { locale: true } } },
+  });
+  const lang = langOf(sub?.client.locale);
+  // I chiamanti possono non fornire nameEn/descriptionEn: per l'inglese si
+  // leggono dal DB (solo testo, importi invariati).
+  let services = items.map((it) => it.service);
+  if (lang === "en" && items.some((it) => it.service.nameEn === undefined)) {
+    const rows = await prisma.subscriptionItem.findMany({
+      where: { id: { in: items.map((it) => it.id) } },
+      select: { id: true, service: { select: { nameEn: true, descriptionEn: true } } },
+    });
+    const byId = new Map(rows.map((r) => [r.id, r.service]));
+    services = items.map((it) => ({ ...it.service, ...(byId.get(it.id) ?? {}) }));
+  }
+
   // Il prezzo inserito è NETTO: l'importo da incassare per ogni riga è il LORDO
   // (netto + 22%), calcolato sul totale riga (priceCents × quantity).
   const itemGrossCents = items.map(
@@ -136,33 +202,28 @@ export async function createCheckoutPayment(
   // Una line_item per servizio: quantità 1 e unit_amount = LORDO del totale riga
   // (IVA inclusa), così l'importo Stripe coincide ESATTAMENTE con il PaymentItem
   // memorizzato. La quantità del servizio è indicata nel nome (×N).
-  const lineItems = items.map((it, idx) => ({
-    quantity: 1,
-    price_data: {
-      currency: it.currency,
-      unit_amount: itemGrossCents[idx],
-      product_data: {
-        // Solo testo: " – {cliente finale}" in coda al nome (importi invariati).
-        name: withEndClient(
-          it.quantity > 1 ? `${it.service.name} ×${it.quantity}` : it.service.name,
-          it.endClientName,
-        ),
-        ...(it.service.description
-          ? { description: it.service.description }
-          : {}),
+  const lineItems = items.map((it, idx) => {
+    const description = localizedServiceDescription(services[idx], lang);
+    return {
+      quantity: 1,
+      price_data: {
+        currency: it.currency,
+        unit_amount: itemGrossCents[idx],
+        product_data: {
+          // Solo testo: " – {cliente finale}" in coda al nome (importi invariati).
+          name: checkoutLineName(services[idx], it.quantity, it.endClientName, lang),
+          ...(description ? { description } : {}),
+        },
       },
-    },
-  }));
+    };
+  });
   if (serviceFeeCents > 0) {
     lineItems.push({
       quantity: 1,
       price_data: {
         currency,
         unit_amount: serviceFeeCents,
-        product_data: {
-          name: "Costi di servizio Radar",
-          description: "Commissione di gestione pagamento (1,5%)",
-        },
+        product_data: serviceFeeProductData(lang),
       },
     });
   }
@@ -172,14 +233,15 @@ export async function createCheckoutPayment(
   // nella dashboard admin). Flusso diretto admin ("Apri checkout ora"): resta il
   // dettaglio dell'abbonamento in dashboard.
   const successUrl = opts.sendToClient
-    ? `${appUrl}/pay/grazie`
+    ? thanksUrl(appUrl, lang, false)
     : `${appUrl}/abbonamenti/${subscriptionId}?payment=success`;
   const cancelUrl = opts.sendToClient
-    ? `${appUrl}/pay/grazie?annullato=1`
+    ? thanksUrl(appUrl, lang, true)
     : `${appUrl}/abbonamenti/${subscriptionId}?payment=cancelled`;
 
   const session = await stripe.checkout.sessions.create({
     mode: "payment",
+    locale: stripeLocale(lang),
     expires_at: expiresAtUnix,
     line_items: lineItems,
     success_url: successUrl,
@@ -243,21 +305,20 @@ export async function createCheckoutPayment(
     // Il link può coprire più servizi: l'email li elenca al NETTO (IVA esclusa).
     // IVA, costo di servizio e totale sono mostrati sulla pagina /pay dopo il
     // click, quindi qui NON si includono né la riga costo servizio né il totale.
-    const emailItems = items.map((it, idx) => ({
-      serviceName:
-        it.quantity > 1 ? `${it.service.name} ×${it.quantity}` : it.service.name,
-      endClientName: it.endClientName,
-      amountCents: it.priceCents * it.quantity,
-      periodEnd: paymentItemsData[idx].periodEnd,
-    }));
+    const emailItems = items.map((it, idx) => {
+      const name = localizedServiceName(services[idx], lang);
+      return {
+        serviceName: it.quantity > 1 ? `${name} ×${it.quantity}` : name,
+        endClientName: it.endClientName,
+        amountCents: it.priceCents * it.quantity,
+        periodEnd: paymentItemsData[idx].periodEnd,
+      };
+    });
     const content = buildPaymentLinkEmail({
       items: emailItems,
       currency,
       checkoutUrl: payUrl,
-    });
-    const sub = await prisma.subscription.findUnique({
-      where: { id: subscriptionId },
-      select: { clientId: true },
+      lang,
     });
     const sent = await sendEmail(content, recipient, {
       type: "PAYMENT_LINK",
@@ -301,6 +362,7 @@ export async function createAutoChargeCheckoutSession(
 
   const stripe = getStripe();
   const client = payment.subscription.client;
+  const lang = langOf(client.locale);
 
   // Customer obbligatorio per conservare il metodo di pagamento (off_session).
   let customerId = client.stripeCustomerId;
@@ -311,6 +373,7 @@ export async function createAutoChargeCheckoutSession(
     const customer = await stripe.customers.create({
       email: client.email,
       name: client.name,
+      preferred_locales: [stripeLocale(lang)],
     });
     customerId = customer.id;
     await prisma.client.update({
@@ -321,34 +384,33 @@ export async function createAutoChargeCheckoutSession(
 
   const currency = payment.currency;
   // Righe = importi GIÀ memorizzati (lordi) nei PaymentItem + eventuale fee.
-  const lineItems = payment.items.map((pi) => ({
-    quantity: 1,
-    price_data: {
-      currency,
-      unit_amount: pi.amountCents,
-      product_data: {
-        name: withEndClient(
-          pi.subscriptionItem.quantity > 1
-            ? `${pi.subscriptionItem.service.name} ×${pi.subscriptionItem.quantity}`
-            : pi.subscriptionItem.service.name,
-          pi.subscriptionItem.endClientName,
-        ),
-        ...(pi.subscriptionItem.service.description
-          ? { description: pi.subscriptionItem.service.description }
-          : {}),
+  const lineItems = payment.items.map((pi) => {
+    const service = pi.subscriptionItem.service;
+    const description = localizedServiceDescription(service, lang);
+    return {
+      quantity: 1,
+      price_data: {
+        currency,
+        unit_amount: pi.amountCents,
+        product_data: {
+          name: checkoutLineName(
+            service,
+            pi.subscriptionItem.quantity,
+            pi.subscriptionItem.endClientName,
+            lang,
+          ),
+          ...(description ? { description } : {}),
+        },
       },
-    },
-  }));
+    };
+  });
   if (payment.serviceFeeCents > 0) {
     lineItems.push({
       quantity: 1,
       price_data: {
         currency,
         unit_amount: payment.serviceFeeCents,
-        product_data: {
-          name: "Costi di servizio Radar",
-          description: "Commissione di gestione pagamento (1,5%)",
-        },
+        product_data: serviceFeeProductData(lang),
       },
     });
   }
@@ -359,12 +421,13 @@ export async function createAutoChargeCheckoutSession(
   const session = await stripe.checkout.sessions.create({
     mode: "payment",
     expires_at: expiresAtUnix,
+    locale: stripeLocale(lang),
     customer: customerId,
     line_items: lineItems,
     // Conserva la carta per gli addebiti automatici futuri (off_session).
     payment_intent_data: { setup_future_usage: "off_session" },
-    success_url: `${appUrl}/pay/grazie`,
-    cancel_url: `${appUrl}/pay/grazie?annullato=1`,
+    success_url: thanksUrl(appUrl, lang, false),
+    cancel_url: thanksUrl(appUrl, lang, true),
     metadata: {
       subscriptionId: payment.subscriptionId,
       activateAutoCharge: "true",
@@ -455,36 +518,36 @@ export async function regenerateCheckoutSession(
     },
   });
   if (!payment) throw new Error(`Payment ${paymentId} non trovato`);
+  const lang = langOf(payment.subscription.client.locale);
 
   const currency = payment.currency;
-  const lineItems = payment.items.map((pi) => ({
-    quantity: 1,
-    price_data: {
-      currency,
-      unit_amount: pi.amountCents,
-      product_data: {
-        name: withEndClient(
-          pi.subscriptionItem.quantity > 1
-            ? `${pi.subscriptionItem.service.name} ×${pi.subscriptionItem.quantity}`
-            : pi.subscriptionItem.service.name,
-          pi.subscriptionItem.endClientName,
-        ),
-        ...(pi.subscriptionItem.service.description
-          ? { description: pi.subscriptionItem.service.description }
-          : {}),
+  const lineItems = payment.items.map((pi) => {
+    const service = pi.subscriptionItem.service;
+    const description = localizedServiceDescription(service, lang);
+    return {
+      quantity: 1,
+      price_data: {
+        currency,
+        unit_amount: pi.amountCents,
+        product_data: {
+          name: checkoutLineName(
+            service,
+            pi.subscriptionItem.quantity,
+            pi.subscriptionItem.endClientName,
+            lang,
+          ),
+          ...(description ? { description } : {}),
+        },
       },
-    },
-  }));
+    };
+  });
   if (payment.serviceFeeCents > 0) {
     lineItems.push({
       quantity: 1,
       price_data: {
         currency,
         unit_amount: payment.serviceFeeCents,
-        product_data: {
-          name: "Costi di servizio Radar",
-          description: "Commissione di gestione pagamento (1,5%)",
-        },
+        product_data: serviceFeeProductData(lang),
       },
     });
   }
@@ -493,10 +556,11 @@ export async function regenerateCheckoutSession(
   const clientEmail = payment.subscription.client.email;
   const session = await getStripe().checkout.sessions.create({
     mode: "payment",
+    locale: stripeLocale(lang),
     expires_at: expiresAtUnix,
     line_items: lineItems,
-    success_url: `${appUrl}/pay/grazie`,
-    cancel_url: `${appUrl}/pay/grazie?annullato=1`,
+    success_url: thanksUrl(appUrl, lang, false),
+    cancel_url: thanksUrl(appUrl, lang, true),
     ...(clientEmail ? { customer_email: clientEmail } : {}),
     metadata: { subscriptionId: payment.subscriptionId },
   });

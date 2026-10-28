@@ -1,12 +1,15 @@
 import "server-only";
 import { prisma } from "@/lib/prisma";
 import { getStripe } from "@/lib/stripe";
+import { langOf, stripeLocale } from "@/lib/i18n";
 
 type ClientForSetup = {
   id: string;
   email: string | null;
   name: string;
   stripeCustomerId: string | null;
+  /** Lingua del cliente: se assente viene letta dal DB. */
+  locale?: string | null;
 };
 
 /**
@@ -30,6 +33,18 @@ export async function createSetupCheckoutUrl(
   const stripe = getStripe();
   const { client, currency, token, requestId } = params;
 
+  // Lingua del cliente, ricavata internamente (i chiamanti non la passano).
+  const locale =
+    client.locale !== undefined
+      ? client.locale
+      : (
+          await prisma.client.findUnique({
+            where: { id: client.id },
+            select: { locale: true },
+          })
+        )?.locale;
+  const lang = langOf(locale);
+
   let customerId = client.stripeCustomerId;
   if (!customerId) {
     if (!client.email) {
@@ -38,6 +53,7 @@ export async function createSetupCheckoutUrl(
     const customer = await stripe.customers.create({
       email: client.email,
       name: client.name,
+      preferred_locales: [stripeLocale(lang)],
     });
     customerId = customer.id;
     await prisma.client.update({
@@ -48,6 +64,7 @@ export async function createSetupCheckoutUrl(
 
   const session = await stripe.checkout.sessions.create({
     mode: "setup",
+    locale: stripeLocale(lang),
     // mode:'setup' non ha line_items ma Stripe richiede comunque currency.
     currency,
     customer: customerId,
