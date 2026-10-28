@@ -47,15 +47,22 @@ export const BILLING_PERIOD_LABELS: Record<BillingPeriodValue, string> = {
   PERSONALIZZATA: "Personalizzata",
 };
 
-/** Periodicità leggibile: "Annuale", "Mensile" o "Ogni N giorni". */
+const BILLING_PERIOD_LABELS_EN: Record<BillingPeriodValue, string> = {
+  MENSILE: "Monthly",
+  ANNUALE: "Yearly",
+  PERSONALIZZATA: "Custom",
+};
+
+/** Periodicità leggibile: "Annuale", "Mensile" o "Ogni N giorni" (o in inglese). */
 export function formatBillingPeriod(
   billingPeriod: BillingPeriodValue,
   customPeriodDays: number | null,
+  lang: "it" | "en" = "it",
 ): string {
   if (billingPeriod === "PERSONALIZZATA" && customPeriodDays) {
-    return `Ogni ${customPeriodDays} giorni`;
+    return lang === "en" ? `Every ${customPeriodDays} days` : `Ogni ${customPeriodDays} giorni`;
   }
-  return BILLING_PERIOD_LABELS[billingPeriod];
+  return (lang === "en" ? BILLING_PERIOD_LABELS_EN : BILLING_PERIOD_LABELS)[billingPeriod];
 }
 
 export const CLIENT_STATUS_LABELS: Record<ClientStatusValue, string> = {
