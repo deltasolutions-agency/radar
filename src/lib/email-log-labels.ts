@@ -21,6 +21,7 @@ export const EMAIL_LOG_TYPE_LABELS: Record<EmailLogType, string> = {
   FIRST_PAYMENT_LINK: "Link primo pagamento",
   FIRST_PAYMENT_REMINDER: "Sollecito primo pagamento",
   FIRST_PAYMENT_ADMIN_ALERT: "Primo pagamento non ricevuto (admin)",
+  LEDGER_OVERDUE_ALERT: "Alert Amministrazione",
   OTHER: "Altro",
 };
 
