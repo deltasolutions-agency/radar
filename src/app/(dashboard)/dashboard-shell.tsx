@@ -68,6 +68,16 @@ function IconPagamenti({ className }: IconProps) {
   );
 }
 
+function IconAmministrazione({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
+      <path d="M3 3v18h18" />
+      <path d="M7 15l4-4 3 3 5-6" />
+      <path d="M15 8h4v4" />
+    </svg>
+  );
+}
+
 function IconLog({ className }: IconProps) {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
@@ -86,6 +96,7 @@ const LINKS = [
   { href: "/servizi", label: "Servizi", Icon: IconServizi },
   { href: "/abbonamenti", label: "Abbonamenti", Icon: IconAbbonamenti },
   { href: "/pagamenti", label: "Pagamenti", Icon: IconPagamenti, adminOnly: true },
+  { href: "/amministrazione", label: "Amministrazione", Icon: IconAmministrazione, adminOnly: true },
   { href: "/impostazioni", label: "Impostazioni", Icon: IconImpostazioni },
   { href: "/log", label: "Log", Icon: IconLog },
 ];

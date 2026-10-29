@@ -704,6 +704,7 @@ enum EmailLogType {
   FIRST_PAYMENT_LINK // attivazione nuovi servizi / reinvio link primo pagamento
   FIRST_PAYMENT_REMINDER // sollecito primo pagamento al cliente
   FIRST_PAYMENT_ADMIN_ALERT // primo pagamento non ricevuto (admin)
+  LEDGER_OVERDUE_ALERT // Amministrazione: crediti/debiti scaduti (admin)
   OTHER
 }
 
@@ -828,4 +829,44 @@ model CronSetting {
   lockedBy  String?
 
   @@map("cron_settings")
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// AMMINISTRAZIONE — crediti e debiti inseriti a mano
+// Sezione indipendente: NESSUN legame con clienti, abbonamenti, pagamenti o
+// Stripe. Importi così come inseriti (nessun calcolo IVA).
+// ──────────────────────────────────────────────────────────────────────────
+
+/// CREDITO = mi devono pagare (tab "Incassi"); DEBITO = devo pagare (tab "Dovuto").
+enum LedgerKind {
+  CREDITO
+  DEBITO
+}
+
+model LedgerEntry {
+  id           String     @id @default(cuid())
+  kind         LedgerKind
+  /// Debitore (Incassi) o creditore (Dovuto), testo libero.
+  counterparty String
+  description  String?
+  amountCents  Int
+  currency     String     @default("eur")
+  /// Scadenza (giorno, mezzanotte UTC). Facoltativa: senza scadenza nessun alert.
+  dueDate      DateTime?
+  /// Giorno in cui è stato pagato (mezzanotte UTC); null = ancora aperto.
+  paidAt       DateTime?
+  paidNote     String?
+  notes        String?
+
+  /// Ultimo alert di scadenza inviato e quanti finora (cron ledger-alerts).
+  lastAlertAt DateTime?
+  alertCount  Int       @default(0)
+
+  createdBy String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([kind, paidAt])
+  @@index([dueDate])
+  @@map("ledger_entries")
 }

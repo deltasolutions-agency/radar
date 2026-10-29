@@ -23,6 +23,7 @@ export async function middleware(req: NextRequest) {
     "/servizi",
     "/abbonamenti",
     "/pagamenti",
+    "/amministrazione",
     "/impostazioni",
     "/log",
   ];
