@@ -12,6 +12,12 @@ class RV_Security {
 	const MAX_LIST = 200;
 
 	/**
+	 * File .php in root che non fanno parte del core ma sono noti e innocui
+	 * (restano comunque analizzati dalla scansione del codice).
+	 */
+	const ROOT_KNOWN = array( 'wp-config.php', 'wp-config-docker.php', 'wp-config-sample.php' );
+
+	/**
 	 * Confronta i file del core con i checksum ufficiali. File estranei cercati
 	 * in wp-admin, wp-includes e tra i .php della root.
 	 */
@@ -62,7 +68,7 @@ class RV_Security {
 		}
 		foreach ( (array) glob( $root . '*.php' ) as $path ) {
 			$rel = RV_FS::rel( $path );
-			if ( 'wp-config.php' !== $rel && ! isset( $checksums[ $rel ] ) ) {
+			if ( ! in_array( $rel, self::ROOT_KNOWN, true ) && ! isset( $checksums[ $rel ] ) ) {
 				self::push( $out['unknown'], $rel );
 			}
 		}

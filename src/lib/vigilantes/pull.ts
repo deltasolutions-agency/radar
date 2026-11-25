@@ -16,7 +16,7 @@ export function siteOptions(site: Pick<WpSite, "deepScan">) {
   return { deep_scan: site.deepScan };
 }
 
-type Failure = { ok: false; kind: "SITE_UNREACHABLE" | "AGENT_ERROR"; error: string };
+type Failure = { ok: false; kind: "SITE_UNREACHABLE" | "AGENT_ERROR"; error: string; critical?: boolean };
 type FetchOutcome = { ok: true; body: unknown } | Failure;
 
 /**
@@ -68,7 +68,8 @@ async function callPlugin(site: WpSite): Promise<FetchOutcome> {
     const code = (data as { code?: string; message?: string } | null)?.code;
     const message = (data as { message?: string } | null)?.message;
     if (code === "rest_no_route") {
-      return { ok: false, kind: "AGENT_ERROR", error: "plugin non installato o disattivato" };
+      // Il sito risponde ma il plugin non c'è più: il monitoraggio è fermo.
+      return { ok: false, kind: "AGENT_ERROR", error: "plugin non installato o disattivato", critical: true };
     }
     if (res.status === 401 || res.status === 403) {
       return {

@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
+import type { DesiredAlert } from "@/lib/vigilantes/analyze";
 import { ingestReport } from "@/lib/vigilantes/ingest";
 import { siteOptions } from "@/lib/vigilantes/pull";
 import {
@@ -55,7 +56,18 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const out = await ingestReport(site, parsed.data.report, "PUSH", "WEBHOOK");
+    const extra: DesiredAlert[] = [];
+    if (parsed.data.event === "uninstalled") {
+      const user = String((parsed.data.events?.[0] as { user?: unknown } | undefined)?.user ?? "utente sconosciuto").slice(0, 100);
+      extra.push({
+        kind: "AGENT_ERROR",
+        severity: "CRITICAL",
+        key: "agent-removed",
+        title: `Radar Vigilantes disinstallato da ${user}: il monitoraggio di questo sito si è fermato`,
+        details: { user },
+      });
+    }
+    const out = await ingestReport(site, parsed.data.report, "PUSH", "WEBHOOK", new Date(), extra);
     return NextResponse.json({ ok: true, updates: out.updates, opened: out.opened.length, options: siteOptions(site) });
   } catch (e) {
     console.error("[vigilantes] ingest fallito:", e);

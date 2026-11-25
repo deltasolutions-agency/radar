@@ -151,8 +151,13 @@ export async function ingestReport(
   source: "PULL" | "PUSH",
   trigger: EmailTrigger,
   now: Date = new Date(),
+  extraAlerts: DesiredAlert[] = [],
 ): Promise<IngestOutcome> {
   const analysis = analyzeReport(report, adminLoginsFromStored(site.report), { deepScan: site.deepScan });
+  // Un alert esplicito (es. disinstallazione) sostituisce quello di disattivazione.
+  const desired = extraAlerts.some((a) => a.key === "agent-removed")
+    ? [...analysis.alerts.filter((a) => a.key !== "agent-deactivated"), ...extraAlerts]
+    : [...analysis.alerts, ...extraAlerts];
   const opened = await prisma.$transaction(
     async (tx) => {
       await tx.wpSite.update({
@@ -167,7 +172,7 @@ export async function ingestReport(
         },
       });
       await syncComponents(tx, site.id, analysis.components, now);
-      return syncAlerts(tx, site.id, analysis.alerts, isReportManagedKey, now);
+      return syncAlerts(tx, site.id, desired, isReportManagedKey, now);
     },
     { timeout: 20_000 },
   );
@@ -178,7 +183,9 @@ export async function ingestReport(
 /** Esito di un controllo pull: aggiorna lo stato e apre/chiude gli alert di raggiungibilità. */
 export async function recordCheckResult(
   site: WpSite,
-  result: { ok: true } | { ok: false; kind: "SITE_UNREACHABLE" | "AGENT_ERROR"; error: string },
+  result:
+    | { ok: true }
+    | { ok: false; kind: "SITE_UNREACHABLE" | "AGENT_ERROR"; error: string; critical?: boolean },
   trigger: EmailTrigger,
   now: Date = new Date(),
 ): Promise<OpenedAlert[]> {
@@ -195,7 +202,7 @@ export async function recordCheckResult(
             }
           : {
               kind: "AGENT_ERROR",
-              severity: "WARNING",
+              severity: result.critical ? "CRITICAL" : "WARNING",
               key: PULL_KEYS.agent,
               title: `Il sito risponde ma il plugin Radar Vigilantes no: ${result.error}`,
               details: { error: result.error },

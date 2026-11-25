@@ -165,6 +165,7 @@ export default async function VigilantesSitePage({ params }: { params: { id: str
   const uploads = obj(security.uploads_php);
   const malware = obj(security.malware);
   const pluginIntegrity = obj(security.plugin_integrity);
+  const agent = obj(report.agent);
   const admins = arr(report.admins).map(obj);
   const appUrl = process.env.APP_URL ?? "";
   const connectionKey = buildConnectionKey(appUrl, site.id, site.secret);
@@ -383,6 +384,17 @@ export default async function VigilantesSitePage({ params }: { params: { id: str
             />
             <Row label="Amministratori" value={admins.length ? admins.map((a) => txt(a.login)).join(", ") : "—"} />
             <Row label="Modifica file da admin" value={env.disallow_file_edit === true ? "Disabilitata" : "Consentita"} />
+            <Row
+              label="Blocco disattivazione"
+              value={
+                agent.loader === true
+                  ? "Attivo (loader in mu-plugins)"
+                  : agent.loader === false
+                    ? "Assente: il plugin si può disattivare dal pannello"
+                    : "— (plugin precedente alla 1.0.1)"
+              }
+              warn={agent.loader === false}
+            />
           </dl>
           <div className="mt-4 border-t border-line-soft pt-4">
             <DeepScanToggle siteId={site.id} enabled={site.deepScan} />
@@ -397,8 +409,10 @@ export default async function VigilantesSitePage({ params }: { params: { id: str
                   label="Codice sospetto"
                   value={
                     malware.checked_at
-                      ? `${arr(malware.findings).length} segnalazioni su ${txt(malware.scanned)} file${malware.complete === false ? " (scansione in corso)" : ""} · ${unixDate(malware.checked_at)}`
-                      : "in attesa della prima scansione"
+                      ? `${arr(malware.findings).length} segnalazioni su ${txt(malware.scanned)} file · ${unixDate(malware.checked_at)}${typeof malware.progress === "number" ? ` · nuova scansione in corso (${malware.progress} file)` : ""}`
+                      : typeof malware.progress === "number"
+                        ? `scansione in corso: ${malware.progress} file analizzati`
+                        : "in attesa della prima scansione"
                   }
                   warn={arr(malware.findings).length > 0}
                 />

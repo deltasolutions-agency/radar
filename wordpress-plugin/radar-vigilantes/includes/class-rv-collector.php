@@ -14,6 +14,8 @@ class RV_Collector {
 	/** Forza una nuova verifica degli aggiornamenti se l'ultima è vecchia. */
 	public static function refresh_updates( $max_age = 21600 ) {
 		require_once ABSPATH . 'wp-includes/update.php';
+		// Anche la versione del plugin stesso: Radar può averne pubblicata una nuova.
+		delete_site_transient( RV_Updater::CACHE );
 		foreach ( array( 'update_plugins' => 'wp_update_plugins', 'update_themes' => 'wp_update_themes' ) as $transient => $fn ) {
 			$t = get_site_transient( $transient );
 			if ( is_object( $t ) && isset( $t->last_checked ) && time() - (int) $t->last_checked > $max_age ) {
@@ -150,6 +152,7 @@ class RV_Collector {
 			$security['plugin_integrity'] = isset( $results['plugin_integrity'] ) ? $results['plugin_integrity'] : null;
 			$mw                           = isset( $results['malware'] ) ? $results['malware'] : array( 'checked_at' => null, 'findings' => array() );
 			$mw['complete']               = ! RV_Scanner::in_progress() && ! empty( $mw['checked_at'] );
+			$mw['progress']               = RV_Scanner::progress();
 			$security['malware']          = $mw;
 		}
 		$security = array_filter(
@@ -193,6 +196,7 @@ class RV_Collector {
 			'themes'               => $themes,
 			'translations_updates' => $translations,
 			'admins'               => $admins,
+			'agent'                => RV_Guard::status(),
 			'security'             => (object) $security,
 		);
 	}

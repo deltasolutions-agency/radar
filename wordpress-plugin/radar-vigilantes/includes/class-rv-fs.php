@@ -69,17 +69,32 @@ class RV_FS {
 		return 0 === strpos( $path, $root ) ? substr( $path, strlen( $root ) ) : $path;
 	}
 
-	/** index.php "silenzioso" (es. "<?php // Silence is golden"): non sospetto. */
+	/**
+	 * index.php "di protezione" che molti plugin mettono nelle cartelle (es.
+	 * "<?php // Silence is golden" o un header 403): piccolo e senza variabili,
+	 * inclusioni o funzioni pericolose. Non sospetto.
+	 */
 	public static function is_silence_index( $path ) {
 		if ( 'index.php' !== strtolower( basename( $path ) ) ) {
 			return false;
 		}
 		$size = @filesize( $path ); // phpcs:ignore WordPress.PHP.NoSilencedErrors
-		if ( false === $size || $size > 256 ) {
+		if ( false === $size || $size > 1024 ) {
 			return false;
 		}
-		$c = (string) @file_get_contents( $path ); // phpcs:ignore
-		$code = preg_replace( '#/\*.*?\*/|//[^\n]*|\#[^\n]*#s', '', $c );
-		return ! preg_match( '/[(\$`]/', (string) $code );
+		$c    = (string) @file_get_contents( $path ); // phpcs:ignore
+		$code = (string) preg_replace( '#/\*.*?\*/|//[^\n]*|\#[^\n]*#s', '', $c );
+		if ( preg_match( '/[\$`]|\b(?:include|require)(?:_once)?\b/i', $code ) ) {
+			return false;
+		}
+		// Ammesse solo chiamate innocue: header, http_response_code, exit/die, defined.
+		if ( preg_match_all( '/\b([a-z_][a-z0-9_]*)\s*\(/i', $code, $m ) ) {
+			foreach ( $m[1] as $fn ) {
+				if ( ! in_array( strtolower( $fn ), array( 'header', 'http_response_code', 'exit', 'die', 'defined' ), true ) ) {
+					return false;
+				}
+			}
+		}
+		return true;
 	}
 }
