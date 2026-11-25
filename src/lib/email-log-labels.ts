@@ -22,6 +22,8 @@ export const EMAIL_LOG_TYPE_LABELS: Record<EmailLogType, string> = {
   FIRST_PAYMENT_REMINDER: "Sollecito primo pagamento",
   FIRST_PAYMENT_ADMIN_ALERT: "Primo pagamento non ricevuto (admin)",
   LEDGER_OVERDUE_ALERT: "Alert Amministrazione",
+  WP_MONITOR_DIGEST: "Vigilantes · riepilogo",
+  WP_MONITOR_ALERT: "Vigilantes · allarme",
   OTHER: "Altro",
 };
 

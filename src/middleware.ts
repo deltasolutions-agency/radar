@@ -26,6 +26,7 @@ export async function middleware(req: NextRequest) {
     "/amministrazione",
     "/impostazioni",
     "/log",
+    "/vigilantes",
   ];
   const isProtected =
     pathname === "/" ||

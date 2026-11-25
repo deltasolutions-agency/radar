@@ -6,6 +6,7 @@ export const CRON_META = [
   { name: "auto-charge", label: "Addebiti automatici", schedule: "ogni giorno alle 9:00", maxAgeHours: 26, charges: true },
   { name: "autocharge-reminders", label: "Solleciti attivazione rinnovo", schedule: "ogni ora", maxAgeHours: 2, charges: false },
   { name: "ledger-alerts", label: "Alert Amministrazione", schedule: "ogni giorno alle 8:30", maxAgeHours: 26, charges: false },
+  { name: "vigilantes", label: "Vigilantes WordPress", schedule: "ogni giorno alle 7:30", maxAgeHours: 26, charges: false },
 ] as const;
 
 export type CronMeta = (typeof CRON_META)[number];

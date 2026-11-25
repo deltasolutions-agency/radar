@@ -9,6 +9,7 @@ import type { ClientStatusValue } from "@/lib/validations";
 import { RequestDataUpdateButton } from "./request-data-update-button";
 import { LocaleBadge } from "../locale-badge";
 import { LOCALE_LABELS } from "@/lib/i18n";
+import { SITE_HEALTH, siteHealth } from "@/lib/vigilantes/meta";
 
 export const dynamic = "force-dynamic";
 
@@ -28,7 +29,20 @@ export default async function ClienteDettaglioPage({
 }) {
   const client = await prisma.client.findUnique({
     where: { id: params.id },
-    include: { _count: { select: { subscriptions: true } } },
+    include: {
+      _count: { select: { subscriptions: true } },
+      wpSites: {
+        orderBy: { name: "asc" },
+        select: {
+          id: true,
+          name: true,
+          url: true,
+          enabled: true,
+          lastReportAt: true,
+          alerts: { where: { resolvedAt: null }, select: { kind: true, severity: true } },
+        },
+      },
+    },
   });
   if (!client) notFound();
 
@@ -90,6 +104,30 @@ export default async function ClienteDettaglioPage({
         <section className="card p-6">
           <h2 className="mono-label mb-3">Note</h2>
           <p className="whitespace-pre-wrap text-sm text-ink">{client.note}</p>
+        </section>
+      ) : null}
+
+      {client.wpSites.length > 0 ? (
+        <section className="card p-6">
+          <h2 className="mono-label mb-3">Siti WordPress (Vigilantes)</h2>
+          <ul className="divide-y divide-line-soft">
+            {client.wpSites.map((s) => {
+              const h = SITE_HEALTH[siteHealth(s, s.alerts)];
+              return (
+                <li key={s.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
+                  <Link href={`/vigilantes/${s.id}`} className="text-sm font-medium text-ink hover:underline">
+                    {s.name}
+                    <span className="ml-2 font-mono text-xs font-normal text-slate-500">
+                      {s.url.replace(/^https?:\/\//, "")}
+                    </span>
+                  </Link>
+                  <span className={`inline-flex rounded-md border px-2 py-0.5 text-xs font-medium ${h.style}`}>
+                    {h.label}
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
         </section>
       ) : null}
 
