@@ -936,6 +936,9 @@ model WpSite {
   /// integrità dei plugin wordpress.org. Comunicata al plugin a ogni contatto.
   deepScan Boolean @default(false)
   notes    String?
+  /// Percorsi (relativi alla root del sito) segnati come innocui: esclusi
+  /// dagli alert di sicurezza (PHP in uploads, file estranei, codice sospetto).
+  ignoredPaths String[] @default([])
 
   // Ultimo report ricevuto (pull o push).
   wpVersion        String?
@@ -954,6 +957,7 @@ model WpSite {
 
   components WpComponent[]
   alerts     WpAlert[]
+  recipients WpAlertRecipient[]
 
   createdBy String?
   createdAt DateTime @default(now())
@@ -1011,4 +1015,26 @@ model WpAlert {
   @@index([resolvedAt])
   @@index([siteId, resolvedAt])
   @@map("wp_alerts")
+}
+
+/// Cosa riceve un destinatario aggiuntivo del sito.
+enum WpRecipientMode {
+  ALL // allarmi critici + riepilogo giornaliero del sito
+  CRITICAL // solo allarmi critici
+  DIGEST // solo riepilogo giornaliero del sito
+}
+
+/// Destinatari aggiuntivi degli alert di un sito (oltre a hello@, che riceve
+/// sempre tutto). Ricevono solo ciò che riguarda quel sito.
+model WpAlertRecipient {
+  id        String          @id @default(cuid())
+  siteId    String
+  site      WpSite          @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  email     String
+  mode      WpRecipientMode @default(CRITICAL)
+  createdBy String?
+  createdAt DateTime        @default(now())
+
+  @@unique([siteId, email])
+  @@map("wp_alert_recipients")
 }
