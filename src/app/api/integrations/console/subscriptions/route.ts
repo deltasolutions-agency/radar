@@ -14,9 +14,17 @@ const schema = z.object({
   // DA_PAGARE: Radar invia il link del primo pagamento (come dalla dashboard).
   // PAGATO: attivo subito con pagamento manuale registrato (es. clienti di prova).
   paymentMode: z.enum(["DA_PAGARE", "PAGATO"]),
+  // ONCE = "blocca dopo il primo aumento" (stessa casella della dashboard); EVERY_RENEWAL = ogni rinnovo.
+  renewalIncreaseMode: z.enum(["ONCE", "EVERY_RENEWAL"]).optional(),
+  // true = il primo pagamento salva la carta per i rinnovi automatici (casella obbligatoria su /pay).
+  autoCharge: z.boolean().optional(),
+  // true = commissione di servizio 1,5% sui pagamenti con carta (Subscription.serviceFeeEnabled).
+  serviceFee: z.boolean().optional(),
   items: z.array(z.object({
     serviceId: z.string().min(1),
     priceCents: z.number().int().min(0).optional(),
+    // Sconto "per sempre": 0 = nessun aumento ai rinnovi (sovrascrive la % del listino).
+    renewalIncreasePercentOverride: z.number().int().min(0).max(100).optional(),
     quantity: z.number().int().min(1).max(1000).optional(),
     endClientName: z.string().max(200).optional(),
     notes: z.string().max(5000).optional(),
@@ -39,6 +47,9 @@ export function POST(req: NextRequest) {
       data: {
         clientId: client.id,
         activationState: "PENDING_FIRST_PAYMENT",
+        consoleManaged: true,
+        requireAutoCharge: data.autoCharge ?? false,
+        serviceFeeEnabled: data.serviceFee ?? false,
         notes: data.notes ?? "Creato dalla console Delta Cloud",
         items: {
           create: data.items.map((it) => {
@@ -51,6 +62,8 @@ export function POST(req: NextRequest) {
               priceCents: it.priceCents ?? s.priceCents, currency: s.currency,
               billingPeriod: s.billingPeriod, customPeriodDays: s.customPeriodDays,
               quantity: it.quantity ?? 1, endClientName: it.endClientName ?? null, notes: it.notes,
+              renewalIncreaseMode: data.renewalIncreaseMode ?? "EVERY_RENEWAL",
+              renewalIncreasePercentOverride: it.renewalIncreasePercentOverride ?? null,
             };
           }),
         },

@@ -5,7 +5,7 @@ import { notActiveMessage } from "@/lib/activation";
 import { manualPaymentSchema } from "@/lib/validations";
 import { confirmPaymentAndRenew } from "@/lib/confirm-payment";
 import { renewalChargePriceCents } from "@/lib/renewal-price";
-import { MS_PER_DAY, periodDurationDays } from "@/lib/billing-period";
+import { nextPeriodEnd } from "@/lib/billing-period";
 import { addVatToNet } from "@/lib/vat";
 
 type Params = { params: { id: string } };
@@ -77,16 +77,12 @@ export function POST(req: NextRequest, { params }: Params) {
         recordedById: session.sub,
         items: {
           create: items.map((it, idx) => {
-            const duration = periodDurationDays(it);
             return {
               subscriptionItemId: it.id,
               amountCents: itemGrossCents[idx],
               status: "IN_ATTESA" as const,
               periodStart: it.endDate,
-              periodEnd:
-                duration != null
-                  ? new Date(it.endDate.getTime() + duration * MS_PER_DAY)
-                  : null,
+              periodEnd: nextPeriodEnd(it, it.endDate),
             };
           }),
         },

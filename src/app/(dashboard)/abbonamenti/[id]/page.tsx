@@ -147,6 +147,8 @@ export default async function AbbonamentoDettaglioPage({
       periodicityLabel: formatBillingPeriod(
         it.billingPeriod as BillingPeriodValue,
         it.customPeriodDays,
+        "it",
+        it.service.autoRenew,
       ),
     }));
 
@@ -436,6 +438,8 @@ export default async function AbbonamentoDettaglioPage({
                       {formatBillingPeriod(
                         it.billingPeriod as BillingPeriodValue,
                         it.customPeriodDays,
+                        "it",
+                        it.service.autoRenew,
                       )}
                     </dd>
                   </div>

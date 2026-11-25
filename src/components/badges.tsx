@@ -14,6 +14,7 @@ import {
 
 // Colori distinti e leggibili per tipo servizio (coerenti con la dashboard).
 const TYPE_STYLES: Record<ServiceTypeValue, string> = {
+  CLOUD: "bg-indigo-50 text-indigo-700 border-indigo-200",
   DOMINIO: "bg-blue-50 text-blue-700 border-blue-200",
   HOSTING: "bg-violet-50 text-violet-700 border-violet-200",
   SSL: "bg-emerald-50 text-emerald-700 border-emerald-200",

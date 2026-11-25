@@ -37,6 +37,7 @@ enum ClientStatus {
 
 /// Tipologia del servizio a catalogo.
 enum ServiceType {
+  CLOUD
   DOMINIO
   HOSTING
   SSL
@@ -335,6 +336,14 @@ model Subscription {
   // contenitore, applicata solo ai pagamenti con metodo STRIPE.
   serviceFeeEnabled Boolean @default(false)
 
+  // Abbonamento creato dalla console Delta Cloud: al primo pagamento Radar avvisa
+  // la console (che manda la mail di benvenuto con ricevuta e guide) e non invia
+  // al cliente la sua conferma standard, per non duplicarla.
+  consoleManaged    Boolean @default(false)
+  // Il primo pagamento conserva la carta e attiva il rinnovo automatico:
+  // sulla pagina /pay la casella è già spuntata e non si può togliere.
+  requireAutoCharge Boolean @default(false)
+
   // Attivazione: gli abbonamenti "da pagare" nascono PENDING_FIRST_PAYMENT e
   // diventano ACTIVE alla conferma del pagamento di attivazione.
   activationState        SubscriptionActivationState @default(ACTIVE)
@@ -394,6 +403,10 @@ model SubscriptionItem {
   renewalIncreasePercentOverride Int?
 
   // Rinnovo automatico con addebito ricorrente (Setup Intent + off_session).
+  // Abbonamenti della console: giorno del mese su cui cadono i rinnovi (quello del
+  // primo pagamento). Se presente, MENSILE/ANNUALE seguono i mesi di calendario
+  // (14 → 14, nei mesi più corti l'ultimo giorno) invece di 30/365 giorni.
+  calendarAnchorDay       Int?
   autoChargeEnabled       Boolean   @default(false)
   autoChargeEndDate       DateTime?
   autoChargeFailCount     Int       @default(0)

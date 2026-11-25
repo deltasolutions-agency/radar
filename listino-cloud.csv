@@ -1,0 +1,10 @@
+nome;tipo;prezzo;periodicita;giorni;rinnovo_automatico;aumento_pct;costo;descrizione;nome_en;descrizione_en;attivo
+Cloud · canone per utente;CLOUD;12,90;MENSILE;;si;0;;Canone mensile per utente (minimo 5 utenti): 1 TB, backup, gestione e assistenza, branding, Office online;Cloud · monthly fee per user;Monthly fee per user (minimum 5 users): 1 TB, backup, management and support, branding, Office online;si
+Cloud · utente aggiuntivo;CLOUD;14,90;MENSILE;;si;0;;Dal 6° utente in poi;Cloud · additional user;From the 6th user onwards;si
+Cloud · spazio 3 TB (per utente);CLOUD;19,90;MENSILE;;si;0;;Spazio aggiuntivo 3 TB, sui primi 5 utenti;Cloud · 3 TB storage (per user);Additional 3 TB storage, on the first 5 users;si
+Cloud · spazio 10 TB (per utente);CLOUD;33,90;MENSILE;;si;0;;Spazio aggiuntivo 10 TB, sui primi 5 utenti;Cloud · 10 TB storage (per user);Additional 10 TB storage, on the first 5 users;si
+Cloud · spazio oltre 10 TB (per utente per TB);CLOUD;8,90;MENSILE;;si;0;;Ogni TB iniziato oltre i 10 TB, sui primi 5 utenti;Cloud · storage above 10 TB (per user per TB);Each started TB above 10 TB, on the first 5 users;si
+Cloud · attivazione e configurazione;CLOUD;199,00;ANNUALE;;no;0;;Una tantum;Cloud · activation and setup;One-off;si
+Cloud · formazione utenti;CLOUD;19,90;ANNUALE;;no;0;;Una tantum, per utente;Cloud · user training;One-off, per user;si
+Cloud · migrazione archivio esistente;CLOUD;0,00;ANNUALE;;no;0;;A preventivo, dopo verifica del Team Delta;Cloud · existing archive migration;Quoted after review by the Delta team;si
+Video Checker;CLOUD;49,00;MENSILE;;si;0;;Revisione video con commenti sul fotogramma, con il marchio del cliente;Video Checker;Frame-accurate video review, white-labelled;si

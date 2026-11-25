@@ -12,6 +12,7 @@ import { z } from "zod";
  */
 
 export const SERVICE_TYPES = [
+  "CLOUD",
   "DOMINIO",
   "HOSTING",
   "SSL",
@@ -37,6 +38,7 @@ export type ClientLocaleValue = (typeof CLIENT_LOCALES)[number];
 
 // Etichette leggibili per la UI.
 export const SERVICE_TYPE_LABELS: Record<ServiceTypeValue, string> = {
+  CLOUD: "Cloud",
   DOMINIO: "Dominio",
   HOSTING: "Hosting",
   SSL: "SSL",
@@ -62,7 +64,10 @@ export function formatBillingPeriod(
   billingPeriod: BillingPeriodValue,
   customPeriodDays: number | null,
   lang: "it" | "en" = "it",
+  /** false = servizio senza rinnovo (una tantum): si mostra "Una tantum" invece della periodicità. */
+  autoRenew: boolean = true,
 ): string {
+  if (autoRenew === false) return lang === "en" ? "One-off" : "Una tantum";
   if (billingPeriod === "PERSONALIZZATA" && customPeriodDays) {
     return lang === "en" ? `Every ${customPeriodDays} days` : `Ogni ${customPeriodDays} giorni`;
   }
