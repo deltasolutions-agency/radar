@@ -25,6 +25,8 @@ class RV_Updater {
 
 	/** @return array|null */
 	public static function info( $force = false ) {
+		// "Controlla di nuovo" in Bacheca → Aggiornamenti forza anche la nostra verifica.
+		$force  = $force || ! empty( $_GET['force-check'] ); // phpcs:ignore WordPress.Security.NonceVerification
 		$cached = get_site_transient( self::CACHE );
 		if ( ! $force && is_array( $cached ) ) {
 			return $cached;

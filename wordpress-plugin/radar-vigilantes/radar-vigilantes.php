@@ -3,7 +3,7 @@
  * Plugin Name:       Radar Vigilantes
  * Plugin URI:        https://radar.deltasolutions.agency
  * Description:       Collega il sito a Radar (Delta Solutions): monitora aggiornamenti di core, plugin e temi e lo stato di sicurezza del sito.
- * Version:           1.0.0
+ * Version:           1.0.1
  * Requires at least: 5.8
  * Requires PHP:      7.4
  * Author:            Delta Solutions
@@ -18,7 +18,12 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'RADAR_VIGILANTES_VERSION', '1.0.0' );
+// Già caricato (dal loader in mu-plugins o da WordPress): niente doppioni.
+if ( defined( 'RADAR_VIGILANTES_VERSION' ) ) {
+	return;
+}
+
+define( 'RADAR_VIGILANTES_VERSION', '1.0.1' );
 define( 'RADAR_VIGILANTES_FILE', __FILE__ );
 define( 'RADAR_VIGILANTES_DIR', __DIR__ );
 define( 'RADAR_VIGILANTES_BASENAME', plugin_basename( __FILE__ ) );
@@ -34,6 +39,7 @@ require_once __DIR__ . '/includes/class-rv-client.php';
 require_once __DIR__ . '/includes/class-rv-rest.php';
 require_once __DIR__ . '/includes/class-rv-events.php';
 require_once __DIR__ . '/includes/class-rv-updater.php';
+require_once __DIR__ . '/includes/class-rv-guard.php';
 
 if ( is_admin() ) {
 	require_once __DIR__ . '/includes/class-rv-admin.php';
@@ -43,6 +49,7 @@ if ( is_admin() ) {
 RV_Rest::init();
 RV_Events::init();
 RV_Updater::init();
+RV_Guard::init();
 
 register_activation_hook( __FILE__, array( 'RV_Events', 'activate' ) );
 register_deactivation_hook( __FILE__, array( 'RV_Events', 'deactivate' ) );

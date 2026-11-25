@@ -219,6 +219,16 @@ export const reportSchema = z
       )
       .max(500)
       .optional(),
+    agent: z
+      .object({
+        loader: bool,
+        via_loader: bool,
+        active_in_admin: bool,
+        deactivated_by: optStr,
+        deactivated_at: z.number().nullable().optional(),
+      })
+      .passthrough()
+      .optional(),
     security: z
       .object({
         integrity: z

@@ -101,6 +101,7 @@ class RV_Rest {
 		if ( isset( $data['options'] ) ) {
 			RV_Client::apply_options( $data['options'] );
 		}
+		RV_Guard::ensure_loader();
 		if ( ! empty( $data['refresh'] ) ) {
 			RV_Collector::refresh_updates();
 		}

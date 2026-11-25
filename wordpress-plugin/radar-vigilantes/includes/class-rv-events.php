@@ -32,12 +32,30 @@ class RV_Events {
 	}
 
 	public static function activate() {
+		$o = RV_Settings::all();
+		unset( $o['deactivated_by'], $o['deactivated_at'] );
+		update_option( RV_Settings::OPTION, $o, false );
+		RV_Guard::ensure_loader();
 		self::ensure_daily();
+		if ( RV_Settings::connection() ) {
+			self::schedule( 'reactivated', 0 );
+		}
 	}
 
+	/**
+	 * Disattivazione dal pannello: registrata e segnalata subito a Radar. Se il
+	 * loader in mu-plugins è presente il plugin continua comunque a funzionare.
+	 */
 	public static function deactivate() {
-		wp_clear_scheduled_hook( self::DAILY );
-		wp_clear_scheduled_hook( self::PUSH );
+		$o                   = RV_Settings::all();
+		$o['deactivated_by'] = RV_Guard::current_login();
+		$o['deactivated_at'] = time();
+		update_option( RV_Settings::OPTION, $o, false );
+		RV_Client::push( 'deactivated', array( array( 'type' => 'deactivated', 'user' => $o['deactivated_by'] ) ) );
+		if ( ! RV_Guard::loader_present() ) {
+			wp_clear_scheduled_hook( self::DAILY );
+			wp_clear_scheduled_hook( self::PUSH );
+		}
 	}
 
 	public static function ensure_daily() {
@@ -47,6 +65,7 @@ class RV_Events {
 	}
 
 	public static function daily() {
+		RV_Guard::ensure_loader(); // anche dopo un aggiornamento automatico (l'attivazione non riparte)
 		RV_Tasks::run_due( 50 );
 		RV_Client::push( 'daily' );
 	}

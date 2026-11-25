@@ -23,7 +23,16 @@ export type DesiredAlert = {
 };
 
 /** Prefissi delle chiavi gestite dal report: si chiudono quando spariscono. */
-export const REPORT_MANAGED_PREFIXES = ["update:", "debug", "integrity", "uploads-php", "plugin-integrity", "malware"];
+export const REPORT_MANAGED_PREFIXES = [
+  "update:",
+  "debug",
+  "integrity",
+  "uploads-php",
+  "plugin-integrity",
+  "malware",
+  "agent-deactivated",
+  "agent-removed",
+];
 /** Chiavi gestite dal controllo pull. */
 export const PULL_KEYS = { unreachable: "unreachable", agent: "agent" } as const;
 
@@ -218,6 +227,23 @@ export function analyzeReport(
         truncated: !!mw?.truncated,
         scanned: mw?.scanned ?? null,
       },
+    });
+  }
+
+  // Plugin disattivato dal pannello (dalla 1.0.1 il plugin lo riporta)
+  const agent = report.agent;
+  if (agent?.deactivated_by) {
+    const when = agent.deactivated_at
+      ? new Date(agent.deactivated_at * 1000).toLocaleString("it-IT", { timeZone: "Europe/Rome", dateStyle: "short", timeStyle: "short" })
+      : null;
+    alerts.push({
+      kind: "AGENT_ERROR",
+      severity: agent.loader ? "WARNING" : "CRITICAL",
+      key: "agent-deactivated",
+      title: agent.loader
+        ? `Radar Vigilantes disattivato dal pannello da ${agent.deactivated_by}${when ? ` (${when})` : ""}: resta attivo tramite il loader`
+        : `Radar Vigilantes disattivato dal pannello da ${agent.deactivated_by}${when ? ` (${when})` : ""}: il monitoraggio si ferma`,
+      details: { user: agent.deactivated_by, at: agent.deactivated_at ?? null, loader: !!agent.loader },
     });
   }
 

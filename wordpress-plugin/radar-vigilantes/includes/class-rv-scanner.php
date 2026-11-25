@@ -25,17 +25,26 @@ class RV_Scanner {
 			'eval_decode'      => array( 'high', 'eval/assert di contenuto decodificato', '/\b(?:eval|assert)\s*\(\s*@?\s*' . $decoders . '\s*\(/i' ),
 			'exec_input'       => array( 'high', 'esecuzione di codice/comandi da input esterno', '/\b(?:eval|assert|create_function|system|shell_exec|passthru|exec|popen|proc_open|pcntl_exec)\s*\(\s*@?\s*(?:stripslashes\s*\(\s*)?' . $input . '/i' ),
 			'call_input'       => array( 'high', 'funzione chiamata con nome preso dall\'input', '/' . $input . '\s*\[[^\]]{1,40}\]\s*\(/i' ),
-			'preg_e'           => array( 'high', 'preg_replace con modificatore /e', '/preg_replace\s*\(\s*[\'"](.).{0,200}?\1[a-df-zA-Z]*e[a-zA-Z]*[\'"]\s*,/s' ),
+			// Pattern tra virgolette senza virgolette interne: delimitatore, corpo,
+			// delimitatore non preceduto da "\\", modificatori con "e", chiusura.
+			'preg_e'           => array( 'high', 'preg_replace con modificatore /e', '/preg_replace\s*\(\s*([\'"])([^\w\s\\\\\'"])(?:[^\'"\\\\]|\\\\.){0,300}?(?<!\\\\)\2[a-zA-Z]*e[a-zA-Z]*\1\s*,/' ),
 			'webshell_name'    => array( 'high', 'firma di webshell nota', '/(?:c99shell|r57shell|b374k|FilesMan|IndoXploit|WSO\s+[\d.]+|alfa[-_ ]?shell|Sh3ll\s+By|uname\s*-a.{0,40}passthru)/i' ),
 			'include_media'    => array( 'high', 'include di un file non PHP (immagine/testo)', '/\b(?:include|require)(?:_once)?\s*\(?\s*[\'"][^\'"]{1,200}\.(?:ico|png|jpe?g|gif|txt|css|svg)[\'"]/i' ),
 			'decode_chain'     => array( 'medium', 'catena di decodifiche annidate', '/' . $decoders . '\s*\(\s*' . $decoders . '\s*\(/i' ),
-			'globals_obf'      => array( 'medium', 'funzioni nascoste in $GLOBALS (offuscatore)', '/\$GLOBALS\s*\[\s*[\'"][^\'"]{1,40}[\'"]\s*\]\s*\[\s*\d+\s*\]\s*\(/' ),
+			'globals_obf'      => array( 'high', 'funzioni nascoste in $GLOBALS (offuscatore)', '/\$GLOBALS\s*\[\s*[\'"][^\'"]{1,40}[\'"]\s*\]\s*\[\s*\d+\s*\]\s*\(/' ),
 			'long_base64'      => array( 'medium', 'stringa base64 molto lunga', '/[\'"][A-Za-z0-9+\/]{2000,}={0,2}[\'"]/' ),
 			'hex_escapes'      => array( 'medium', 'lunga sequenza di escape esadecimali', '/(?:\\\\x[0-9a-fA-F]{2}){60,}/' ),
 			'chr_concat'       => array( 'medium', 'stringa costruita con chr() concatenati', '/(?:chr\s*\(\s*\d{1,3}\s*\)\s*\.\s*){20,}/i' ),
 			'var_func_decode'  => array( 'medium', 'funzione variabile su contenuto decodificato', '/\$[a-zA-Z_]\w*\s*\(\s*' . $decoders . '\s*\(/' ),
 		);
 	}
+
+	/**
+	 * Funzioni che eseguono codice o comandi: le regole "medium" (offuscamento)
+	 * contano solo se nel file compare anche una di queste. Offuscare senza
+	 * eseguire è tipico di librerie e dati, non di malware.
+	 */
+	const SINK = '/\b(?:eval|assert|create_function|system|shell_exec|passthru|exec|popen|proc_open|pcntl_exec)\s*\(|\$\w+\s*\(\s*\$|\$GLOBALS\s*\[[^\]]+\]\s*\[[^\]]+\]\s*\(|`[^`]*\$_/i';
 
 	/** Cartelle da analizzare ed esclusioni. */
 	private static function roots() {
@@ -70,14 +79,29 @@ class RV_Scanner {
 		$content = (string) fread( $fh, self::MAX_BYTES );
 		fclose( $fh );
 
+		$sink = null;
 		foreach ( self::rules() as $id => $rule ) {
-			if ( preg_match( $rule[2], $content, $m, PREG_OFFSET_CAPTURE ) ) {
-				$found[] = self::finding( $path, $id, $rule[0], $rule[1], $content, $m[0][1] );
+			if ( ! preg_match( $rule[2], $content, $m, PREG_OFFSET_CAPTURE ) ) {
+				continue;
 			}
+			if ( 'medium' === $rule[0] ) {
+				if ( null === $sink ) {
+					$sink = (bool) preg_match( self::SINK, $content );
+				}
+				if ( ! $sink ) {
+					continue;
+				}
+			}
+			$found[] = self::finding( $path, $id, $rule[0], $rule[1], $content, $m[0][1] );
 		}
-		// Righe lunghissime: tipiche del codice offuscato (non dei sorgenti normali).
-		if ( preg_match( '/[^\n]{30000,}/', $content, $m, PREG_OFFSET_CAPTURE ) && preg_match( '/\b(?:eval|assert|base64_decode|gzinflate|str_rot13)\b/i', $content ) ) {
-			$found[] = self::finding( $path, 'long_line', 'medium', 'riga lunghissima con funzioni di decodifica', $content, $m[0][1] );
+		// Righe lunghissime con decodifica ED esecuzione: tipiche del codice offuscato.
+		if ( preg_match( '/[^\n]{30000,}/', $content, $m, PREG_OFFSET_CAPTURE ) && preg_match( '/\b(?:base64_decode|gzinflate|gzuncompress|str_rot13)\b/i', $content ) ) {
+			if ( null === $sink ) {
+				$sink = (bool) preg_match( self::SINK, $content );
+			}
+			if ( $sink ) {
+				$found[] = self::finding( $path, 'long_line', 'medium', 'riga lunghissima con decodifica ed esecuzione di codice', $content, $m[0][1] );
+			}
 		}
 		return $found;
 	}
@@ -153,6 +177,12 @@ class RV_Scanner {
 		);
 		delete_option( self::STATE );
 		return true;
+	}
+
+	/** Avanzamento del ciclo in corso: file analizzati finora. */
+	public static function progress() {
+		$s = get_option( self::STATE, array() );
+		return is_array( $s ) && ! empty( $s['cycle_started'] ) ? (int) $s['scanned'] : null;
 	}
 
 	/** Ciclo in corso? (per il report: "scansione in corso"). */
