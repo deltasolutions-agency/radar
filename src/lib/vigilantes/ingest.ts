@@ -1,8 +1,7 @@
 import "server-only";
 import type { EmailTrigger, Prisma, WpSite } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { buildCronSummaryEmail } from "@/lib/email-templates";
-import { sendEmail } from "@/lib/send-email";
+import { notifyCritical } from "@/lib/vigilantes/notify";
 import {
   analyzeReport,
   adminLoginsFromStored,
@@ -10,7 +9,6 @@ import {
   PULL_KEYS,
   type DesiredAlert,
 } from "@/lib/vigilantes/analyze";
-import { ALERT_KIND_LABELS, VIGILANTES_ALERT_RECIPIENT } from "@/lib/vigilantes/meta";
 import type { VigilantesReport } from "@/lib/vigilantes/protocol";
 
 type Tx = Prisma.TransactionClient;
@@ -153,7 +151,10 @@ export async function ingestReport(
   now: Date = new Date(),
   extraAlerts: DesiredAlert[] = [],
 ): Promise<IngestOutcome> {
-  const analysis = analyzeReport(report, adminLoginsFromStored(site.report), { deepScan: site.deepScan });
+  const analysis = analyzeReport(report, adminLoginsFromStored(site.report), {
+    deepScan: site.deepScan,
+    ignored: site.ignoredPaths,
+  });
   // Un alert esplicito (es. disinstallazione) sostituisce quello di disattivazione.
   const desired = extraAlerts.some((a) => a.key === "agent-removed")
     ? [...analysis.alerts.filter((a) => a.key !== "agent-deactivated"), ...extraAlerts]
@@ -223,38 +224,4 @@ export async function recordCheckResult(
   });
   await notifyCritical(site, opened, trigger);
   return opened;
-}
-
-/** Email immediata per gli alert CRITICAL appena aperti (una per sito). */
-export async function notifyCritical(site: WpSite, opened: OpenedAlert[], trigger: EmailTrigger) {
-  const critical = opened.filter((a) => a.severity === "CRITICAL");
-  if (critical.length === 0) return;
-  const appUrl = process.env.APP_URL ?? "";
-  const content = buildCronSummaryEmail({
-    subject: `[Radar] Allarme Vigilantes: ${site.name} — ${critical.map((a) => ALERT_KIND_LABELS[a.kind as keyof typeof ALERT_KIND_LABELS] ?? a.kind).join(", ")}`,
-    title: `Allarme su ${site.name}`,
-    intro: `Vigilantes ha rilevato ${critical.length === 1 ? "un problema critico" : `${critical.length} problemi critici`} su ${site.url}. Controlla il sito il prima possibile.`,
-    sections: [
-      { heading: "Cosa è successo", lines: critical.map((a) => a.title) },
-      { heading: "Apri in Radar", lines: [`${appUrl}/vigilantes/${site.id}`] },
-    ],
-  });
-  const res = await sendEmail(content, VIGILANTES_ALERT_RECIPIENT, {
-    type: "WP_MONITOR_ALERT",
-    trigger,
-    clientId: site.clientId,
-    dedupeKey: `vigilantes-alert:${site.id}:${critical
-      .map((a) => `${a.id}@${a.openedAt.getTime()}`)
-      .sort()
-      .join(",")}`,
-  }).catch((e) => {
-    console.error("[vigilantes] invio allarme fallito:", e);
-    return null;
-  });
-  if (res?.ok) {
-    await prisma.wpAlert.updateMany({
-      where: { id: { in: critical.map((a) => a.id) } },
-      data: { notifiedAt: new Date() },
-    });
-  }
 }

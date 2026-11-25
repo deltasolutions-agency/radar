@@ -5,6 +5,7 @@ import { sendEmail } from "@/lib/send-email";
 import { romeYmd } from "@/lib/rome-time";
 import type { CronResult } from "@/lib/cron/common";
 import { checkSite } from "@/lib/vigilantes/pull";
+import { sendSiteDigests } from "@/lib/vigilantes/notify";
 import {
   SEVERITY_LABELS,
   SEVERITY_RANK,
@@ -102,11 +103,15 @@ export async function runVigilantes({ now, dryRun }: { now: Date; dryRun: boolea
   const staleBefore = new Date(now.getTime() - STALE_REPORT_HOURS * 3_600_000);
   const silent = sites.filter((s) => s.lastReportAt && s.lastReportAt < staleBefore);
 
+  const today = romeYmd(now);
+  // Riepiloghi per sito ai destinatari aggiuntivi (indipendenti da quello generale).
+  const siteDigests = await sendSiteDigests(today);
+  details.push(...siteDigests.details);
+
   if (alerts.length === 0 && silent.length === 0) {
-    return { dryRun, candidates: sites.length, sent: 0, skipped: 0, failed, details };
+    return { dryRun, candidates: sites.length, sent: siteDigests.sent, skipped: 0, failed: failed + siteDigests.failed, details };
   }
 
-  const today = romeYmd(now);
   const appUrl = process.env.APP_URL ?? "";
   const bySite = new Map<string, typeof alerts>();
   for (const a of alerts) bySite.set(a.siteId, [...(bySite.get(a.siteId) ?? []), a]);
@@ -149,9 +154,9 @@ export async function runVigilantes({ now, dryRun }: { now: Date; dryRun: boolea
   return {
     dryRun,
     candidates: sites.length,
-    sent: res.ok && !res.skipped ? 1 : 0,
+    sent: (res.ok && !res.skipped ? 1 : 0) + siteDigests.sent,
     skipped: res.skipped ? 1 : 0,
-    failed: failed + (res.ok ? 0 : 1),
+    failed: failed + (res.ok ? 0 : 1) + siteDigests.failed,
     details: [
       ...details,
       {

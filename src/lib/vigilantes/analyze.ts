@@ -63,8 +63,11 @@ export type Analysis = {
 export function analyzeReport(
   report: VigilantesReport,
   previousAdminLogins: string[] | null,
-  opts: { deepScan: boolean } = { deepScan: true },
+  opts: { deepScan: boolean; ignored?: string[] } = { deepScan: true },
 ): Analysis {
+  // Percorsi segnati come innocui dalla dashboard: esclusi dagli alert.
+  const ignored = new Set(opts.ignored ?? []);
+  const keep = (files: string[] | undefined) => (files ?? []).filter((f) => !ignored.has(f));
   const components: ComponentRow[] = [];
   const alerts: DesiredAlert[] = [];
 
@@ -149,10 +152,13 @@ export function analyzeReport(
 
   // Sicurezza
   const integ = report.security?.integrity;
-  if (integ && integ.ok === false) {
-    const modified = clip(integ.modified);
-    const missing = clip(integ.missing);
-    const unknown = clip(integ.unknown);
+  const integModified = keep(integ?.modified);
+  const integMissing = keep(integ?.missing);
+  const integUnknown = keep(integ?.unknown);
+  if (integ && integ.ok === false && integModified.length + integMissing.length + integUnknown.length > 0) {
+    const modified = clip(integModified);
+    const missing = clip(integMissing);
+    const unknown = clip(integUnknown);
     const parts = [
       modified.total ? `${modified.total} modificati` : "",
       unknown.total ? `${unknown.total} estranei` : "",
@@ -168,8 +174,9 @@ export function analyzeReport(
     });
   }
   const up = report.security?.uploads_php;
-  if (up?.files && up.files.length > 0) {
-    const files = clip(up.files);
+  const upFiles = keep(up?.files);
+  if (up && upFiles.length > 0) {
+    const files = clip(upFiles);
     alerts.push({
       kind: "UPLOADS_PHP",
       severity: "CRITICAL",
@@ -182,7 +189,14 @@ export function analyzeReport(
   // Scansione approfondita: considerata solo se attiva in Radar (spenta →
   // gli alert relativi si chiudono).
   const pi = opts.deepScan ? report.security?.plugin_integrity : undefined;
-  const altered = (pi?.plugins ?? []).filter((p) => (p.modified?.length ?? 0) + (p.unknown?.length ?? 0) > 0);
+  const pluginPath = (slug: string, f: string) => `wp-content/plugins/${slug.split("/")[0]}/${f}`;
+  const altered = (pi?.plugins ?? [])
+    .map((p) => ({
+      ...p,
+      modified: (p.modified ?? []).filter((f) => !ignored.has(pluginPath(p.slug, f))),
+      unknown: (p.unknown ?? []).filter((f) => !ignored.has(pluginPath(p.slug, f))),
+    }))
+    .filter((p) => p.modified.length + p.unknown.length > 0);
   if (altered.length > 0) {
     const phpTouched = altered.some((p) => [...(p.modified ?? []), ...(p.unknown ?? [])].some((f) => /\.(php\d?|phtml|phar)$/i.test(f)));
     alerts.push({
@@ -205,7 +219,7 @@ export function analyzeReport(
     });
   }
   const mw = opts.deepScan ? report.security?.malware : undefined;
-  const findings = (mw?.findings ?? []).filter((f) => f.severity !== "low");
+  const findings = (mw?.findings ?? []).filter((f) => f.severity !== "low" && !ignored.has(f.file));
   if (findings.length > 0) {
     const high = findings.filter((f) => f.severity === "high");
     const files = new Set(findings.map((f) => f.file));
