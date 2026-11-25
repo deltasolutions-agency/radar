@@ -188,6 +188,7 @@ model Client {
   autoChargeRequests AutoChargeRequest[]
   dataChangeLogs     ClientDataChangeLog[]
   emailLogs          EmailLog[]
+  wpSites            WpSite[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -705,6 +706,8 @@ enum EmailLogType {
   FIRST_PAYMENT_REMINDER // sollecito primo pagamento al cliente
   FIRST_PAYMENT_ADMIN_ALERT // primo pagamento non ricevuto (admin)
   LEDGER_OVERDUE_ALERT // Amministrazione: crediti/debiti scaduti (admin)
+  WP_MONITOR_DIGEST // Vigilantes: riepilogo giornaliero siti WordPress (admin)
+  WP_MONITOR_ALERT // Vigilantes: allarme immediato (sito giù, sicurezza) (admin)
   OTHER
 }
 
@@ -869,4 +872,130 @@ model LedgerEntry {
   @@index([kind, paidAt])
   @@index([dueDate])
   @@map("ledger_entries")
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// VIGILANTES — monitoraggio dei siti WordPress
+// Ogni sito ha il plugin "Radar Vigilantes", che si collega a Radar con una
+// chiave (id sito + secret condiviso, firma HMAC in entrambe le direzioni).
+// Radar interroga i siti ogni giorno (pull) e il plugin invia eventi (push).
+// Sezione indipendente da abbonamenti e pagamenti: il cliente è facoltativo.
+// ──────────────────────────────────────────────────────────────────────────
+
+enum WpComponentType {
+  CORE
+  PLUGIN
+  THEME
+}
+
+enum WpAlertKind {
+  CORE_UPDATE // aggiornamento WordPress disponibile
+  PLUGIN_UPDATE
+  THEME_UPDATE
+  SITE_UNREACHABLE // il sito non risponde (rete, 5xx, timeout)
+  AGENT_ERROR // il sito risponde ma il plugin no (disattivato, chiave errata)
+  NEW_ADMIN // comparso un nuovo amministratore
+  CORE_INTEGRITY // file del core modificati / sconosciuti
+  UPLOADS_PHP // file PHP dentro wp-content/uploads
+  DEBUG_ENABLED // WP_DEBUG_DISPLAY attivo in produzione
+  PLUGIN_INTEGRITY // file di un plugin wordpress.org diversi dall'originale
+  MALWARE_SUSPECT // codice offuscato / backdoor / file sospetti (euristica)
+}
+
+enum WpAlertSeverity {
+  INFO
+  WARNING
+  CRITICAL
+}
+
+model WpSite {
+  id       String  @id @default(cuid())
+  name     String
+  /// URL base del sito (home), senza slash finale.
+  url      String  @unique
+  clientId String?
+  client   Client? @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  /// Secret condiviso con il plugin (firma HMAC). Rigenerabile dalla dashboard.
+  secret   String
+  /// false = escluso dai controlli e dagli alert.
+  enabled  Boolean @default(true)
+  /// Scansione approfondita sul sito: codice sospetto (malware/backdoor) e
+  /// integrità dei plugin wordpress.org. Comunicata al plugin a ogni contatto.
+  deepScan Boolean @default(false)
+  notes    String?
+
+  // Ultimo report ricevuto (pull o push).
+  wpVersion        String?
+  phpVersion       String?
+  pluginVersion    String?
+  lastReportAt     DateTime?
+  lastReportSource String? // PULL | PUSH
+  /// Report completo più recente (ambiente, sicurezza, amministratori).
+  report           Json?
+
+  // Esito dell'ultimo controllo pull.
+  lastCheckAt         DateTime?
+  lastCheckOk         Boolean?
+  lastCheckError      String?
+  consecutiveFailures Int       @default(0)
+
+  components WpComponent[]
+  alerts     WpAlert[]
+
+  createdBy String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([clientId])
+  @@map("wp_sites")
+}
+
+/// Core, plugin e temi installati, con l'eventuale versione disponibile.
+model WpComponent {
+  id         String          @id @default(cuid())
+  siteId     String
+  site       WpSite          @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  type       WpComponentType
+  /// CORE: "wordpress"; PLUGIN: file del plugin (es. akismet/akismet.php); THEME: stylesheet.
+  slug       String
+  name       String
+  version    String?
+  newVersion String?
+  active     Boolean         @default(false)
+  autoUpdate Boolean         @default(false)
+  /// Da quando è disponibile l'aggiornamento a `newVersion`.
+  updateSince DateTime?
+  updatedAt  DateTime        @updatedAt
+
+  @@unique([siteId, type, slug])
+  @@index([siteId])
+  @@map("wp_components")
+}
+
+/// Alert per sito. Una riga per chiave: quando la condizione ritorna dopo la
+/// risoluzione, la stessa riga viene riaperta (openedAt aggiornato).
+model WpAlert {
+  id       String          @id @default(cuid())
+  siteId   String
+  site     WpSite          @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  kind     WpAlertKind
+  severity WpAlertSeverity
+  /// Chiave di deduplica nel sito (es. "update:PLUGIN:akismet/akismet.php").
+  key      String
+  title    String
+  details  Json?
+
+  openedAt       DateTime  @default(now())
+  lastSeenAt     DateTime  @default(now())
+  resolvedAt     DateTime?
+  /// "Visto": l'alert resta aperto ma esce dal riepilogo giornaliero.
+  acknowledgedAt DateTime?
+  acknowledgedBy String?
+  /// Allarme immediato inviato (solo CRITICAL) per l'apertura corrente.
+  notifiedAt     DateTime?
+
+  @@unique([siteId, key])
+  @@index([resolvedAt])
+  @@index([siteId, resolvedAt])
+  @@map("wp_alerts")
 }

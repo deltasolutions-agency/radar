@@ -18,6 +18,10 @@ const OUTCOME: Record<string, { label: string; tone: "ok" | "bad" | "warn" | "mu
   SKIPPED_AUTOCHARGE_TODAY: { label: "Coperta da addebito", tone: "muted" },
   RECONCILE: { label: "Da riconciliare", tone: "bad" },
   PAY_LINK_FAILED: { label: "Non inviata: link non creato", tone: "bad" },
+  WOULD_CHECK: { label: "Da controllare", tone: "ok" },
+  CHECKED: { label: "Controllato", tone: "ok" },
+  UNREACHABLE: { label: "Non raggiungibile", tone: "bad" },
+  AGENT_ERROR: { label: "Plugin non risponde", tone: "warn" },
   FAILED: { label: "Fallita", tone: "bad" },
   ERROR: { label: "Errore", tone: "bad" },
 };
