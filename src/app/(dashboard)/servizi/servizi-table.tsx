@@ -18,6 +18,7 @@ export type ServiceRow = {
   currency: string;
   billingPeriod: string;
   customPeriodDays: number | null;
+  autoRenew?: boolean;
   active: boolean;
 };
 
@@ -93,14 +94,12 @@ export function ServiziTable({ services }: { services: ServiceRow[] }) {
                       {formatMoney(s.priceCents, s.currency)}
                     </td>
                     <td className="px-5 py-3 text-slate-600">
-                      {
-                        BILLING_PERIOD_LABELS[
-                          s.billingPeriod as BillingPeriodValue
-                        ]
-                      }
-                      {s.billingPeriod === "PERSONALIZZATA" && s.customPeriodDays
-                        ? ` (${s.customPeriodDays}gg)`
-                        : ""}
+                      {s.autoRenew === false
+                        ? "Una tantum"
+                        : BILLING_PERIOD_LABELS[s.billingPeriod as BillingPeriodValue] +
+                          (s.billingPeriod === "PERSONALIZZATA" && s.customPeriodDays
+                            ? ` (${s.customPeriodDays}gg)`
+                            : "")}
                     </td>
                     <td className="px-5 py-3">
                       <ActiveBadge active={s.active} />

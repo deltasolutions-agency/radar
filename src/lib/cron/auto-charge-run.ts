@@ -9,7 +9,7 @@ import {
   buildAutoChargeFailedAdminEmail,
   buildCronSummaryEmail,
 } from "@/lib/email-templates";
-import { MS_PER_DAY, periodDurationDays } from "@/lib/billing-period";
+import { nextPeriodEnd } from "@/lib/billing-period";
 import { formatDate, formatEur } from "@/lib/format";
 import { withEndClient } from "@/lib/end-client";
 import {
@@ -143,16 +143,12 @@ export async function runAutoCharge({
           status: "IN_ATTESA",
           items: {
             create: c.items.map((it, idx) => {
-              const duration = periodDurationDays(it);
               return {
                 subscriptionItemId: it.id,
                 amountCents: c.itemGrossCents[idx],
                 status: "IN_ATTESA" as const,
                 periodStart: it.endDate,
-                periodEnd:
-                  duration != null
-                    ? new Date(it.endDate.getTime() + duration * MS_PER_DAY)
-                    : null,
+                periodEnd: nextPeriodEnd(it, it.endDate),
               };
             }),
           },

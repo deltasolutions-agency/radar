@@ -94,6 +94,7 @@ export default async function ServizioDettaglioPage({
             <Row
               label="Periodicità"
               value={
+                service.autoRenew === false ? "Una tantum" :
                 BILLING_PERIOD_LABELS[
                   service.billingPeriod as BillingPeriodValue
                 ] +

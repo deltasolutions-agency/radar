@@ -1,4 +1,4 @@
--- Fase 24 — Vigilantes: monitoraggio dei siti WordPress (core, plugin, temi,
+-- Fase 27 — Vigilantes: monitoraggio dei siti WordPress (core, plugin, temi,
 -- sicurezza). Solo aggiunte: nessuna tabella esistente viene modificata.
 
 -- AlterEnum

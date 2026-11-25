@@ -70,10 +70,15 @@ export async function sendWelcomeEmail(params: {
       const token = await ensureDataEditToken(client);
       dataEditUrl = `${appUrl}/i-tuoi-dati/${token}`;
     }
+    // Abbonamento del cloud (console): testo dedicato, niente lettera di migrazione Deltaweb.
+    const sub = await prisma.subscription.findUnique({ where: { id: params.subscriptionId }, select: { consoleManaged: true } });
+    const consoleCloud = !!sub?.consoleManaged;
     const content = buildWelcomeEmail({
+      consoleCloud,
       clientName,
       items: items.map((it) => ({
         serviceName: localizedServiceName(it.service, lang),
+        autoRenew: it.service.autoRenew,
         endClientName: it.endClientName,
         priceCents: it.priceCents,
         quantity: it.quantity,
@@ -94,7 +99,7 @@ export async function sendWelcomeEmail(params: {
     // Il saluto della lettera usa SEMPRE il nome del referente (client.name),
     // non la ragione sociale, a prescindere dal saluto usato dalla mail.
     let attachments: { filename: string; content: Buffer }[] | undefined;
-    try {
+    if (!consoleCloud) try {
       const pdf = await buildWelcomeLetterPdf(client.name, lang);
       attachments = [
         {
