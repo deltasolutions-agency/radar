@@ -9,7 +9,8 @@ import { prisma } from "@/lib/prisma";
 import { createReceiptForPayment } from "@/lib/create-receipt";
 import { buildConfirmationEmail } from "@/lib/email-templates";
 import { sendEmail, type EmailLogMeta } from "@/lib/send-email";
-import { MS_PER_DAY, periodDurationDays } from "@/lib/billing-period";
+import { consoleNotifyConfigured, notifyConsole } from "@/lib/console-notify";
+import { firstAnchoredEnd, nextPeriodEnd, periodDurationDays } from "@/lib/billing-period";
 import { renewalOutcome } from "@/lib/renewal-price";
 import { formatDate } from "@/lib/format";
 import { romeYmd } from "@/lib/rome-time";
@@ -84,6 +85,7 @@ export async function confirmPaymentAndRenew(
       where: { id: paymentId },
       include: {
         receipt: true,
+        subscription: { select: { consoleManaged: true } },
         items: {
           include: { subscriptionItem: { include: { service: true } } },
         },
@@ -127,14 +129,22 @@ export async function confirmPaymentAndRenew(
       const { service, ...itemOnly } = pi.subscriptionItem;
 
       // Attivazione: conferma senza rinnovo (date e prezzo invariati).
+      // Abbonamenti della console: il periodo parte dal giorno del pagamento e i
+      // rinnovi cadono sempre in quel giorno del mese.
       if (isActivation) {
+        let dates: { startDate: Date; endDate: Date; calendarAnchorDay: number } | null = null;
+        if (payment.subscription.consoleManaged) {
+          const start = new Date(`${romeYmd(paidAt)}T00:00:00Z`);
+          const end = firstAnchoredEnd(itemOnly.billingPeriod, itemOnly.customPeriodDays, start);
+          if (end) dates = { startDate: start, endDate: end, calendarAnchorDay: start.getUTCDate() };
+        }
         await tx.paymentItem.update({
           where: { id: pi.id },
-          data: { status: "CONFERMATO" },
+          data: { status: "CONFERMATO", ...(dates ? { periodStart: dates.startDate, periodEnd: dates.endDate } : {}) },
         });
         const activatedItem = await tx.subscriptionItem.update({
           where: { id: itemOnly.id },
-          data: { status: computeItemStatus(itemOnly) },
+          data: { ...(dates ?? {}), status: computeItemStatus({ ...itemOnly, ...(dates ?? {}) }) },
         });
         items.push({
           subscriptionItem: activatedItem,
@@ -142,7 +152,7 @@ export async function confirmPaymentAndRenew(
           serviceNameEn: service.nameEn,
           endClientName: itemOnly.endClientName,
           amountCents: pi.amountCents,
-          newEndDate: itemOnly.endDate,
+          newEndDate: activatedItem.endDate,
           renewalSkipped: false,
         });
         continue;
@@ -156,10 +166,10 @@ export async function confirmPaymentAndRenew(
         : undefined;
 
       // Nuovo endDate ANCORATO al vecchio endDate (mai alla data di pagamento).
-      const newEndDate =
-        !renewalSkipped && durationDays != null
-          ? new Date(itemOnly.endDate.getTime() + durationDays * MS_PER_DAY)
-          : itemOnly.endDate;
+      // Con calendarAnchorDay segue i mesi di calendario (stesso giorno del mese).
+      const newEndDate = !renewalSkipped
+        ? nextPeriodEnd(itemOnly, itemOnly.endDate) ?? itemOnly.endDate
+        : itemOnly.endDate;
 
       // Nuovo prezzo dalla funzione condivisa (src/lib/renewal-price.ts):
       // il prezzo pagato al rinnovo (aumento incluso se dovuto) diventa il
@@ -236,7 +246,8 @@ export async function confirmPaymentAndRenew(
       // il pagamento è un istante → giorno in ora italiana.
       activation = {
         earliestStartDate,
-        startDatePassed: earliestStartDate.toISOString().slice(0, 10) < romeYmd(paidAt),
+        // Abbonamenti della console: le date sono appena ripartite dal pagamento, nessun avviso.
+        startDatePassed: !payment.subscription.consoleManaged && earliestStartDate.toISOString().slice(0, 10) < romeYmd(paidAt),
       };
     }
 
@@ -256,7 +267,23 @@ export async function confirmPaymentAndRenew(
   // Mai bloccante: un fallimento non annulla il pagamento già confermato.
   // Saltata sui retry (alreadyProcessed) e comunque de-duplicata su paymentId.
   if (!result.alreadyProcessed) {
-    await sendConfirmationEmail(paymentId, result, trigger);
+    // Abbonamenti della console: la console riceve l'avviso. Al primo pagamento è
+    // lei a mandare al cliente la mail di benvenuto (con ricevuta), quindi qui
+    // la conferma va solo all'admin.
+    const sub = await prisma.subscription
+      .findUnique({ where: { id: result.payment.subscriptionId }, select: { consoleManaged: true } })
+      .catch(() => null);
+    const toConsole = !!sub?.consoleManaged && consoleNotifyConfigured();
+    const isActivation = result.payment.kind === "ACTIVATION";
+    await sendConfirmationEmail(paymentId, result, trigger, { skipClient: toConsole && isActivation });
+    if (toConsole) {
+      await notifyConsole({
+        type: "payment.confirmed",
+        paymentId,
+        subscriptionId: result.payment.subscriptionId,
+        kind: isActivation ? "ACTIVATION" : "RENEWAL",
+      });
+    }
   }
 
   return result;
@@ -279,6 +306,7 @@ async function sendConfirmationEmail(
   paymentId: string,
   result: ConfirmPaymentResult,
   trigger: EmailTrigger,
+  opts: { skipClient?: boolean } = {},
 ): Promise<void> {
   const receipt = result.receipt;
   const subscriptionId = result.payment.subscriptionId;
@@ -328,7 +356,7 @@ async function sendConfirmationEmail(
 
   // Invio al cliente (email dallo snapshot ricevuta): mai link dashboard admin.
   // Nella lingua del cliente, con i nomi dei servizi localizzati.
-  if (receipt.clientEmail) {
+  if (receipt.clientEmail && !opts.skipClient) {
     const lang = langOf(sub?.client.locale);
     const clientItems = result.items.map((i, idx) => ({
       ...commonData.items[idx],

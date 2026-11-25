@@ -4,6 +4,7 @@ import { canRegenerateCheckout } from "@/lib/payment-checkout";
 import { EndClientLabel } from "@/components/end-client-label";
 import { formatEur, formatDate } from "@/lib/format";
 import { CURRENT_CONSENT_VERSION } from "@/lib/legal";
+import { CLOUD_CONSENT_TYPE, CLOUD_CONSENT_VERSION } from "@/lib/cloud-legal";
 import { splitVatFromGross } from "@/lib/vat";
 import { langOf, localizedServiceName, tr, type Lang } from "@/lib/i18n";
 import { HtmlLang } from "@/components/html-lang";
@@ -133,6 +134,16 @@ export default async function PayPage({
   });
   const needsConsent = !existingConsent;
 
+  // Delta Solutions Cloud (abbonamenti della console): Condizioni e DPA del
+  // Cloud al posto del consenso standard di Radar.
+  const cloud = payment.subscription.consoleManaged;
+  const needsCloudConsent =
+    cloud &&
+    !(await prisma.consentLog.findFirst({
+      where: { clientId: client.id, type: CLOUD_CONSENT_TYPE, version: CLOUD_CONSENT_VERSION },
+      select: { id: true },
+    }));
+
   // Il checkbox "attiva rinnovo automatico" ha senso solo se NESSUNA delle righe
   // pagate ha già il rinnovo automatico attivo.
   const canActivateAutoCharge = payment.items.every(
@@ -153,8 +164,11 @@ export default async function PayPage({
 
       <dl className="mt-5 space-y-3 border-y border-line-soft py-4 text-sm">
         {payment.items.map((pi) => {
-          const period =
-            pi.periodStart && pi.periodEnd
+          // Cloud della console: il periodo parte dal giorno del pagamento.
+          const fromPayment = payment.kind === "ACTIVATION" && payment.subscription.consoleManaged && pi.subscriptionItem.service.autoRenew !== false;
+          const period = fromPayment
+            ? tr(lang, { it: "Contratto annuale · rata mensile dal giorno del pagamento", en: "Annual contract · monthly instalment from the payment date" })
+            : pi.periodStart && pi.periodEnd
               ? `${formatDate(pi.periodStart, lang)} → ${formatDate(pi.periodEnd, lang)}`
               : null;
           return (
@@ -232,6 +246,14 @@ export default async function PayPage({
           })}
         </p>
       ) : null}
+      {searchParams.error === "cloudterms" ? (
+        <p className="mt-4 rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          {tr(lang, {
+            it: "Per procedere devi approvare le clausole indicate delle Condizioni di servizio.",
+            en: "To proceed, you must approve the listed clauses of the Terms of Service.",
+          })}
+        </p>
+      ) : null}
       {searchParams.error === "consent" ? (
         <p className="mt-4 rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-800">
           {tr(lang, {
@@ -245,7 +267,14 @@ export default async function PayPage({
         <PayForm
           token={payment.payToken}
           needsConsent={needsConsent}
+          cloud={cloud}
+          needsCloudConsent={needsCloudConsent}
           canActivateAutoCharge={canActivateAutoCharge}
+          requireAutoCharge={
+            canActivateAutoCharge &&
+            payment.kind === "ACTIVATION" &&
+            payment.subscription.requireAutoCharge
+          }
           lang={lang}
         />
       </div>

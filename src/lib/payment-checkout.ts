@@ -12,7 +12,7 @@ import { prisma } from "@/lib/prisma";
 import { getStripe } from "@/lib/stripe";
 import { sendEmail } from "@/lib/send-email";
 import { buildPaymentLinkEmail } from "@/lib/email-templates";
-import { MS_PER_DAY, periodDurationDays } from "@/lib/billing-period";
+import { nextPeriodEnd } from "@/lib/billing-period";
 import { computeServiceFeeCents } from "@/lib/service-fee";
 import { addVatToNet } from "@/lib/vat";
 import { withEndClient } from "@/lib/end-client";
@@ -265,16 +265,12 @@ export async function createCheckoutPayment(
         periodEnd: it.period.end,
       };
     }
-    const duration = periodDurationDays(it);
     return {
       subscriptionItemId: it.id,
       amountCents: itemGrossCents[idx],
       status: "IN_ATTESA" as const,
       periodStart: it.endDate,
-      periodEnd:
-        duration != null
-          ? new Date(it.endDate.getTime() + duration * MS_PER_DAY)
-          : null,
+      periodEnd: nextPeriodEnd(it, it.endDate),
     };
   });
 

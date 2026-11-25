@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { getStripe } from "@/lib/stripe";
 import { CURRENT_CONSENT_VERSION } from "@/lib/legal";
+import { CLOUD_CONSENT_TYPE, CLOUD_CONSENT_VERSION } from "@/lib/cloud-legal";
 import { clientIp } from "@/lib/request-ip";
 import { langOf, localeOf } from "@/lib/i18n";
 import {
@@ -20,6 +21,7 @@ import {
 export async function proceedToPayment(formData: FormData): Promise<void> {
   const token = String(formData.get("token") ?? "");
   const consentGiven = formData.get("consent") === "on";
+  const cloudTermsGiven = formData.get("cloudTerms") === "on";
   const activateAutoCharge = formData.get("activateAutoCharge") === "on";
 
   const payment = await prisma.payment.findUnique({
@@ -49,12 +51,38 @@ export async function proceedToPayment(formData: FormData): Promise<void> {
   }
 
   const client = payment.subscription.client;
+
+  // Delta Solutions Cloud: approvazione specifica delle clausole (casella) e
+  // accettazione di Condizioni e DPA (clic su "Accetta e paga"), registrate una
+  // volta per versione. Controllo lato server: senza casella non si procede.
+  const cloud = payment.subscription.consoleManaged;
+  if (cloud) {
+    const existingCloudConsent = await prisma.consentLog.findFirst({
+      where: { clientId: client.id, type: CLOUD_CONSENT_TYPE, version: CLOUD_CONSENT_VERSION },
+      select: { id: true },
+    });
+    if (!existingCloudConsent) {
+      if (!cloudTermsGiven) {
+        redirect(`/pay/${token}?error=cloudterms`);
+      }
+      await prisma.consentLog.create({
+        data: {
+          clientId: client.id,
+          type: CLOUD_CONSENT_TYPE,
+          version: CLOUD_CONSENT_VERSION,
+          ipAddress: clientIp(),
+          locale: localeOf(langOf(client.locale)),
+        },
+      });
+    }
+  }
+
   const existingConsent = await prisma.consentLog.findFirst({
     where: { clientId: client.id, version: CURRENT_CONSENT_VERSION },
     select: { id: true },
   });
 
-  if (!existingConsent) {
+  if (!cloud && !existingConsent) {
     if (!consentGiven) {
       redirect(`/pay/${token}?error=consent`);
     }
@@ -75,7 +103,10 @@ export async function proceedToPayment(formData: FormData): Promise<void> {
   const canActivateAutoCharge = payment.items.every(
     (pi) => !pi.subscriptionItem.autoChargeEnabled,
   );
-  if (activateAutoCharge && canActivateAutoCharge) {
+  // Abbonamenti della console con carta obbligatoria: il rinnovo automatico si
+  // attiva sempre al primo pagamento, anche se la casella non arriva dal form.
+  const forcedAutoCharge = payment.kind === "ACTIVATION" && payment.subscription.requireAutoCharge;
+  if ((activateAutoCharge || forcedAutoCharge) && canActivateAutoCharge) {
     const appUrl = process.env.APP_URL;
     let url: string | null = null;
     try {

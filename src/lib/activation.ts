@@ -279,7 +279,7 @@ export async function sendFirstPaymentLink(
     const res = await sendEmail(
       buildFirstPaymentEmail({
         clientName,
-        items: firstPaymentEmailItems(items, lang),
+        items: firstPaymentEmailItems(items, lang).map((x) => ({ ...x, fromPayment: sub.consoleManaged })),
         currency: block.currency,
         payment: block,
         lang,

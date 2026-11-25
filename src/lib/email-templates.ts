@@ -1093,6 +1093,8 @@ export type WelcomeEmailItem = {
   billingPeriod: BillingPeriodValue;
   customPeriodDays: number | null;
   endDate: Date; // scadenza del servizio
+  /** false = una tantum: nessuna periodicità né scadenza. */
+  autoRenew?: boolean;
 };
 
 export type WelcomeEmailData = {
@@ -1118,6 +1120,11 @@ export type WelcomeEmailData = {
   firstPayment?: FirstPaymentBlock | null;
   /** Lingua del cliente (default "it"). */
   lang?: Lang;
+  /**
+   * Abbonamento creato dalla console Delta Cloud: testo per un nuovo cliente del
+   * cloud e, al posto della scadenza, il rinnovo dal giorno del primo pagamento.
+   */
+  consoleCloud?: boolean;
 };
 
 const CONTACT_EMAIL = "hello@deltasolutions.agency";
@@ -1253,15 +1260,25 @@ export function buildWelcomeEmail(d: WelcomeEmailData): EmailContent {
   const privacyUrl = `${base}/privacy${langQuery}`;
   const termsUrl = `${base}/termini${langQuery}`;
 
-  const subject = tr(lang, {
-    it: "Benvenuto in Delta Solutions Agency — la tua area Radar",
-    en: "Welcome to Delta Solutions Agency — your Radar area",
-  });
+  const subject = d.consoleCloud
+    ? tr(lang, {
+        it: "Delta Solutions Cloud — attiva il tuo cloud con il primo pagamento",
+        en: "Delta Solutions Cloud — activate your cloud with the first payment",
+      })
+    : tr(lang, {
+        it: "Benvenuto in Delta Solutions Agency — la tua area Radar",
+        en: "Welcome to Delta Solutions Agency — your Radar area",
+      });
 
-  const intro = tr(lang, {
+  const intro = d.consoleCloud
+    ? tr(lang, {
+        it: "Ti diamo il benvenuto in Delta Solutions Cloud! Il cloud del tuo studio è pronto e si attiva con il primo pagamento. Il canone parte dal giorno del pagamento e si rinnova ogni mese nello stesso giorno. Subito dopo il pagamento ricevi una seconda email con i tuoi accessi, la ricevuta e le guide.",
+        en: "Welcome to Delta Solutions Cloud! Your cloud is ready and is activated with the first payment. The fee starts on the day of payment and renews every month on the same day. Right after the payment you will receive a second email with your access details, the receipt and the guides.",
+      })
+    : tr(lang, {
     it: "Ti diamo il benvenuto! Deltaweb è ora Delta Solutions Agency: cambiano il nome e l'immagine, ma restano lo stesso team e la stessa cura dei tuoi servizi. Da oggi la gestione di scadenze, rinnovi e pagamenti passa attraverso Radar, la nostra piattaforma dedicata.",
     en: "Welcome! Deltaweb is now Delta Solutions Agency: the name and the look are changing, but the team and the care we put into your services stay the same. From today, expiry dates, renewals and payments are managed through Radar, our dedicated platform.",
-  });
+      });
 
   const explanation = tr(lang, {
     it: "Con Radar riceverai promemoria automatici prima di ogni scadenza, link di pagamento sicuri e le ricevute dei tuoi rinnovi, tutto in un unico posto. Non devi fare nulla: ci pensiamo noi a tenere tutto in ordine.",
@@ -1269,13 +1286,17 @@ export function buildWelcomeEmail(d: WelcomeEmailData): EmailContent {
   });
 
   const expiresOn = (expiry: string) =>
-    tr(lang, { it: `scade il ${expiry}`, en: `expires on ${expiry}` });
+    !expiry
+      ? "—"
+      : d.consoleCloud
+        ? tr(lang, { it: "dal giorno del pagamento", en: "from the payment date" })
+        : tr(lang, { it: `scade il ${expiry}`, en: `expires on ${expiry}` });
 
   const itemLabel = (it: WelcomeEmailItem) => {
     const name = it.quantity > 1 ? `${it.serviceName} ×${it.quantity}` : it.serviceName;
-    const period = formatBillingPeriod(it.billingPeriod, it.customPeriodDays, lang);
+    const period = formatBillingPeriod(it.billingPeriod, it.customPeriodDays, lang, it.autoRenew !== false);
     const price = formatEur(it.priceCents * it.quantity, it.currency ?? "eur", lang);
-    const expiry = formatDate(it.endDate, lang);
+    const expiry = it.autoRenew === false ? "" : formatDate(it.endDate, lang);
     return { name, period, price, expiry };
   };
 
@@ -2255,6 +2276,8 @@ export type FirstPaymentEmailItem = {
   netCents: number;
   startDate: Date;
   endDate: Date;
+  /** Cloud della console: il periodo parte dal giorno del pagamento (date non ancora note). */
+  fromPayment?: boolean;
 };
 
 function fromToText(start: Date, end: Date, lang: Lang): string {
@@ -2271,7 +2294,7 @@ function firstPaymentItemsText(
 ): string[] {
   return items.map(
     (it) =>
-      `- ${serviceLineText(it.serviceName, it.endClientName, lang)} — ${fromToText(it.startDate, it.endDate, lang)} — ${formatEur(it.netCents, currency, lang)}*`,
+      `- ${serviceLineText(it.serviceName, it.endClientName, lang)} — ${it.fromPayment ? tr(lang, { it: "dal giorno del pagamento", en: "from the payment date" }) : fromToText(it.startDate, it.endDate, lang)} — ${formatEur(it.netCents, currency, lang)}*`,
   );
 }
 
@@ -2284,7 +2307,7 @@ function firstPaymentItemsHtml(
     .map(
       (it) => `
         <tr>
-          <td style="padding:6px 12px 6px 0;border-bottom:1px solid #f1f5f9">${serviceCellHtml(it.serviceName, it.endClientName, lang)}<br/><span style="color:#94a3b8;font-size:12px">${fromToText(it.startDate, it.endDate, lang)}</span></td>
+          <td style="padding:6px 12px 6px 0;border-bottom:1px solid #f1f5f9">${serviceCellHtml(it.serviceName, it.endClientName, lang)}<br/><span style="color:#94a3b8;font-size:12px">${it.fromPayment ? tr(lang, { it: "dal giorno del pagamento", en: "from the payment date" }) : fromToText(it.startDate, it.endDate, lang)}</span></td>
           <td style="padding:6px 0;border-bottom:1px solid #f1f5f9;text-align:right;white-space:nowrap">${formatEur(it.netCents, currency, lang)}*</td>
         </tr>`,
     )
