@@ -520,3 +520,31 @@ export function QuantityStepper({ allocationId, quantity }: { allocationId: stri
     </span>
   );
 }
+
+/** Interruttore rapido "più volte per cliente" dall'elenco dei costi. */
+export function MultiUseToggle({ id, multiUse }: { id: string; multiUse: boolean }) {
+  const router = useRouter();
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  return (
+    <span className="mt-1 inline-flex flex-col">
+      <label className="inline-flex cursor-pointer items-center gap-1.5 text-xs text-slate-600" title="Lo stesso cliente può usarlo più volte (quantità − / +)">
+        <input
+          type="checkbox"
+          checked={multiUse}
+          disabled={busy}
+          onChange={async (e) => {
+            setBusy(true);
+            setErr(null);
+            const r = await send(`/api/costs/${id}/multi-use`, "PATCH", { multiUse: e.target.checked });
+            setBusy(false);
+            if (r) return setErr(r);
+            router.refresh();
+          }}
+        />
+        più volte per cliente
+      </label>
+      {err ? <span className="text-xs text-red-700">{err}</span> : null}
+    </span>
+  );
+}
