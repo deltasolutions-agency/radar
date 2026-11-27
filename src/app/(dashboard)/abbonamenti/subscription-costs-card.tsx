@@ -32,7 +32,7 @@ export async function SubscriptionCostsCard({ subscriptionId }: { subscriptionId
   const pct = m.revenueCents > 0 ? (m.marginCents / m.revenueCents) * 100 : null;
 
   return (
-    <section className="card overflow-hidden">
+    <section className="card">
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line-soft px-5 py-4">
         <div>
           <h2 className="text-base font-semibold">Costi e margine</h2>

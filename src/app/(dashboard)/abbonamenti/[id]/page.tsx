@@ -18,7 +18,7 @@ import { addVatToNet } from "@/lib/vat";
 import { romeYmd } from "@/lib/rome-time";
 import { DeleteButton } from "@/components/delete-button";
 import { CeaseButton } from "../cease-button";
-import { PaymentActions } from "../payment-actions";
+import { PaymentDialogButton } from "../payment-dialog";
 import { ReactivateButton } from "../reactivate-button";
 import { RegenerateLinkButton } from "../regenerate-link-button";
 import { RefundButton } from "../refund-button";
@@ -46,6 +46,13 @@ import {
 
 export const dynamic = "force-dynamic";
 
+const SUB_TABS = {
+  servizi: "Servizi",
+  amministrazione: "Amministrazione",
+  pagamenti: "Storico pagamenti",
+} as const;
+type SubTab = keyof typeof SUB_TABS;
+
 export default async function AbbonamentoDettaglioPage({
   params,
   searchParams,
@@ -56,8 +63,10 @@ export default async function AbbonamentoDettaglioPage({
     setup?: string;
     primoPagamento?: string;
     attivazione?: string;
+    tab?: string;
   };
 }) {
+  const tab: SubTab = searchParams.tab && searchParams.tab in SUB_TABS ? (searchParams.tab as SubTab) : "servizi";
   const isAdmin = !!(await getAdminSession());
   const sub = await prisma.subscription.findUnique({
     where: { id: params.id },
@@ -185,6 +194,13 @@ export default async function AbbonamentoDettaglioPage({
             <ActivationStateBadge state={sub.activationState} />
           </h1>
           <div className="flex items-center gap-2">
+            {isActive ? (
+              <PaymentDialogButton
+                subscriptionId={sub.id}
+                items={payableItems}
+                serviceFeeEnabled={sub.serviceFeeEnabled}
+              />
+            ) : null}
             <Link href={`/abbonamenti/${sub.id}/modifica`} className="btn-ghost">
               Modifica
             </Link>
@@ -269,54 +285,27 @@ export default async function AbbonamentoDettaglioPage({
         </p>
       ) : null}
 
-      {/* Contenitore: cliente + note */}
-      <section className="card p-6">
-        <h2 className="mono-label mb-3">Abbonamento</h2>
-        <dl>
-          <div className="flex flex-col gap-0.5 border-b border-line-soft py-2 sm:flex-row sm:gap-4">
-            <dt className="mono-label w-40 shrink-0 sm:pt-0.5">Cliente</dt>
-            <dd className="text-sm text-ink">
-              <Link
-                href={`/clienti/${sub.clientId}`}
-                className="text-brand hover:underline"
-              >
-                {sub.client.name}
-              </Link>
-            </dd>
-          </div>
-          <div className="flex flex-col gap-0.5 border-b border-line-soft py-2 sm:flex-row sm:gap-4">
-            <dt className="mono-label w-40 shrink-0 sm:pt-0.5">Note</dt>
-            <dd className="text-sm text-ink">
-              {sub.notes?.trim() ? sub.notes : "—"}
-            </dd>
-          </div>
-          <div className={`flex flex-col gap-0.5 py-2 sm:flex-row sm:gap-4 ${isCard ? "border-b border-line-soft" : ""}`}>
-            <dt className="mono-label w-40 shrink-0 sm:pt-0.5">Metodo di pagamento</dt>
-            <dd className="text-sm text-ink">
-              <PreferredMethodEditor
-                subscriptionId={sub.id}
-                initial={sub.preferredPaymentMethod}
-                autoChargeItems={sub.items.filter((it) => it.autoChargeEnabled && it.status !== "CESSATO").length}
-              />
-            </dd>
-          </div>
-          {isCard ? (
-          <div className="flex flex-col gap-1 py-2 sm:flex-row sm:gap-4">
-            <dt className="mono-label w-40 shrink-0 sm:pt-0.5">
-              Costi di servizio (1,5%)
-            </dt>
-            <dd className="text-sm text-ink">
-              <ServiceFeeToggle
-                subscriptionId={sub.id}
-                initialEnabled={sub.serviceFeeEnabled}
-              />
-            </dd>
-          </div>
-          ) : null}
-        </dl>
-      </section>
+      <nav aria-label="Sezioni dell'abbonamento" className="flex gap-1 overflow-x-auto border-b border-line text-sm">
+        {(Object.keys(SUB_TABS) as SubTab[]).map((t) => {
+          const count = t === "servizi" ? sub.items.length : t === "pagamenti" ? sub.payments.length : 0;
+          return (
+            <Link
+              key={t}
+              href={t === "servizi" ? `/abbonamenti/${sub.id}` : `/abbonamenti/${sub.id}?tab=${t}`}
+              aria-current={tab === t ? "page" : undefined}
+              className={`-mb-px inline-flex items-center gap-2 whitespace-nowrap border-b-2 px-4 py-2.5 font-medium ${
+                tab === t ? "border-brand text-ink" : "border-transparent text-slate-500 hover:text-ink"
+              }`}
+            >
+              {SUB_TABS[t]}
+              {count ? <span className="rounded-full px-1.5 font-mono text-[11px] font-bold text-slate-500">{count}</span> : null}
+            </Link>
+          );
+        })}
+      </nav>
 
-      {isAdmin ? <SubscriptionCostsCard subscriptionId={sub.id} /> : null}
+      {tab === "servizi" ? (
+        <>
 
       {/* Righe di servizio */}
       <section className="space-y-4">
@@ -490,19 +479,72 @@ export default async function AbbonamentoDettaglioPage({
           </div>
         )}
       </section>
-
-      {/* Registrazione pagamento (righe raggruppate): solo abbonamenti attivi;
-          quelli in attesa usano il pannello "Primo pagamento". */}
-      {isActive ? (
-        <section className="card space-y-4 p-6">
-          <h2 className="mono-label">Registra pagamento</h2>
-          <PaymentActions
-            subscriptionId={sub.id}
-            items={payableItems}
-            serviceFeeEnabled={sub.serviceFeeEnabled}
-          />
-        </section>
+        </>
       ) : null}
+
+      {tab === "amministrazione" ? (
+        <>
+      {/* Contenitore: cliente + note */}
+      <section className="card p-6">
+        <h2 className="mono-label mb-3">Anagrafica e pagamento</h2>
+        <dl>
+          <div className="flex flex-col gap-0.5 border-b border-line-soft py-2 sm:flex-row sm:gap-4">
+            <dt className="mono-label w-40 shrink-0 sm:pt-0.5">Cliente</dt>
+            <dd className="text-sm text-ink">
+              <Link
+                href={`/clienti/${sub.clientId}`}
+                className="text-brand hover:underline"
+              >
+                {sub.client.name}
+              </Link>
+            </dd>
+          </div>
+          <div className="flex flex-col gap-0.5 border-b border-line-soft py-2 sm:flex-row sm:gap-4">
+            <dt className="mono-label w-40 shrink-0 sm:pt-0.5">Note</dt>
+            <dd className="text-sm text-ink">
+              {sub.notes?.trim() ? sub.notes : "—"}
+            </dd>
+          </div>
+          <div className={`flex flex-col gap-0.5 py-2 sm:flex-row sm:gap-4 ${isCard ? "border-b border-line-soft" : ""}`}>
+            <dt className="mono-label w-40 shrink-0 sm:pt-0.5">Metodo di pagamento</dt>
+            <dd className="text-sm text-ink">
+              <PreferredMethodEditor
+                subscriptionId={sub.id}
+                initial={sub.preferredPaymentMethod}
+                autoChargeItems={sub.items.filter((it) => it.autoChargeEnabled && it.status !== "CESSATO").length}
+              />
+            </dd>
+          </div>
+          {isCard ? (
+          <div className="flex flex-col gap-1 py-2 sm:flex-row sm:gap-4">
+            <dt className="mono-label w-40 shrink-0 sm:pt-0.5">
+              Costi di servizio (1,5%)
+            </dt>
+            <dd className="text-sm text-ink">
+              <ServiceFeeToggle
+                subscriptionId={sub.id}
+                initialEnabled={sub.serviceFeeEnabled}
+              />
+            </dd>
+          </div>
+          ) : null}
+        </dl>
+      </section>
+
+      {isAdmin ? <SubscriptionCostsCard subscriptionId={sub.id} /> : null}
+
+      <p className="font-mono text-xs text-slate-400">
+        id {sub.id} · creato {formatDate(sub.createdAt)}
+      </p>
+
+      {hasPayments ? (
+        <ForceDeleteSection subscriptionId={sub.id} />
+      ) : null}
+        </>
+      ) : null}
+
+      {tab === "pagamenti" ? (
+        <>
 
       {/* Storico pagamenti */}
       <section className="card overflow-hidden">
@@ -693,14 +735,10 @@ export default async function AbbonamentoDettaglioPage({
           </div>
         )}
       </section>
-
-      <p className="font-mono text-xs text-slate-400">
-        id {sub.id} · creato {formatDate(sub.createdAt)}
-      </p>
-
-      {hasPayments ? (
-        <ForceDeleteSection subscriptionId={sub.id} />
+        </>
       ) : null}
+
+
     </div>
   );
 }
