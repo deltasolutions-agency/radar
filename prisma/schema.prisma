@@ -1115,3 +1115,16 @@ model CostAllocation {
   @@index([subscriptionId])
   @@map("cost_allocations")
 }
+
+/// Impostazioni della dashboard (riga unica "singleton").
+model DashboardSettings {
+  id                 String   @id @default("singleton")
+  /// Margine sotto questa % → cliente "da tenere d'occhio" (card gialla).
+  marginWarnPercent  Int      @default(75)
+  /// Margine sotto questa % → cliente critico (card rossa).
+  marginAlertPercent Int      @default(60)
+  updatedAt          DateTime @updatedAt
+  updatedBy          String?
+
+  @@map("dashboard_settings")
+}
