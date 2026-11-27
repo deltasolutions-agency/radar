@@ -122,6 +122,9 @@ export async function confirmPaymentAndRenew(
     const paidAt = payment.paidAt ?? new Date();
     const now = new Date();
     const isActivation = payment.kind === "ACTIVATION";
+    // Nuovo servizio già pagato: come l'attivazione per le righe (nessuno
+    // spostamento di date), ma l'abbonamento è già attivo e resta com'è.
+    const isNewItem = payment.kind === "NEW_ITEM";
 
     // ── Rinnovo INDIPENDENTE di ciascuna riga ───────────────────────────────
     const items: ConfirmPaymentItemResult[] = [];
@@ -131,9 +134,9 @@ export async function confirmPaymentAndRenew(
       // Attivazione: conferma senza rinnovo (date e prezzo invariati).
       // Abbonamenti della console: il periodo parte dal giorno del pagamento e i
       // rinnovi cadono sempre in quel giorno del mese.
-      if (isActivation) {
+      if (isActivation || isNewItem) {
         let dates: { startDate: Date; endDate: Date; calendarAnchorDay: number } | null = null;
-        if (payment.subscription.consoleManaged) {
+        if (isActivation && payment.subscription.consoleManaged) {
           const start = new Date(`${romeYmd(paidAt)}T00:00:00Z`);
           const end = firstAnchoredEnd(itemOnly.billingPeriod, itemOnly.customPeriodDays, start);
           if (end) dates = { startDate: start, endDate: end, calendarAnchorDay: start.getUTCDate() };
@@ -339,7 +342,9 @@ async function sendConfirmationEmail(
     currency: receipt.currency,
     method: result.payment.method,
     receiptToken: receipt.token,
-    activation: !!result.activation,
+    // Nuovo servizio già pagato: stesse diciture dell'attivazione ("attivo fino al").
+    activation: !!result.activation || result.payment.kind === "NEW_ITEM",
+    newItem: result.payment.kind === "NEW_ITEM",
   };
   const startDateWarning = result.activation?.startDatePassed
     ? `La data di inizio (${formatDate(result.activation.earliestStartDate)}) era già passata al momento del pagamento: le date sono rimaste quelle impostate. Verifica se modificarle.`

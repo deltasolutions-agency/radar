@@ -64,6 +64,7 @@ export default async function AbbonamentoDettaglioPage({
     primoPagamento?: string;
     attivazione?: string;
     tab?: string;
+    pagamentoServizio?: string;
   };
 }) {
   const tab: SubTab = searchParams.tab && searchParams.tab in SUB_TABS ? (searchParams.tab as SubTab) : "servizi";
@@ -251,6 +252,11 @@ export default async function AbbonamentoDettaglioPage({
           Abbonamento creato in attesa del primo pagamento, ma il link non è
           stato inviato (vedi Log email). Usa &quot;Reinvia link primo
           pagamento&quot;.
+        </p>
+      ) : null}
+      {searchParams.pagamentoServizio === "errore" ? (
+        <p className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          Servizio aggiunto, ma il pagamento non è stato registrato: usa il pulsante &quot;Pagamento&quot; per registrarlo.
         </p>
       ) : null}
       {searchParams.attivazione === "errore" && isPending ? (
@@ -606,6 +612,10 @@ export default async function AbbonamentoDettaglioPage({
                       {p.kind === "ACTIVATION" ? (
                         <span className="mt-0.5 block text-xs font-medium text-indigo-700">
                           Primo pagamento
+                        </span>
+                      ) : p.kind === "NEW_ITEM" ? (
+                        <span className="mt-0.5 block text-xs font-medium text-indigo-700">
+                          Nuovo servizio
                         </span>
                       ) : null}
                     </td>

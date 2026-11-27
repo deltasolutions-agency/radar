@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
+  MANUAL_PAYMENT_METHODS,
   subscriptionItemCreateSchema,
   subscriptionItemUpdateSchema,
 } from "@/lib/validations";
@@ -28,8 +29,14 @@ export function ItemForm({
   endClientSuggestions = [],
   renewalState,
   allowAutoCharge = true,
+  paidOption,
 }: {
   allowAutoCharge?: boolean;
+  /**
+   * Solo nuovi servizi su abbonamenti ATTIVI: spunta "Già pagato" con il metodo
+   * preimpostato dal metodo preferito dell'abbonamento.
+   */
+  paidOption?: { defaultMethod: string; preferredLabel: string };
   mode: "create" | "edit";
   subscriptionId: string;
   itemId?: string;
@@ -47,6 +54,10 @@ export function ItemForm({
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+  const [alreadyPaid, setAlreadyPaid] = useState(false);
+  const [paidMethod, setPaidMethod] = useState(paidOption?.defaultMethod ?? MANUAL_PAYMENT_METHODS[0]);
+  const [paidAt, setPaidAt] = useState("");
+  const [paidNote, setPaidNote] = useState("");
 
   useEffect(() => {
     let active = true;
@@ -101,7 +112,14 @@ export function ItemForm({
       const res = await fetch(endpoint, {
         method,
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(parsed.data),
+        body: JSON.stringify(
+          mode === "create" && paidOption && alreadyPaid
+            ? {
+                ...parsed.data,
+                alreadyPaid: { method: paidMethod, paidAt: paidAt || undefined, note: paidNote || undefined },
+              }
+            : parsed.data,
+        ),
       });
       const body = await res.json().catch(() => ({}));
 
@@ -121,7 +139,13 @@ export function ItemForm({
         return;
       }
 
-      router.push(`/abbonamenti/${subscriptionId}`);
+      router.push(
+        body.paymentError
+          ? `/abbonamenti/${subscriptionId}?pagamentoServizio=errore`
+          : mode === "create" && paidOption && alreadyPaid
+            ? `/abbonamenti/${subscriptionId}?tab=pagamenti`
+            : `/abbonamenti/${subscriptionId}`,
+      );
       router.refresh();
     } catch {
       setFormError("Errore di rete durante il salvataggio");
@@ -151,6 +175,57 @@ export function ItemForm({
           onChange={(patch) => setValue((v) => ({ ...v, ...patch }))}
         />
       </section>
+
+      {paidOption ? (
+        <section className="card space-y-4 p-6">
+          <label className="flex items-start gap-2.5 text-sm">
+            <input type="checkbox" className="mt-0.5" checked={alreadyPaid} onChange={(e) => setAlreadyPaid(e.target.checked)} />
+            <span>
+              <span className="font-medium">Già pagato</span>
+              <span className="mt-0.5 block text-xs text-slate-500">
+                Registra subito il pagamento di questo servizio, con ricevuta. Le date restano quelle indicate sopra (il periodo pagato).
+                Metodo preferito dal cliente: {paidOption.preferredLabel}.
+              </span>
+            </span>
+          </label>
+          {alreadyPaid ? (
+            <div className="grid gap-4 sm:grid-cols-3">
+              <div>
+                <label htmlFor="paidMethod" className="field-label">
+                  Metodo
+                </label>
+                <select id="paidMethod" className="field" value={paidMethod} onChange={(e) => setPaidMethod(e.target.value)}>
+                  {[...new Set([paidMethod, ...MANUAL_PAYMENT_METHODS])].map((m) => (
+                    <option key={m} value={m}>
+                      {m}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label htmlFor="paidAt" className="field-label">
+                  Data pagamento
+                </label>
+                <input id="paidAt" type="date" className="field" value={paidAt} onChange={(e) => setPaidAt(e.target.value)} />
+              </div>
+              <div>
+                <label htmlFor="paidNote" className="field-label">
+                  Note
+                </label>
+                <input
+                  id="paidNote"
+                  className="field"
+                  placeholder="es. bonifico del 12/06"
+                  value={paidNote}
+                  onChange={(e) => setPaidNote(e.target.value)}
+                />
+              </div>
+            </div>
+          ) : (
+            <p className="text-xs text-slate-500">Senza spunta il servizio resta da pagare: lo incassi dal pulsante &quot;Pagamento&quot; dell&apos;abbonamento.</p>
+          )}
+        </section>
+      ) : null}
 
       <div className="flex gap-2">
         <button type="submit" className="btn-primary" disabled={pending}>

@@ -87,6 +87,9 @@ enum PaymentMethod {
 enum PaymentKind {
   RENEWAL
   ACTIVATION
+  /// Servizio aggiunto a un abbonamento già attivo e segnato "già pagato":
+  /// conferma la riga senza spostare le date; lo storno tocca solo la riga.
+  NEW_ITEM
 }
 
 /// Attivazione dell'abbonamento. ACTIVE = abbonamento operativo (tutti quelli

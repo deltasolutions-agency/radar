@@ -887,6 +887,8 @@ export type ConfirmationEmailData = {
    * "Attivo fino al" invece di "Nuova scadenza".
    */
   activation?: boolean;
+  /** Pagamento di un servizio aggiunto a un abbonamento attivo (NEW_ITEM). */
+  newItem?: boolean;
   /** Solo admin: data di inizio già passata alla conferma dell'attivazione. */
   startDateWarning?: string | null;
   /** Lingua del cliente (solo audience "client"; default "it"). */
@@ -959,7 +961,9 @@ export function buildConfirmationEmail(
           it: "Grazie! Abbiamo ricevuto il tuo pagamento. Di seguito il riepilogo.",
           en: "Thank you! We have received your payment. Here is a summary.",
         })
-    : d.activation
+    : d.newItem
+      ? "Abbiamo registrato il pagamento di un nuovo servizio aggiunto all'abbonamento."
+      : d.activation
       ? "Abbiamo registrato il primo pagamento: l'abbonamento è ora attivo."
       : "Abbiamo registrato il pagamento per l'abbonamento.";
   const endLabel = d.activation
