@@ -91,6 +91,12 @@ export default async function AbbonamentoDettaglioPage({
     },
   });
   if (!sub) notFound();
+  // Altri abbonamenti dello stesso cliente (es. quello del Cloud dalla console).
+  const siblings = await prisma.subscription.findMany({
+    where: { clientId: sub.clientId, id: { not: sub.id } },
+    select: { id: true, consoleManaged: true, createdAt: true },
+    orderBy: { createdAt: "asc" },
+  });
 
   const clientName = sub.client.ragioneSociale?.trim()
     ? sub.client.ragioneSociale
@@ -191,6 +197,11 @@ export default async function AbbonamentoDettaglioPage({
         <div className="mt-1 flex flex-wrap items-center justify-between gap-3">
           <h1 className="flex flex-wrap items-center gap-3 text-2xl font-semibold tracking-tight">
             {clientName}
+            {sub.consoleManaged ? (
+              <span className="inline-flex items-center rounded-md border border-violet-200 bg-violet-50 px-2 py-0.5 text-xs font-medium text-violet-700">
+                Cloud
+              </span>
+            ) : null}
             <ActivationStateBadge state={sub.activationState} />
           </h1>
           <div className="flex items-center gap-2">
@@ -214,6 +225,20 @@ export default async function AbbonamentoDettaglioPage({
           </div>
         </div>
       </div>
+
+      {siblings.length > 0 ? (
+        <p className="-mt-3 text-sm text-slate-500">
+          Altri abbonamenti di questo cliente:{" "}
+          {siblings.map((x, i) => (
+            <span key={x.id}>
+              {i > 0 ? " · " : ""}
+              <Link href={`/abbonamenti/${x.id}`} className="text-brand hover:underline">
+                {x.consoleManaged ? "Cloud" : "Servizi"} (dal {formatDate(x.createdAt)})
+              </Link>
+            </span>
+          ))}
+        </p>
+      ) : null}
 
       {searchParams.primoPagamento === "inviato" && isPending ? (
         <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
