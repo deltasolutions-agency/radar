@@ -5,6 +5,8 @@ import { annualCostCents, annualItemRevenueCents, resolveShares, toNumber } from
 
 export type SubscriptionMargin = {
   id: string;
+  clientId: string;
+  clientName: string;
   label: string;
   revenueCents: number; // ricavo annuo (righe non cessate)
   costCents: number; // quota annua dei costi richiamati
@@ -53,6 +55,7 @@ export async function loadMargins(): Promise<{
       where: { activationState: { not: "CANCELLED_BEFORE_START" } },
       select: {
         id: true,
+        clientId: true,
         client: { select: { name: true, ragioneSociale: true } },
         items: {
           select: {
@@ -85,6 +88,8 @@ export async function loadMargins(): Promise<{
   for (const s of subs) {
     bySub.set(s.id, {
       id: s.id,
+      clientId: s.clientId,
+      clientName: clientDisplayName(s.client),
       label: subscriptionLabel(clientDisplayName(s.client), s.items.map((it) => it.service.name)),
       revenueCents: s.items.reduce((sum, it) => sum + annualItemRevenueCents(it), 0),
       costCents: 0,

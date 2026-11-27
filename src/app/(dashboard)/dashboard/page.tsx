@@ -13,9 +13,18 @@ import {
 import {
   StatusDonut,
   IncomeBars,
+  CashFlowBars,
   type StatusDatum,
   type MonthlyDatum,
 } from "./dashboard-charts";
+import {
+  getDashboardSettings,
+  loadCashFlow,
+  loadClientMargins,
+  type ClientMargin,
+} from "@/lib/dashboard-finance";
+import { formatPercent } from "@/lib/costs";
+import { MarginThresholds } from "./margin-thresholds";
 
 export const dynamic = "force-dynamic";
 
@@ -103,6 +112,10 @@ export default async function DashboardPage() {
     }),
   ]);
   const isAdmin = !!(await getAdminSession());
+  // Solo admin: entrate/uscite con IVA e margini per cliente (dipendono dai costi).
+  const [flow, margins, dashSettings] = isAdmin
+    ? await Promise.all([loadCashFlow(now, MONTHS_BACK), loadClientMargins(), getDashboardSettings()])
+    : [null, null, null];
 
   // ── Metriche ────────────────────────────────────────────────────────────
   const countByStatus = new Map<string, number>(
@@ -157,11 +170,22 @@ export default async function DashboardPage() {
 
   return (
     <div className="space-y-8">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Dashboard</h1>
-        <p className="mt-1 text-sm text-slate-500">
-          Panoramica di servizi, scadenze e incassi.
-        </p>
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Dashboard</h1>
+          <p className="mt-1 text-sm text-slate-500">
+            Panoramica di servizi, scadenze e incassi.
+          </p>
+        </div>
+        <div className="flex gap-2 text-sm">
+          <Link href="/clienti" className="rounded-full border border-line bg-white px-3 py-1 text-slate-600 hover:border-slate-400">
+            <b className="font-semibold text-ink">{clientCount}</b> clienti
+          </Link>
+          <Link href="/servizi" className="rounded-full border border-line bg-white px-3 py-1 text-slate-600 hover:border-slate-400">
+            <b className="font-semibold text-ink">{serviceCount}</b> servizi a catalogo
+            <span className="text-slate-400"> · {activeServiceCount} attivi</span>
+          </Link>
+        </div>
       </div>
 
       {/* Metric card */}
@@ -190,36 +214,141 @@ export default async function DashboardPage() {
 
       {/* Grafici */}
       <div className="grid gap-4 lg:grid-cols-2">
-        <div className="card p-5">
-          <h2 className="mono-label mb-2">Servizi per stato</h2>
-          <StatusDonut data={statusData} />
-        </div>
+        {flow ? (
+          <div className="card p-5">
+            <h2 className="mono-label mb-2">Entrate e uscite · ultimi 12 mesi</h2>
+            <CashFlowBars data={flow} />
+            <FlowSummary flow={flow} />
+          </div>
+        ) : (
+          <div className="card p-5">
+            <h2 className="mono-label mb-2">Servizi per stato</h2>
+            <StatusDonut data={statusData} />
+          </div>
+        )}
         <div className="card p-5">
           <h2 className="mono-label mb-2">Incassi netti</h2>
           <IncomeBars data={monthly} />
         </div>
       </div>
 
-      {/* Anagrafiche/catalogo */}
-      <div className="grid gap-4 sm:grid-cols-2">
-        <Link
-          href="/clienti"
-          className="card p-6 transition hover:shadow-sm"
-        >
-          <div className="mono-label">Clienti</div>
-          <div className="mt-2 text-3xl font-semibold">{clientCount}</div>
-        </Link>
-        <Link
-          href="/servizi"
-          className="card p-6 transition hover:shadow-sm"
-        >
-          <div className="mono-label">Servizi a catalogo</div>
-          <div className="mt-2 text-3xl font-semibold">{serviceCount}</div>
-          <div className="mt-1 text-xs text-slate-500">
-            {activeServiceCount} attivi
-          </div>
-        </Link>
-      </div>
+      {margins && dashSettings ? (
+        <MarginCards
+          clients={margins.clients}
+          withoutCosts={margins.withoutCosts}
+          warn={dashSettings.marginWarnPercent}
+          alert={dashSettings.marginAlertPercent}
+        />
+      ) : null}
     </div>
+  );
+}
+
+function FlowSummary({ flow }: { flow: { inCents: number; outCents: number; vatDebitCents: number; vatCreditCents: number }[] }) {
+  const sum = (k: "inCents" | "outCents" | "vatDebitCents" | "vatCreditCents") => flow.reduce((t, m) => t + m[k], 0);
+  const entrate = sum("inCents");
+  const uscite = sum("outCents");
+  const ivaDebito = sum("vatDebitCents");
+  const ivaCredito = sum("vatCreditCents");
+  const saldo = entrate - uscite;
+  const ivaNetta = ivaDebito - ivaCredito;
+  const cells = [
+    { label: "Entrate", value: formatEur(entrate), tone: "text-emerald-700" },
+    { label: "Uscite", value: formatEur(uscite), tone: "text-red-700" },
+    { label: "Saldo", value: formatEur(saldo), tone: saldo < 0 ? "text-red-700" : "text-ink" },
+    { label: "IVA a debito", value: formatEur(ivaDebito), tone: "text-ink" },
+    { label: "IVA a credito", value: formatEur(ivaCredito), tone: "text-ink" },
+    {
+      label: ivaNetta >= 0 ? "IVA da versare" : "IVA a credito netta",
+      value: formatEur(Math.abs(ivaNetta)),
+      tone: ivaNetta >= 0 ? "text-amber-800" : "text-emerald-700",
+    },
+  ];
+  return (
+    <div className="mt-3 border-t border-line-soft pt-3">
+      <dl className="grid grid-cols-3 gap-x-4 gap-y-2">
+        {cells.map((c) => (
+          <div key={c.label}>
+            <dt className="mono-label">{c.label}</dt>
+            <dd className={`text-sm font-semibold tabular-nums ${c.tone}`}>{c.value}</dd>
+          </div>
+        ))}
+      </dl>
+      <p className="mt-2 text-[11px] leading-snug text-slate-400">
+        Entrate: incassi IVA inclusa, al netto degli storni. Uscite: stima dai costi in uso, contati nel mese di rinnovo. IVA a credito
+        solo sui costi segnati &quot;IVA inclusa&quot;.
+      </p>
+    </div>
+  );
+}
+
+function MarginList({ clients, empty }: { clients: ClientMargin[]; empty: string }) {
+  if (clients.length === 0) return <p className="py-3 text-sm text-slate-500">{empty}</p>;
+  return (
+    <ul className="divide-y divide-black/5">
+      {clients.map((c) => (
+        <li key={c.clientId} className="flex items-center gap-3 py-2 text-sm">
+          <Link href={`/clienti/${c.clientId}`} className="min-w-0 flex-1 truncate font-medium text-ink hover:underline">
+            {c.clientName}
+          </Link>
+          <span className="whitespace-nowrap text-xs text-slate-600 tabular-nums">
+            {formatEur(c.revenueCents)} − {formatEur(c.costCents)}
+          </span>
+          <span className="w-16 text-right font-mono text-sm font-semibold tabular-nums">
+            {c.marginPercent === null ? "—" : formatPercent(Math.round(c.marginPercent))}
+          </span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function MarginCards({
+  clients,
+  withoutCosts,
+  warn,
+  alert,
+}: {
+  clients: ClientMargin[];
+  withoutCosts: number;
+  warn: number;
+  alert: number;
+}) {
+  const pct = (c: ClientMargin) => c.marginPercent ?? Number.NEGATIVE_INFINITY;
+  const byMargin = (x: ClientMargin, y: ClientMargin) => pct(x) - pct(y);
+  const yellow = clients.filter((c) => pct(c) < warn && pct(c) >= alert).sort(byMargin);
+  const red = clients.filter((c) => pct(c) < alert).sort(byMargin);
+  return (
+    <section className="space-y-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 className="mono-label">Margine per cliente (annuo, prezzi meno costi richiamati)</h2>
+        <MarginThresholds warn={warn} alert={alert} />
+      </div>
+      <div className="grid gap-4 lg:grid-cols-2">
+        <div className="card border-amber-300 bg-amber-50 p-5">
+          <div className="flex items-baseline justify-between">
+            <h3 className="text-sm font-semibold text-amber-900">Da tenere d&apos;occhio</h3>
+            <span className="text-xs text-amber-800">
+              margine tra {alert}% e {warn}% · {yellow.length}
+            </span>
+          </div>
+          <MarginList clients={yellow} empty="Nessun cliente in questa fascia." />
+        </div>
+        <div className="card border-red-300 bg-red-50 p-5">
+          <div className="flex items-baseline justify-between">
+            <h3 className="text-sm font-semibold text-red-800">Margine basso</h3>
+            <span className="text-xs text-red-700">
+              sotto il {alert}% · {red.length}
+            </span>
+          </div>
+          <MarginList clients={red} empty="Nessun cliente sotto la soglia." />
+        </div>
+      </div>
+      <p className="text-xs text-slate-500">
+        Contano i clienti con almeno un costo richiamato
+        {withoutCosts > 0 ? ` (${withoutCosts} senza costi collegati non sono valutati)` : ""}. Importi annui senza IVA, come in
+        Amministrazione → Costi.
+      </p>
+    </section>
   );
 }

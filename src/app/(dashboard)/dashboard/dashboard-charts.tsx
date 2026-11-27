@@ -117,3 +117,44 @@ export function IncomeBars({ data }: { data: MonthlyDatum[] }) {
     </ResponsiveContainer>
   );
 }
+
+export type FlowDatum = { month: string; inCents: number; outCents: number };
+
+/** Barre affiancate: entrate (incassi) e uscite (costi) per mese. */
+export function CashFlowBars({ data }: { data: FlowDatum[] }) {
+  const hasData = data.some((d) => d.inCents > 0 || d.outCents > 0);
+  if (!hasData) {
+    return (
+      <div className="flex h-[240px] items-center justify-center text-sm text-slate-400">
+        Nessuna entrata o uscita nel periodo.
+      </div>
+    );
+  }
+  return (
+    <ResponsiveContainer width="100%" height={240}>
+      <BarChart data={data} margin={{ top: 8, right: 8, left: 8, bottom: 0 }} barGap={2}>
+        <XAxis dataKey="month" tick={{ fontSize: 11, fill: "#64748b" }} tickLine={false} axisLine={{ stroke: "#e2e8f0" }} />
+        <YAxis
+          tickFormatter={(v) => `${Math.round(Number(v) / 100)}`}
+          tick={{ fontSize: 11, fill: "#64748b" }}
+          tickLine={false}
+          axisLine={false}
+          width={40}
+        />
+        <Tooltip
+          formatter={(value, name) => [formatEur(Number(value)), name === "inCents" ? "Entrate" : "Uscite"]}
+          cursor={{ fill: "rgba(15,23,42,0.04)" }}
+        />
+        <Legend
+          verticalAlign="bottom"
+          height={28}
+          formatter={(value) => (
+            <span style={{ fontSize: 12, color: "#475569" }}>{value === "inCents" ? "Entrate" : "Uscite"}</span>
+          )}
+        />
+        <Bar dataKey="inCents" fill="#10b981" radius={[3, 3, 0, 0]} />
+        <Bar dataKey="outCents" fill="#ef4444" radius={[3, 3, 0, 0]} />
+      </BarChart>
+    </ResponsiveContainer>
+  );
+}
