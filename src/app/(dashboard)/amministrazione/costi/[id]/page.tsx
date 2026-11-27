@@ -46,6 +46,7 @@ export default async function CostoPage({ params }: { params: { id: string } }) 
   const annual = annualCostCents(cost.amountCents, cost.periodMonths, cost.vatPercent);
   const allocs = cost.allocations.map((a) => ({ ...a, sharePercent: toNumber(a.sharePercent) }));
   const { shares } = resolveShares(allocs);
+  const units = allocs.reduce((sum, a) => sum + a.quantity, 0);
 
   return (
     <div className="space-y-6">
@@ -102,7 +103,7 @@ export default async function CostoPage({ params }: { params: { id: string } }) 
             {allocs.length} abbonament{allocs.length === 1 ? "o" : "i"}
           </p>
           <p className={`text-xs ${allocs.length === 0 && !cost.general ? "text-amber-800" : "text-slate-500"}`}>
-            {cost.general ? "costo generale: pesa sul margine complessivo" : allocs.length ? `${formatEur(Math.round(annual / allocs.length), cost.currency)} l'anno ciascuno` : "non ancora richiamato"}
+            {cost.general ? "costo generale: pesa sul margine complessivo" : allocs.length ? `${units} unità · ${formatEur(Math.round(annual / units), cost.currency)} l'anno per unità` : "non ancora richiamato"}
           </p>
         </div>
       </div>
@@ -111,7 +112,8 @@ export default async function CostoPage({ params }: { params: { id: string } }) 
         <div className="border-b border-line-soft px-5 py-4">
           <h2 className="text-base font-semibold">Abbonamenti che lo richiamano</h2>
           <p className="text-sm text-slate-500">
-            Il costo si divide in parti uguali tra questi abbonamenti. Per aggiungerne uno, richiamalo dalla scheda dell&apos;abbonamento.
+            Il costo si divide in parti uguali per unità: un abbonamento con ×2 (es. due siti sullo stesso hosting) paga il doppio. Per
+            aggiungerne uno, richiamalo dalla scheda dell&apos;abbonamento.
           </p>
         </div>
         {allocs.length === 0 ? (
@@ -122,6 +124,7 @@ export default async function CostoPage({ params }: { params: { id: string } }) 
               <thead>
                 <tr className="mono-label border-b border-line text-left">
                   <th className="px-5 py-3 font-medium">Abbonamento</th>
+                  <th className="px-3 py-3 text-right font-medium">Unità</th>
                   <th className="px-3 py-3 text-right font-medium">Quota</th>
                   <th className="px-3 py-3 text-right font-medium">Costo/anno</th>
                   <th className="px-5 py-3">
@@ -143,6 +146,7 @@ export default async function CostoPage({ params }: { params: { id: string } }) 
                           <span className="ml-2 text-xs text-amber-800">abbonamento non più attivo</span>
                         ) : null}
                       </td>
+                      <td className="whitespace-nowrap px-3 py-3 text-right font-mono text-xs">×{a.quantity}</td>
                       <td className="whitespace-nowrap px-3 py-3 text-right font-mono text-xs">{formatPercent(pct)}</td>
                       <td className="whitespace-nowrap px-3 py-3 text-right tabular-nums">{formatEur(Math.round((annual * pct) / 100), cost.currency)}</td>
                       <td className="px-5 py-3">

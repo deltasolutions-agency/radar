@@ -1106,6 +1106,9 @@ model CostAllocation {
   subscriptionId String
   subscription   Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
   sharePercent   Decimal?     @db.Decimal(5, 2)
+  /// Quante volte l'abbonamento usa il costo (es. 2 siti sullo stesso hosting):
+  /// il costo si divide per unità tra tutti gli abbonamenti che lo richiamano.
+  quantity       Int          @default(1)
   createdAt      DateTime     @default(now())
 
   @@unique([costId, subscriptionId])

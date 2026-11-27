@@ -5,7 +5,8 @@ import { allocationCreateSchema, toNumber } from "@/lib/costs";
 type Params = { params: { id: string } };
 
 // POST /api/costs/[id]/allocations — collega il costo a un abbonamento.
-// sharePercent assente/null = quota uguale del residuo.
+// Se è già collegato, aggiunge unità (es. un altro sito sullo stesso hosting).
+// sharePercent assente/null = quota uguale del residuo (per unità).
 export function POST(req: Request, { params }: Params) {
   return withApi(async () => {
     await requireAdmin();
@@ -17,8 +18,13 @@ export function POST(req: Request, { params }: Params) {
     if (!cost) return error("Costo non trovato", 404);
     if (cost.general) return error("È un costo generale: non si richiama negli abbonamenti", 400);
     if (!sub) return error("Abbonamento non trovato", 404);
-    if (cost.allocations.some((a) => a.subscriptionId === data.subscriptionId)) {
-      return error("Costo già collegato a questo abbonamento", 409);
+    const existing = cost.allocations.find((a) => a.subscriptionId === data.subscriptionId);
+    if (existing) {
+      const allocation = await prisma.costAllocation.update({
+        where: { id: existing.id },
+        data: { quantity: { increment: data.quantity ?? 1 } },
+      });
+      return json({ allocation });
     }
     const share = data.sharePercent ?? null;
     if (share !== null) {
@@ -28,7 +34,7 @@ export function POST(req: Request, { params }: Params) {
       }
     }
     const allocation = await prisma.costAllocation.create({
-      data: { costId: cost.id, subscriptionId: sub.id, sharePercent: share },
+      data: { costId: cost.id, subscriptionId: sub.id, sharePercent: share, quantity: data.quantity ?? 1 },
     });
     return json({ allocation }, 201);
   });

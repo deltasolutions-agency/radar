@@ -401,6 +401,8 @@ export const subscriptionCreateSchema = z.object({
   preferredPaymentMethod: z.enum(PREFERRED_METHODS).default("CARTA"),
   // Costi (Amministrazione → Costi) richiamati da questo abbonamento.
   costIds: z.array(z.string().trim().min(1)).max(100).optional(),
+  // Quantità per costo richiamato (es. 2 siti sullo stesso hosting); default 1.
+  costQuantities: z.record(z.number().int().min(1).max(999)).optional(),
   notes: z.preprocess(emptyToUndef, z.string().trim().max(5000).optional()),
   // Costo di servizio 1,5% sui pagamenti Stripe (spunta a livello contenitore).
   serviceFeeEnabled: z.boolean().optional(),

@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { formatEur } from "@/lib/format";
 import { annualCostCents, formatPercent, periodLabel } from "@/lib/costs";
 import { loadMargins } from "@/lib/costs-server";
-import { AddCostToSubscription, UnlinkCostButton } from "../amministrazione/costi/cost-actions";
+import { AddCostToSubscription, QuantityStepper, UnlinkCostButton } from "../amministrazione/costi/cost-actions";
 
 /** Riquadro "Costi e margine" nella scheda abbonamento (solo admin). */
 export async function SubscriptionCostsCard({ subscriptionId }: { subscriptionId: string }) {
@@ -12,23 +12,24 @@ export async function SubscriptionCostsCard({ subscriptionId }: { subscriptionId
     prisma.cost.findMany({
       where: { active: true, general: false },
       orderBy: { name: "asc" },
-      select: { id: true, name: true, supplier: true, amountCents: true, periodMonths: true, vatPercent: true, allocations: { select: { subscriptionId: true } } },
+      select: { id: true, name: true, supplier: true, amountCents: true, periodMonths: true, vatPercent: true, allocations: { select: { subscriptionId: true, quantity: true } } },
     }),
   ]);
   const m = margins.subscriptions.get(subscriptionId);
   if (!m) return null;
-  const options = costs
-    .filter((c) => !c.allocations.some((a) => a.subscriptionId === subscriptionId))
-    .map((c) => {
-      const n = c.allocations.length;
-      const after = Math.round(annualCostCents(c.amountCents, c.periodMonths, c.vatPercent) / (n + 1));
-      return {
-        id: c.id,
-        label: `${c.name}${c.supplier ? ` (${c.supplier})` : ""} · ${formatEur(c.amountCents)} ${periodLabel(c.periodMonths).toLowerCase()} · qui ${formatEur(after)}/anno${
-          n ? ` (diviso su ${n + 1})` : ""
-        }`,
-      };
-    });
+  // Tutti i costi richiamabili, anche quelli già presenti: richiamarli di nuovo
+  // aggiunge un'unità (es. un secondo sito sullo stesso hosting).
+  const options = costs.map((c) => {
+    const units = c.allocations.reduce((sum, a) => sum + a.quantity, 0);
+    const here = c.allocations.find((a) => a.subscriptionId === subscriptionId)?.quantity ?? 0;
+    const perUnit = Math.round(annualCostCents(c.amountCents, c.periodMonths, c.vatPercent) / (units + 1));
+    return {
+      id: c.id,
+      label: `${here ? `+1 · ` : ""}${c.name}${c.supplier ? ` (${c.supplier})` : ""} · ${formatEur(c.amountCents)} ${periodLabel(
+        c.periodMonths,
+      ).toLowerCase()} · ${formatEur(perUnit)}/anno per unità${units ? ` (diviso su ${units + 1})` : ""}${here ? ` · qui già ×${here}` : ""}`,
+    };
+  });
   const pct = m.revenueCents > 0 ? (m.marginCents / m.revenueCents) * 100 : null;
 
   return (
@@ -37,7 +38,8 @@ export async function SubscriptionCostsCard({ subscriptionId }: { subscriptionId
         <div>
           <h2 className="text-base font-semibold">Costi e margine</h2>
           <p className="text-sm text-slate-500">
-            Richiama i tuoi costi usati da questo abbonamento: ognuno si divide in parti uguali tra gli abbonamenti che lo richiamano.
+            Richiama i tuoi costi usati da questo abbonamento: ognuno si divide in parti uguali tra gli abbonamenti che lo richiamano. Se
+            il cliente lo usa più volte (es. 2 siti sullo stesso hosting), aumenta la quantità.
           </p>
         </div>
         <Link href="/amministrazione/costi" className="text-sm font-medium text-brand hover:underline">
@@ -71,8 +73,11 @@ export async function SubscriptionCostsCard({ subscriptionId }: { subscriptionId
                 </Link>
                 {a.supplier ? <span className="text-slate-500"> · {a.supplier}</span> : null}
               </span>
+              <QuantityStepper allocationId={a.id} quantity={a.quantity} />
               <span className="font-mono text-xs text-slate-500">
-                {a.sharedWith > 1 ? `diviso su ${a.sharedWith} abbonamenti (${formatPercent(a.effectivePercent)})` : "solo questo abbonamento"}
+                {a.sharedWith > a.quantity
+                  ? `${a.quantity} di ${a.sharedWith} unità (${formatPercent(a.effectivePercent)})`
+                  : "solo questo abbonamento"}
               </span>
               <span className="w-28 text-right tabular-nums">{formatEur(a.annualShareCents)}/anno</span>
               <UnlinkCostButton allocationId={a.id} />
