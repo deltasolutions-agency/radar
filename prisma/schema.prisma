@@ -69,6 +69,13 @@ enum RenewalIncreaseMode {
   ONCE
 }
 
+/// Metodo di pagamento preferito dal cliente per un abbonamento.
+enum PreferredPaymentMethod {
+  CARTA
+  BONIFICO
+  CONTANTI
+}
+
 enum PaymentMethod {
   STRIPE
   MANUALE
@@ -344,6 +351,11 @@ model Subscription {
   // sulla pagina /pay la casella è già spuntata e non si può togliere.
   requireAutoCharge Boolean @default(false)
 
+  // Metodo di pagamento preferito dal cliente. CARTA = flusso Stripe completo
+  // (link "Paga ora", costi di servizio, rinnovo automatico). BONIFICO e
+  // CONTANTI: niente funzioni legate alla carta, pagamenti registrati a mano.
+  preferredPaymentMethod PreferredPaymentMethod @default(CARTA)
+
   // Attivazione: gli abbonamenti "da pagare" nascono PENDING_FIRST_PAYMENT e
   // diventano ACTIVE alla conferma del pagamento di attivazione.
   activationState        SubscriptionActivationState @default(ACTIVE)
@@ -351,9 +363,10 @@ model Subscription {
   // servizi" o reinvio): da qui partono i solleciti. null = nessun link valido.
   firstPaymentLinkSentAt DateTime?
 
-  items     SubscriptionItem[]
-  payments  Payment[]
-  emailLogs EmailLog[]
+  items           SubscriptionItem[]
+  payments        Payment[]
+  emailLogs       EmailLog[]
+  costAllocations CostAllocation[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1037,4 +1050,52 @@ model WpAlertRecipient {
 
   @@unique([siteId, email])
   @@map("wp_alert_recipients")
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// COSTI — spese sostenute (hosting, domini, licenze…) ripartite sugli
+// abbonamenti che le usano, per calcolare il margine reale.
+// ──────────────────────────────────────────────────────────────────────────
+
+model Cost {
+  id           String       @id @default(cuid())
+  name         String
+  /// Fornitore (es. Hostinger, Register.it), testo libero.
+  supplier     String?
+  category     ServiceType?
+  /// Importo pagato per ogni periodo, in centesimi (come inserito, senza calcolo IVA).
+  amountCents  Int
+  currency     String       @default("eur")
+  /// Durata del periodo pagato in mesi (1 mensile, 12 annuale, 24 biennale…).
+  periodMonths Int          @default(12)
+  /// Prossimo rinnovo / scadenza del costo (facoltativo).
+  renewalDate  DateTime?
+  notes        String?
+  /// false = costo dismesso: resta in archivio ma esce dai calcoli.
+  active       Boolean      @default(true)
+
+  allocations CostAllocation[]
+
+  createdBy String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([active])
+  @@map("costs")
+}
+
+/// Collegamento costo ↔ abbonamento. sharePercent null = quota uguale del
+/// residuo (100% meno le quote fissate) tra gli abbonamenti senza quota.
+model CostAllocation {
+  id             String       @id @default(cuid())
+  costId         String
+  cost           Cost         @relation(fields: [costId], references: [id], onDelete: Cascade)
+  subscriptionId String
+  subscription   Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  sharePercent   Decimal?     @db.Decimal(5, 2)
+  createdAt      DateTime     @default(now())
+
+  @@unique([costId, subscriptionId])
+  @@index([subscriptionId])
+  @@map("cost_allocations")
 }

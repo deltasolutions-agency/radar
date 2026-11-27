@@ -37,6 +37,7 @@ export default async function NuovaRigaPage({
       <ItemForm
         mode="create"
         subscriptionId={sub.id}
+        allowAutoCharge={sub.preferredPaymentMethod === "CARTA"}
         endClientSuggestions={await getEndClientSuggestions(sub.clientId)}
       />
     </div>

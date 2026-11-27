@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { PREFERRED_METHODS } from "@/lib/preferred-payment";
 
 /**
  * Schemi di validazione condivisi tra API routes e form client.
@@ -395,6 +396,9 @@ export type SubscriptionItemUpdateInput = z.infer<
 /** Creazione dell'abbonamento: contenitore cliente + almeno una riga servizio. */
 export const subscriptionCreateSchema = z.object({
   clientId: z.string().trim().min(1, "Seleziona un cliente"),
+  // Metodo preferito dal cliente: solo CARTA abilita costi di servizio,
+  // rinnovo automatico e link "Paga ora".
+  preferredPaymentMethod: z.enum(PREFERRED_METHODS).default("CARTA"),
   notes: z.preprocess(emptyToUndef, z.string().trim().max(5000).optional()),
   // Costo di servizio 1,5% sui pagamenti Stripe (spunta a livello contenitore).
   serviceFeeEnabled: z.boolean().optional(),
@@ -424,6 +428,7 @@ export const subscriptionCreateSchema = z.object({
 /** Aggiornamento del contenitore (solo metadati; le righe si gestiscono a parte). */
 export const subscriptionUpdateSchema = z.object({
   notes: z.preprocess(emptyToUndef, z.string().trim().max(5000).optional()),
+  preferredPaymentMethod: z.enum(PREFERRED_METHODS).optional(),
   // Costo di servizio 1,5% sui pagamenti Stripe (spunta a livello contenitore).
   serviceFeeEnabled: z.boolean().optional(),
 });

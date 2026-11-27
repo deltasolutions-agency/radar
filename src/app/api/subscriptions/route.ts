@@ -90,12 +90,15 @@ export function POST(req: NextRequest) {
 
     // Ogni nuovo abbonamento nasce in attesa del primo pagamento: con "già
     // pagato" lo attiva subito il pagamento manuale di attivazione qui sotto.
+    // Bonifico/contanti: niente funzioni legate alla carta.
+    const isCard = data.preferredPaymentMethod === "CARTA";
     const subscription = await prisma.subscription.create({
       data: {
         clientId: data.clientId,
         activationState: "PENDING_FIRST_PAYMENT",
         notes: data.notes,
-        serviceFeeEnabled: data.serviceFeeEnabled ?? false,
+        preferredPaymentMethod: data.preferredPaymentMethod,
+        serviceFeeEnabled: isCard ? (data.serviceFeeEnabled ?? false) : false,
         items: {
           create: data.items.map((it) => {
             const customPeriodDays = it.customPeriodDays ?? null;
@@ -117,7 +120,7 @@ export function POST(req: NextRequest) {
               currency: it.currency,
               billingPeriod: it.billingPeriod,
               customPeriodDays,
-              autoChargeEnabled: it.autoChargeEnabled ?? false,
+              autoChargeEnabled: isCard ? (it.autoChargeEnabled ?? false) : false,
               autoChargeEndDate: it.autoChargeEndDate ?? null,
               notes: it.notes,
               endClientName: it.endClientName ?? null,
@@ -143,6 +146,11 @@ export function POST(req: NextRequest) {
     // abbonamento del cliente) o nell'email "Attivazione nuovi servizi". Il
     // rinnovo automatico si attiva dalla casella su /pay, non da una richiesta
     // separata. Non bloccante: l'admin può reinviare il link dal dettaglio.
+    // Bonifico/contanti: nessun link di pagamento con carta; l'abbonamento resta
+    // in attesa finché l'admin non usa "Segna come pagato".
+    if (data.paymentMode === "DA_PAGARE" && !isCard) {
+      return json({ subscription, firstPayment: null, manualFirstPayment: true }, 201);
+    }
     if (data.paymentMode === "DA_PAGARE") {
       const firstPayment = await sendFirstPaymentLink(subscription.id, { trigger: "MANUAL" });
       return json({ subscription, firstPayment }, 201);
@@ -173,7 +181,7 @@ export function POST(req: NextRequest) {
     // La richiesta viene comunque creata anche se l'email non parte (l'admin può
     // reinviarla dal dettaglio). Non bloccante.
     let autoChargeUrl: string | null = null;
-    if (data.requestAutoCharge) {
+    if (data.requestAutoCharge && isCard) {
       try {
         const appUrl = process.env.APP_URL;
         const request = await prisma.autoChargeRequest.create({
