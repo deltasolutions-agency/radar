@@ -117,7 +117,12 @@ export const costSchema = z.object({
   recurring: z.boolean().default(false),
   renewalDate: z.preprocess(
     emptyToUndef,
-    z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Data non valida").optional(),
+    z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/, "Data non valida")
+      // Evita anni a 3 cifre digitati per errore (es. 206 invece di 2026).
+      .refine((v) => v >= "2000-01-01" && v <= "2100-12-31", "Data di rinnovo non plausibile: controlla l'anno")
+      .optional(),
   ),
   notes: z.preprocess(emptyToUndef, z.string().trim().max(5000).optional()),
   active: z.boolean().optional(),

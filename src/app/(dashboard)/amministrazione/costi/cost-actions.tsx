@@ -198,7 +198,7 @@ export function CostButton({ cost }: { cost?: CostEditable }) {
             </label>
             <label className="text-xs text-slate-500" htmlFor={`c-${id}-renewal`}>
               Prossimo rinnovo
-              <input id={`c-${id}-renewal`} type="date" className="field mt-1" value={v.renewalDate} onChange={(e) => set({ renewalDate: e.target.value })} />
+              <input id={`c-${id}-renewal`} type="date" min="2000-01-01" max="2100-12-31" className="field mt-1" value={v.renewalDate} onChange={(e) => set({ renewalDate: e.target.value })} />
             </label>
             <label className="flex items-start gap-2 rounded-lg border border-line-soft bg-canvas p-3 text-sm sm:col-span-2" htmlFor={`c-${id}-recurring`}>
               <input
