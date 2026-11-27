@@ -22,7 +22,7 @@ type CostOption = {
   amountCents: number;
   periodMonths: number;
   vatPercent: number;
-  _count: { allocations: number };
+  units: number;
 };
 const eur = (c: number) => new Intl.NumberFormat("it-IT", { style: "currency", currency: "EUR" }).format(c / 100);
 
@@ -60,6 +60,7 @@ export function SubscriptionForm() {
   // Costi richiamabili (solo admin: per gli altri la sezione non compare).
   const [costs, setCosts] = useState<CostOption[] | null>(null);
   const [costIds, setCostIds] = useState<string[]>([]);
+  const [costQty, setCostQty] = useState<Record<string, number>>({});
   const [costQuery, setCostQuery] = useState("");
   const [services, setServices] = useState<ServiceOption[]>([]);
   const [clientError, setClientError] = useState<string | null>(null);
@@ -142,6 +143,9 @@ export function SubscriptionForm() {
       notes: notes || undefined,
       preferredPaymentMethod: preferredMethod,
       costIds: costIds.length ? costIds : undefined,
+      costQuantities: costIds.length
+        ? Object.fromEntries(costIds.map((id) => [id, costQty[id] ?? 1]))
+        : undefined,
       serviceFeeEnabled: isCard && serviceFeeEnabled,
       // "Da pagare": il rinnovo automatico si attiva dalla pagina di pagamento.
       requestAutoCharge: isCard && paymentMode === "PAGATO" && requestAutoCharge,
@@ -465,16 +469,18 @@ export function SubscriptionForm() {
                 })
                 .map((c) => {
                 const checked = costIds.includes(c.id);
-                const n = c._count.allocations + 1;
+                const qty = costQty[c.id] ?? 1;
+                const n = c.units + (checked ? qty : 1);
                 const net = c.vatPercent > 0 ? (c.amountCents * 100) / (100 + c.vatPercent) : c.amountCents;
-                const share = Math.round((net * 12) / c.periodMonths / n);
+                const share = Math.round(((net * 12) / c.periodMonths / n) * (checked ? qty : 1));
                 return (
-                  <label
+                  <div
                     key={c.id}
-                    className={`flex cursor-pointer items-start gap-2.5 rounded-lg border bg-white p-3 text-sm ${
+                    className={`flex items-start gap-2.5 rounded-lg border bg-white p-3 text-sm ${
                       checked ? "border-brand ring-1 ring-brand" : "border-line"
                     }`}
                   >
+                    <label className="flex min-w-0 flex-1 cursor-pointer items-start gap-2.5">
                     <input
                       type="checkbox"
                       className="mt-0.5"
@@ -483,15 +489,32 @@ export function SubscriptionForm() {
                         setCostIds((ids) => (e.target.checked ? [...ids, c.id] : ids.filter((x) => x !== c.id)))
                       }
                     />
-                    <span>
+                    <span className="min-w-0 flex-1">
                       <span className="font-medium">{c.name}</span>
                       {c.supplier ? <span className="text-slate-500"> · {c.supplier}</span> : null}
                       <span className="mt-0.5 block text-xs text-slate-500">
                         {eur(share)}/anno netti per questo abbonamento
-                        {n > 1 ? ` (diviso su ${n})` : ""}
+                        {n > 1 ? ` (diviso su ${n} unità)` : ""}
                       </span>
                     </span>
-                  </label>
+                    </label>
+                    {checked ? (
+                      <span className="flex shrink-0 items-center gap-1 text-xs text-slate-500">
+                        ×
+                        <input
+                          type="number"
+                          min={1}
+                          max={999}
+                          aria-label={`Quantità di ${c.name}`}
+                          className="field w-16 px-2 py-1 text-sm"
+                          value={qty}
+                          onChange={(e) =>
+                            setCostQty((m) => ({ ...m, [c.id]: Math.max(1, Math.min(999, Number(e.target.value) || 1)) }))
+                          }
+                        />
+                      </span>
+                    ) : null}
+                  </div>
                 );
               })}
             </div>

@@ -14,7 +14,8 @@ export type SubscriptionMargin = {
     costId: string;
     costName: string;
     supplier: string | null;
-    sharedWith: number; // abbonamenti che richiamano lo stesso costo
+    sharedWith: number; // unità totali del costo (tra tutti gli abbonamenti)
+    quantity: number; // unità di questo abbonamento
     effectivePercent: number;
     annualShareCents: number;
   }[];
@@ -24,8 +25,10 @@ export type CostSummary = {
   id: string;
   annualCents: number;
   subscriptions: number;
+  /** Unità totali richiamate (somma delle quantità). */
+  units: number;
   general: boolean;
-  /** Quota annua per abbonamento (parti uguali); null se non richiamato. */
+  /** Quota annua per unità (parti uguali); null se non richiamato. */
   perSubscriptionCents: number | null;
 };
 
@@ -38,7 +41,7 @@ export function subscriptionLabel(clientName: string, serviceNames: string[]): s
 
 /**
  * Costi in uso e quote annue per abbonamento. Un costo richiamato da N
- * abbonamenti si divide in N parti uguali (salvo quote fissate a mano, non più
+ * unità (somma delle quantità degli abbonamenti) si divide in N parti uguali (salvo quote fissate a mano, non più
  * esposte nell'interfaccia ma ancora rispettate se presenti).
  */
 export async function loadMargins(): Promise<{
@@ -73,7 +76,7 @@ export async function loadMargins(): Promise<{
         periodMonths: true,
         vatPercent: true,
         general: true,
-        allocations: { select: { id: true, subscriptionId: true, sharePercent: true } },
+        allocations: { select: { id: true, subscriptionId: true, sharePercent: true, quantity: true } },
       },
     }),
   ]);
@@ -95,6 +98,7 @@ export async function loadMargins(): Promise<{
     const annual = annualCostCents(c.amountCents, c.periodMonths, c.vatPercent);
     const allocs = c.allocations.map((a) => ({ ...a, sharePercent: toNumber(a.sharePercent) }));
     const { shares } = resolveShares(allocs);
+    const units = allocs.reduce((sum, a) => sum + a.quantity, 0);
     for (const a of allocs) {
       const sub = bySub.get(a.subscriptionId);
       if (!sub) continue; // abbonamento annullato prima di partire
@@ -106,7 +110,8 @@ export async function loadMargins(): Promise<{
         costId: c.id,
         costName: c.name,
         supplier: c.supplier,
-        sharedWith: allocs.length,
+        sharedWith: units,
+        quantity: a.quantity,
         effectivePercent: pct,
         annualShareCents,
       });
@@ -115,8 +120,9 @@ export async function loadMargins(): Promise<{
       id: c.id,
       annualCents: annual,
       subscriptions: allocs.length,
+      units,
       general: c.general,
-      perSubscriptionCents: allocs.length ? Math.round(annual / allocs.length) : null,
+      perSubscriptionCents: units ? Math.round(annual / units) : null,
     });
   }
 

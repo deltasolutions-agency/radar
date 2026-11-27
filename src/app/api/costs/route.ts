@@ -41,9 +41,12 @@ export function GET() {
         amountCents: true,
         periodMonths: true,
         vatPercent: true,
-        _count: { select: { allocations: true } },
+        allocations: { select: { quantity: true } },
       },
     });
-    return json({ costs });
+    // Unità già richiamate (somma delle quantità), per l'anteprima della quota.
+    return json({
+      costs: costs.map(({ allocations, ...c }) => ({ ...c, units: allocations.reduce((s, a) => s + a.quantity, 0) })),
+    });
   });
 }

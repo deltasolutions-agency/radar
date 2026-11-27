@@ -145,7 +145,11 @@ export function POST(req: NextRequest) {
       });
       if (valid.length) {
         await prisma.costAllocation.createMany({
-          data: valid.map((c) => ({ costId: c.id, subscriptionId: subscription.id })),
+          data: valid.map((c) => ({
+            costId: c.id,
+            subscriptionId: subscription.id,
+            quantity: data.costQuantities?.[c.id] ?? 1,
+          })),
           skipDuplicates: true,
         });
       }

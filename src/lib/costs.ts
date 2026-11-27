@@ -74,20 +74,22 @@ export function annualSubscriptionRevenueCents(items: ItemLike[]): number {
 
 /**
  * Quote (in %) di un costo sugli abbonamenti collegati. Le quote fissate
- * restano come sono; il residuo (100 − somma fissate) si divide in parti
- * uguali tra gli abbonamenti senza quota. Se nessuno è senza quota, il
- * residuo resta "non assegnato".
+ * restano come sono; il residuo (100 − somma fissate) si divide tra gli
+ * abbonamenti senza quota in proporzione alla quantità (2 unità = doppia
+ * parte). Se nessuno è senza quota, il residuo resta "non assegnato".
  */
 export function resolveShares(
-  allocations: { id: string; sharePercent: number | null }[],
+  allocations: { id: string; sharePercent: number | null; quantity?: number }[],
 ): { shares: Map<string, number>; unassignedPercent: number } {
+  const qty = (a: { quantity?: number }) => Math.max(1, a.quantity ?? 1);
   const fixed = allocations.filter((a) => a.sharePercent !== null);
   const free = allocations.filter((a) => a.sharePercent === null);
   const fixedSum = fixed.reduce((s, a) => s + (a.sharePercent ?? 0), 0);
   const rest = Math.max(0, 100 - fixedSum);
+  const freeUnits = free.reduce((s, a) => s + qty(a), 0);
   const shares = new Map<string, number>();
   for (const a of fixed) shares.set(a.id, a.sharePercent ?? 0);
-  for (const a of free) shares.set(a.id, rest / free.length);
+  for (const a of free) shares.set(a.id, (rest * qty(a)) / freeUnits);
   const assigned = [...shares.values()].reduce((s, v) => s + v, 0);
   return { shares, unassignedPercent: allocations.length === 0 ? 100 : Math.max(0, 100 - assigned) };
 }
@@ -140,11 +142,17 @@ const share = z.preprocess(
   z.number().min(0.01, "Quota tra 0,01 e 100").max(100, "Quota tra 0,01 e 100").nullable(),
 );
 
+const quantity = z.number().int("Quantità non valida").min(1, "Almeno 1").max(999, "Quantità troppo alta");
+
 export const allocationCreateSchema = z.object({
   subscriptionId: z.string().trim().min(1, "Scegli un abbonamento"),
   sharePercent: share.optional(),
+  /** Unità da aggiungere (se il costo è già richiamato, si sommano). */
+  quantity: quantity.optional(),
 });
-export const allocationUpdateSchema = z.object({ sharePercent: share });
+export const allocationUpdateSchema = z
+  .object({ sharePercent: share.optional(), quantity: quantity.optional() })
+  .refine((d) => d.sharePercent !== undefined || d.quantity !== undefined, "Niente da modificare");
 
 export function dayFromYmd(ymd: string): Date {
   return new Date(`${ymd}T00:00:00.000Z`);

@@ -322,7 +322,7 @@ export function AddCostToSubscription({ subscriptionId, options }: { subscriptio
   if (options.length === 0) {
     return (
       <p className="text-sm text-slate-500">
-        Nessun altro costo da richiamare.{" "}
+        Nessun costo da richiamare.{" "}
         <a href="/amministrazione/costi" className="text-brand hover:underline">
           Aggiungi i tuoi costi
         </a>
@@ -453,6 +453,48 @@ export function RecurringToggle({ id, recurring, hasDate }: { id: string; recurr
         />
         ricorrente
       </label>
+      {err ? <span className="text-xs text-red-700">{err}</span> : null}
+    </span>
+  );
+}
+
+/** Quantità del costo nell'abbonamento (unità): − / +. */
+export function QuantityStepper({ allocationId, quantity }: { allocationId: string; quantity: number }) {
+  const router = useRouter();
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  async function setQty(q: number) {
+    if (q < 1) return;
+    setBusy(true);
+    setErr(null);
+    const e = await send(`/api/cost-allocations/${allocationId}`, "PATCH", { quantity: q });
+    setBusy(false);
+    if (e) return setErr(e);
+    router.refresh();
+  }
+  return (
+    <span className="inline-flex flex-col items-center">
+      <span className="inline-flex items-center overflow-hidden rounded-lg border border-line" role="group" aria-label="Quantità">
+        <button
+          type="button"
+          className="px-2 py-1 text-sm text-slate-600 hover:bg-canvas disabled:opacity-40"
+          disabled={busy || quantity <= 1}
+          aria-label="Una unità in meno"
+          onClick={() => setQty(quantity - 1)}
+        >
+          −
+        </button>
+        <span className="min-w-[2.5rem] px-1 text-center font-mono text-xs">×{quantity}</span>
+        <button
+          type="button"
+          className="px-2 py-1 text-sm text-slate-600 hover:bg-canvas disabled:opacity-40"
+          disabled={busy}
+          aria-label="Una unità in più"
+          onClick={() => setQty(quantity + 1)}
+        >
+          +
+        </button>
+      </span>
       {err ? <span className="text-xs text-red-700">{err}</span> : null}
     </span>
   );

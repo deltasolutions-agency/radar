@@ -51,7 +51,7 @@ export default async function CostiPage({ searchParams }: { searchParams: Record
           : {}),
       },
       orderBy: [{ renewalDate: { sort: "asc", nulls: "last" } }, { name: "asc" }],
-      include: { _count: { select: { allocations: true } } },
+      include: { allocations: { select: { quantity: true } } },
     }),
     prisma.cost.count({ where: { active: false } }),
     loadMargins(),
@@ -145,7 +145,7 @@ export default async function CostiPage({ searchParams }: { searchParams: Record
                   <th className="px-3 py-3 text-right font-medium">Pagato</th>
                   <th className="px-3 py-3 text-right font-medium">All&apos;anno (netto)</th>
                   <th className="px-3 py-3 font-medium">Richiamato in</th>
-                  <th className="px-3 py-3 text-right font-medium">Quota per abbonamento</th>
+                  <th className="px-3 py-3 text-right font-medium">Quota per unità</th>
                   <th className="px-3 py-3 font-medium">Rinnovo</th>
                   <th className="px-4 py-3">
                     <span className="sr-only">Azioni</span>
@@ -155,7 +155,8 @@ export default async function CostiPage({ searchParams }: { searchParams: Record
               <tbody>
                 {costs.map((c) => {
                   const annual = annualCostCents(c.amountCents, c.periodMonths, c.vatPercent);
-                  const n = c._count.allocations;
+                  const n = c.allocations.length;
+                  const units = c.allocations.reduce((sum, a) => sum + a.quantity, 0);
                   return (
                     <tr key={c.id} className="border-b border-line-soft align-top last:border-0">
                       <td className="px-4 py-3">
@@ -184,11 +185,12 @@ export default async function CostiPage({ searchParams }: { searchParams: Record
                         ) : (
                           <Link href={`/amministrazione/costi/${c.id}`} className="text-ink hover:text-brand hover:underline">
                             {n} abbonament{n === 1 ? "o" : "i"}
+                            {units > n ? <span className="block text-xs text-slate-500">{units} unità in tutto</span> : null}
                           </Link>
                         )}
                       </td>
                       <td className="whitespace-nowrap px-3 py-3 text-right tabular-nums">
-                        {n ? formatEur(Math.round(annual / n), c.currency) : "—"}
+                        {units ? formatEur(Math.round(annual / units), c.currency) : "—"}
                         {n ? <span className="block text-xs text-slate-500">all&apos;anno</span> : null}
                       </td>
                       <td className="whitespace-nowrap px-3 py-3 text-slate-600">

@@ -4,7 +4,7 @@ import { allocationUpdateSchema, toNumber } from "@/lib/costs";
 
 type Params = { params: { id: string } };
 
-// PATCH /api/cost-allocations/[id] — cambia la quota (null = quota uguale).
+// PATCH /api/cost-allocations/[id] — cambia quantità (unità) o quota (null = quota uguale).
 export function PATCH(req: Request, { params }: Params) {
   return withApi(async () => {
     await requireAdmin();
@@ -13,8 +13,8 @@ export function PATCH(req: Request, { params }: Params) {
       include: { cost: { include: { allocations: true } } },
     });
     if (!current) return error("Collegamento non trovato", 404);
-    const { sharePercent } = allocationUpdateSchema.parse(await req.json());
-    if (sharePercent !== null) {
+    const { sharePercent, quantity } = allocationUpdateSchema.parse(await req.json());
+    if (sharePercent !== undefined && sharePercent !== null) {
       const others = current.cost.allocations
         .filter((a) => a.id !== current.id)
         .reduce((s, a) => s + (toNumber(a.sharePercent) ?? 0), 0);
@@ -24,7 +24,10 @@ export function PATCH(req: Request, { params }: Params) {
     }
     const allocation = await prisma.costAllocation.update({
       where: { id: params.id },
-      data: { sharePercent },
+      data: {
+        ...(sharePercent !== undefined ? { sharePercent } : {}),
+        ...(quantity !== undefined ? { quantity } : {}),
+      },
     });
     return json({ allocation });
   });
