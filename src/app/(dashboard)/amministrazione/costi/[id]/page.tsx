@@ -73,6 +73,7 @@ export default async function CostoPage({ params }: { params: { id: string } }) 
               periodMonths: cost.periodMonths,
               vatPercent: cost.vatPercent,
               general: cost.general,
+              recurring: cost.recurring,
               renewalDate: cost.renewalDate ? cost.renewalDate.toISOString().slice(0, 10) : null,
               notes: cost.notes,
               active: cost.active,
@@ -91,7 +92,9 @@ export default async function CostoPage({ params }: { params: { id: string } }) 
         <div className="card p-4">
           <p className="mono-label">Prossimo rinnovo</p>
           <p className="mt-1 text-xl font-semibold">{cost.renewalDate ? formatDate(cost.renewalDate) : "—"}</p>
-          <p className="text-xs text-slate-500">promemoria per te, nessun alert automatico</p>
+          <p className="text-xs text-slate-500">
+            {cost.recurring ? "ricorrente: si rinnova da solo" : "non ricorrente"} · avviso a hello@ da 7 giorni prima
+          </p>
         </div>
         <div className={`card p-4 ${allocs.length === 0 && !cost.general ? "border-amber-200 bg-amber-50" : ""}`}>
           <p className="mono-label">Richiamato in</p>

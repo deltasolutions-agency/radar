@@ -734,6 +734,7 @@ enum EmailLogType {
   LEDGER_OVERDUE_ALERT // Amministrazione: crediti/debiti scaduti (admin)
   WP_MONITOR_DIGEST // Vigilantes: riepilogo giornaliero siti WordPress (admin)
   WP_MONITOR_ALERT // Vigilantes: allarme immediato (sito giù, sicurezza) (admin)
+  COST_RENEWAL_ALERT // Costi: rinnovi entro 7 giorni (admin)
   OTHER
 }
 
@@ -1072,6 +1073,9 @@ model Cost {
   /// Costo generale: non legato ad abbonamenti (es. commercialista, software
   /// interni). Pesa sul margine complessivo, non si richiama negli abbonamenti.
   general      Boolean      @default(false)
+  /// Ricorrente: passata la data di rinnovo, Radar la sposta avanti di un
+  /// periodo (periodMonths) da solo. Avviso a hello@ da 7 giorni prima.
+  recurring    Boolean      @default(false)
   /// Durata del periodo pagato in mesi (1 mensile, 12 annuale, 24 biennale…).
   periodMonths Int          @default(12)
   /// Prossimo rinnovo / scadenza del costo (facoltativo).

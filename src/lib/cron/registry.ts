@@ -5,6 +5,7 @@ import { runAutoCharge } from "@/lib/cron/auto-charge-run";
 import { runActivationReminders } from "@/lib/cron/activation-reminders-run";
 import { runLedgerAlerts } from "@/lib/cron/ledger-alerts-run";
 import { runVigilantes } from "@/lib/cron/vigilantes-run";
+import { runCostRenewals } from "@/lib/cron/cost-renewals-run";
 
 type Runner = (opts: { now: Date; dryRun: boolean }) => Promise<CronResult>;
 
@@ -15,6 +16,7 @@ export const CRON_RUNNERS: Record<CronName, Runner> = {
   "autocharge-reminders": runActivationReminders,
   "ledger-alerts": runLedgerAlerts,
   vigilantes: runVigilantes,
+  "cost-renewals": runCostRenewals,
 };
 
 export function isCronName(name: string): name is CronName {

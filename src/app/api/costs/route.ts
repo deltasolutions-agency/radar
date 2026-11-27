@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { json, withApi, requireAdmin } from "@/lib/api";
-import { costSchema, dayFromYmd } from "@/lib/costs";
+import { costSchemaChecked as costSchema, dayFromYmd } from "@/lib/costs";
 
 // POST /api/costs — nuovo costo (Amministrazione → Costi). Solo admin.
 export function POST(req: Request) {
@@ -16,6 +16,7 @@ export function POST(req: Request) {
         periodMonths: data.periodMonths,
         vatPercent: data.vatPercent,
         general: data.general,
+        recurring: data.recurring,
         renewalDate: data.renewalDate ? dayFromYmd(data.renewalDate) : null,
         notes: data.notes ?? null,
         active: data.active ?? true,

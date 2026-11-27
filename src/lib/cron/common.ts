@@ -13,6 +13,7 @@ export const CRON_NAMES = {
   activationReminders: "autocharge-reminders",
   ledgerAlerts: "ledger-alerts",
   vigilantes: "vigilantes",
+  costRenewals: "cost-renewals",
 } as const;
 export type CronName = (typeof CRON_NAMES)[keyof typeof CRON_NAMES];
 
