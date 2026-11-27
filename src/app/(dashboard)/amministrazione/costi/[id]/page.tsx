@@ -9,6 +9,7 @@ import {
   annualCostCents,
   formatPercent,
   periodLabel,
+  vatLabel,
   resolveShares,
   toNumber,
   type CostCategory,
@@ -42,7 +43,7 @@ export default async function CostoPage({ params }: { params: { id: string } }) 
   });
   if (!cost) notFound();
 
-  const annual = annualCostCents(cost.amountCents, cost.periodMonths);
+  const annual = annualCostCents(cost.amountCents, cost.periodMonths, cost.vatPercent);
   const allocs = cost.allocations.map((a) => ({ ...a, sharePercent: toNumber(a.sharePercent) }));
   const { shares } = resolveShares(allocs);
 
@@ -70,6 +71,8 @@ export default async function CostoPage({ params }: { params: { id: string } }) 
               category: cost.category,
               amountCents: cost.amountCents,
               periodMonths: cost.periodMonths,
+              vatPercent: cost.vatPercent,
+              general: cost.general,
               renewalDate: cost.renewalDate ? cost.renewalDate.toISOString().slice(0, 10) : null,
               notes: cost.notes,
               active: cost.active,
@@ -83,20 +86,20 @@ export default async function CostoPage({ params }: { params: { id: string } }) 
         <div className="card p-4">
           <p className="mono-label">Pagato</p>
           <p className="mt-1 text-xl font-semibold tabular-nums">{formatEur(cost.amountCents, cost.currency)}</p>
-          <p className="text-xs text-slate-500">{periodLabel(cost.periodMonths).toLowerCase()} · {formatEur(annual, cost.currency)} all&apos;anno</p>
+          <p className="text-xs text-slate-500">{periodLabel(cost.periodMonths).toLowerCase()} · {vatLabel(cost.vatPercent)} · {formatEur(annual, cost.currency)} netti all&apos;anno</p>
         </div>
         <div className="card p-4">
           <p className="mono-label">Prossimo rinnovo</p>
           <p className="mt-1 text-xl font-semibold">{cost.renewalDate ? formatDate(cost.renewalDate) : "—"}</p>
           <p className="text-xs text-slate-500">promemoria per te, nessun alert automatico</p>
         </div>
-        <div className={`card p-4 ${allocs.length === 0 ? "border-amber-200 bg-amber-50" : ""}`}>
+        <div className={`card p-4 ${allocs.length === 0 && !cost.general ? "border-amber-200 bg-amber-50" : ""}`}>
           <p className="mono-label">Richiamato in</p>
           <p className="mt-1 text-xl font-semibold">
             {allocs.length} abbonament{allocs.length === 1 ? "o" : "i"}
           </p>
-          <p className={`text-xs ${allocs.length === 0 ? "text-amber-800" : "text-slate-500"}`}>
-            {allocs.length ? `${formatEur(Math.round(annual / allocs.length), cost.currency)} l'anno ciascuno` : "non ancora richiamato"}
+          <p className={`text-xs ${allocs.length === 0 && !cost.general ? "text-amber-800" : "text-slate-500"}`}>
+            {cost.general ? "costo generale: pesa sul margine complessivo" : allocs.length ? `${formatEur(Math.round(annual / allocs.length), cost.currency)} l'anno ciascuno` : "non ancora richiamato"}
           </p>
         </div>
       </div>

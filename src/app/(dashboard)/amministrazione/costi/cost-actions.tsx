@@ -5,7 +5,7 @@ import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { DELETE_CONFIRM_WORD } from "@/lib/delete-confirm";
 import { parseEuroToCents } from "@/lib/ledger";
-import { COST_CATEGORY_LABELS, COST_PERIODS } from "@/lib/costs";
+import { COST_CATEGORY_LABELS, COST_PERIODS, COST_VAT_RATE } from "@/lib/costs";
 
 // Azioni client della sezione Amministrazione → Costi e del riquadro
 // "Costi e margine" nella scheda abbonamento.
@@ -57,6 +57,8 @@ export type CostEditable = {
   category: string | null;
   amountCents: number;
   periodMonths: number;
+  vatPercent: number;
+  general: boolean;
   renewalDate: string | null;
   notes: string | null;
   active: boolean;
@@ -73,6 +75,8 @@ export function CostButton({ cost }: { cost?: CostEditable }) {
     category: cost?.category ?? "",
     amount: cost ? centsToInput(cost.amountCents) : "",
     periodMonths: String(cost?.periodMonths ?? 12),
+    vatIncluded: (cost?.vatPercent ?? 0) > 0,
+    general: cost?.general ?? false,
     renewalDate: cost?.renewalDate ?? "",
     notes: cost?.notes ?? "",
     active: cost?.active ?? true,
@@ -90,6 +94,8 @@ export function CostButton({ cost }: { cost?: CostEditable }) {
       category: v.category,
       amountCents,
       periodMonths: Number(v.periodMonths),
+      vatPercent: v.vatIncluded ? COST_VAT_RATE : 0,
+      general: v.general,
       renewalDate: v.renewalDate,
       notes: v.notes,
       active: v.active,
@@ -156,6 +162,37 @@ export function CostButton({ cost }: { cost?: CostEditable }) {
                 ))}
               </select>
             </label>
+            <label className="flex items-start gap-2 rounded-lg border border-line-soft bg-canvas p-3 text-sm sm:col-span-2" htmlFor={`c-${id}-general`}>
+              <input
+                id={`c-${id}-general`}
+                type="checkbox"
+                className="mt-0.5"
+                checked={v.general}
+                onChange={(e) => set({ general: e.target.checked })}
+              />
+              <span>
+                Costo generale
+                <span className="mt-0.5 block text-xs text-slate-500">
+                  Non legato a nessun abbonamento (es. commercialista, software interni): pesa sul margine complessivo e non si richiama nei
+                  singoli abbonamenti.
+                </span>
+              </span>
+            </label>
+            <label className="flex items-start gap-2 rounded-lg border border-line-soft bg-canvas p-3 text-sm sm:col-span-2" htmlFor={`c-${id}-vat`}>
+              <input
+                id={`c-${id}-vat`}
+                type="checkbox"
+                className="mt-0.5"
+                checked={v.vatIncluded}
+                onChange={(e) => set({ vatIncluded: e.target.checked })}
+              />
+              <span>
+                IVA inclusa ({COST_VAT_RATE}%), detraibile
+                <span className="mt-0.5 block text-xs text-slate-500">
+                  Spunta se nell&apos;importo c&apos;è IVA che detrai: nei margini Radar usa il netto. Senza spunta il costo conta per intero.
+                </span>
+              </span>
+            </label>
             <label className="text-xs text-slate-500" htmlFor={`c-${id}-renewal`}>
               Prossimo rinnovo
               <input id={`c-${id}-renewal`} type="date" className="field mt-1" value={v.renewalDate} onChange={(e) => set({ renewalDate: e.target.value })} />
@@ -169,7 +206,7 @@ export function CostButton({ cost }: { cost?: CostEditable }) {
               <textarea id={`c-${id}-notes`} rows={2} className="field mt-1" value={v.notes} onChange={(e) => set({ notes: e.target.value })} />
             </label>
           </div>
-          <p className="mt-2 text-xs text-slate-500">Importo come pagato, senza calcolo IVA. Poi lo richiami negli abbonamenti che lo usano: si divide in parti uguali tra loro.</p>
+          <p className="mt-2 text-xs text-slate-500">Inserisci l&apos;importo come l&apos;hai pagato. Poi lo richiami negli abbonamenti che lo usano: si divide in parti uguali tra loro.</p>
           {err ? <p className="mt-3 text-sm font-medium text-red-700">{err}</p> : null}
           <div className="mt-4 flex gap-2">
             <button type="button" className="btn-primary" disabled={busy} onClick={save}>

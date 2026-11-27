@@ -1066,6 +1066,12 @@ model Cost {
   /// Importo pagato per ogni periodo, in centesimi (come inserito, senza calcolo IVA).
   amountCents  Int
   currency     String       @default("eur")
+  /// IVA compresa nell'importo: 0 = esente / senza IVA (default),
+  /// 22 = IVA inclusa e detraibile (scorporata nei calcoli).
+  vatPercent   Int          @default(0)
+  /// Costo generale: non legato ad abbonamenti (es. commercialista, software
+  /// interni). Pesa sul margine complessivo, non si richiama negli abbonamenti.
+  general      Boolean      @default(false)
   /// Durata del periodo pagato in mesi (1 mensile, 12 annuale, 24 biennale…).
   periodMonths Int          @default(12)
   /// Prossimo rinnovo / scadenza del costo (facoltativo).

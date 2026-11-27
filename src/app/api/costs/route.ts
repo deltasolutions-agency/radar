@@ -14,6 +14,8 @@ export function POST(req: Request) {
         category: data.category ?? null,
         amountCents: data.amountCents,
         periodMonths: data.periodMonths,
+        vatPercent: data.vatPercent,
+        general: data.general,
         renewalDate: data.renewalDate ? dayFromYmd(data.renewalDate) : null,
         notes: data.notes ?? null,
         active: data.active ?? true,
@@ -29,7 +31,7 @@ export function GET() {
   return withApi(async () => {
     await requireAdmin();
     const costs = await prisma.cost.findMany({
-      where: { active: true },
+      where: { active: true, general: false },
       orderBy: { name: "asc" },
       select: {
         id: true,
@@ -37,6 +39,7 @@ export function GET() {
         supplier: true,
         amountCents: true,
         periodMonths: true,
+        vatPercent: true,
         _count: { select: { allocations: true } },
       },
     });

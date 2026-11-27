@@ -12,6 +12,8 @@ export function PATCH(req: Request, { params }: Params) {
     const exists = await prisma.cost.findUnique({ where: { id: params.id }, select: { id: true } });
     if (!exists) return error("Costo non trovato", 404);
     const data = costSchema.parse(await req.json());
+    // Diventa costo generale: non è più richiamato negli abbonamenti.
+    if (data.general) await prisma.costAllocation.deleteMany({ where: { costId: params.id } });
     const cost = await prisma.cost.update({
       where: { id: params.id },
       data: {
@@ -20,6 +22,8 @@ export function PATCH(req: Request, { params }: Params) {
         category: data.category ?? null,
         amountCents: data.amountCents,
         periodMonths: data.periodMonths,
+        vatPercent: data.vatPercent,
+        general: data.general,
         renewalDate: data.renewalDate ? dayFromYmd(data.renewalDate) : null,
         notes: data.notes ?? null,
         ...(data.active !== undefined ? { active: data.active } : {}),

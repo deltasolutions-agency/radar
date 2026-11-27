@@ -30,9 +30,24 @@ export const COST_CATEGORY_LABELS = {
 } as const;
 export type CostCategory = keyof typeof COST_CATEGORY_LABELS;
 
-/** Costo annuo in centesimi (arrotondato). */
-export function annualCostCents(amountCents: number, periodMonths: number): number {
-  return Math.round((amountCents * 12) / Math.max(1, periodMonths));
+/** Aliquota usata quando il costo è segnato "IVA inclusa (detraibile)". */
+export const COST_VAT_RATE = 22;
+
+export function vatLabel(vatPercent: number): string {
+  return vatPercent > 0 ? `IVA ${vatPercent}% inclusa` : "senza IVA";
+}
+
+/** Importo al netto dell'IVA (l'IVA sugli acquisti si detrae: il costo reale è il netto). */
+export function netCostCents(amountCents: number, vatPercent: number): number {
+  return vatPercent > 0 ? Math.round((amountCents * 100) / (100 + vatPercent)) : amountCents;
+}
+
+/**
+ * Costo annuo NETTO in centesimi: stesso metro dei prezzi degli abbonamenti,
+ * che in Radar sono imponibili (IVA esclusa).
+ */
+export function annualCostCents(amountCents: number, periodMonths: number, vatPercent = 0): number {
+  return Math.round((netCostCents(amountCents, vatPercent) * 12) / Math.max(1, periodMonths));
 }
 
 type ItemLike = {
@@ -97,6 +112,8 @@ export const costSchema = z.object({
   ),
   amountCents: z.number().int("Importo non valido").min(0, "Importo non valido").max(100_000_000),
   periodMonths: z.number().int().min(1).max(120),
+  vatPercent: z.union([z.literal(0), z.literal(22)]).default(0),
+  general: z.boolean().default(false),
   renewalDate: z.preprocess(
     emptyToUndef,
     z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Data non valida").optional(),

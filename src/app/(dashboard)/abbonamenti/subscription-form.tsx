@@ -20,6 +20,7 @@ type CostOption = {
   supplier: string | null;
   amountCents: number;
   periodMonths: number;
+  vatPercent: number;
   _count: { allocations: number };
 };
 const eur = (c: number) => new Intl.NumberFormat("it-IT", { style: "currency", currency: "EUR" }).format(c / 100);
@@ -466,7 +467,8 @@ export function SubscriptionForm() {
                 .map((c) => {
                 const checked = costIds.includes(c.id);
                 const n = c._count.allocations + 1;
-                const share = Math.round((c.amountCents * 12) / c.periodMonths / n);
+                const net = c.vatPercent > 0 ? (c.amountCents * 100) / (100 + c.vatPercent) : c.amountCents;
+                const share = Math.round((net * 12) / c.periodMonths / n);
                 return (
                   <label
                     key={c.id}
@@ -486,7 +488,7 @@ export function SubscriptionForm() {
                       <span className="font-medium">{c.name}</span>
                       {c.supplier ? <span className="text-slate-500"> · {c.supplier}</span> : null}
                       <span className="mt-0.5 block text-xs text-slate-500">
-                        {eur(share)}/anno per questo abbonamento
+                        {eur(share)}/anno netti per questo abbonamento
                         {n > 1 ? ` (diviso su ${n})` : ""}
                       </span>
                     </span>
