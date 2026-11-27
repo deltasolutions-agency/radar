@@ -6,6 +6,7 @@ import { COST_CATEGORY_LABELS, annualCostCents, periodLabel, vatLabel, type Cost
 import { loadMargins } from "@/lib/costs-server";
 import { AdminTabs } from "../admin-tabs";
 import { CostButton, CostDeleteButton } from "./cost-actions";
+import { CostSearch } from "./cost-search";
 
 export const dynamic = "force-dynamic";
 
@@ -17,10 +18,25 @@ export default async function CostiPage({ searchParams }: { searchParams: Record
     return <p className="rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-800">Sezione riservata agli amministratori.</p>;
   }
   const view: View = searchParams.vista === "archivio" ? "archivio" : "attivi";
+  const q = searchParams.q?.trim().slice(0, 100) ?? "";
+  const ci = { contains: q, mode: "insensitive" as const };
 
   const [costs, archivedCount, margins] = await Promise.all([
     prisma.cost.findMany({
-      where: { active: view === "attivi" },
+      where: {
+        active: view === "attivi",
+        // Ricerca: nome, fornitore, note o cliente degli abbonamenti che lo richiamano.
+        ...(q
+          ? {
+              OR: [
+                { name: ci },
+                { supplier: ci },
+                { notes: ci },
+                { allocations: { some: { subscription: { client: { OR: [{ name: ci }, { ragioneSociale: ci }] } } } } },
+              ],
+            }
+          : {}),
+      },
       orderBy: [{ renewalDate: { sort: "asc", nulls: "last" } }, { name: "asc" }],
       include: { _count: { select: { allocations: true } } },
     }),
@@ -79,11 +95,13 @@ export default async function CostiPage({ searchParams }: { searchParams: Record
         </div>
       </div>
 
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <CostSearch initial={q} />
       <div role="group" aria-label="Vista" className="flex gap-1.5">
         {(Object.keys(VIEWS) as View[]).map((k) => (
           <Link
             key={k}
-            href={k === "attivi" ? "/amministrazione/costi" : "/amministrazione/costi?vista=archivio"}
+            href={`/amministrazione/costi${k === "archivio" ? "?vista=archivio" : ""}${q ? `${k === "archivio" ? "&" : "?"}q=${encodeURIComponent(q)}` : ""}`}
             aria-current={view === k ? "true" : undefined}
             className={`rounded-full border px-3.5 py-1.5 text-sm font-medium ${
               view === k ? "border-ink bg-ink text-white" : "border-line bg-white text-slate-600 hover:border-slate-400"
@@ -94,11 +112,14 @@ export default async function CostiPage({ searchParams }: { searchParams: Record
           </Link>
         ))}
       </div>
+      </div>
 
       <div className="card overflow-hidden">
         {costs.length === 0 ? (
           <div className="px-6 py-12 text-center text-sm text-slate-500">
-            {view === "attivi"
+            {q
+              ? `Nessun costo corrisponde a "${q}".`
+              : view === "attivi"
               ? 'Nessun costo. Usa "+ Nuovo costo" per inserire ad esempio l\'hosting condiviso o un dominio che hai comprato.'
               : "Nessun costo dismesso."}
           </div>
