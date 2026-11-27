@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
-import { AbbonamentiTable, type SubscriptionRow } from "./abbonamenti-table";
+import { AbbonamentiTable, type ClientRow, type SubscriptionRow } from "./abbonamenti-table";
 import { ACTIVE_SUBSCRIPTION_WHERE } from "@/lib/activation-state";
 import {
   SUBSCRIPTION_STATUSES,
@@ -13,7 +13,8 @@ export const dynamic = "force-dynamic";
 // Righe non più "attive" ai fini della prossima scadenza del contenitore.
 const CLOSED_STATUSES = new Set(["CESSATO"]);
 
-// Lista abbonamenti AGGREGATA per cliente/contenitore: una riga per Subscription.
+// Lista abbonamenti raggruppata per cliente: una riga per cliente, con dentro
+// i suoi abbonamenti (es. quello dei servizi e quello del Cloud dalla console).
 export default async function AbbonamentiPage({
   searchParams,
 }: {
@@ -86,6 +87,9 @@ export default async function AbbonamentiPage({
 
     return {
       subscriptionId: sub.id,
+      clientId: sub.clientId,
+      consoleManaged: sub.consoleManaged,
+      createdISO: sub.createdAt.toISOString(),
       clientName,
       services,
       endClients,
@@ -96,16 +100,22 @@ export default async function AbbonamentiPage({
     };
   });
 
-  // Ordina i contenitori per scadenza più imminente (senza scadenza in fondo).
-  rows.sort((a, b) => {
-    const ta = a.nextDueISO
-      ? new Date(a.nextDueISO).getTime()
-      : Number.POSITIVE_INFINITY;
-    const tb = b.nextDueISO
-      ? new Date(b.nextDueISO).getTime()
-      : Number.POSITIVE_INFINITY;
-    return ta - tb;
+  // Raggruppa per cliente; dentro, abbonamenti dal più vecchio.
+  const byClient = new Map<string, SubscriptionRow[]>();
+  for (const r of rows) byClient.set(r.clientId, [...(byClient.get(r.clientId) ?? []), r]);
+  const due = (iso: string | null) => (iso ? new Date(iso).getTime() : Number.POSITIVE_INFINITY);
+  const clients: ClientRow[] = [...byClient.entries()].map(([clientId, subs]) => {
+    subs.sort((a, b) => a.createdISO.localeCompare(b.createdISO));
+    const next = Math.min(...subs.map((r) => due(r.nextDueISO)));
+    return {
+      clientId,
+      clientName: subs[0].clientName,
+      subs,
+      nextDueISO: Number.isFinite(next) ? new Date(next).toISOString() : null,
+    };
   });
+  // Ordina i clienti per scadenza più imminente (senza scadenza in fondo).
+  clients.sort((a, b) => due(a.nextDueISO) - due(b.nextDueISO));
 
   return (
     <div className="space-y-6">
@@ -113,7 +123,8 @@ export default async function AbbonamentiPage({
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Abbonamenti</h1>
           <p className="mt-1 text-sm text-slate-500">
-            {rows.length} {rows.length === 1 ? "cliente" : "clienti"}
+            {clients.length} {clients.length === 1 ? "cliente" : "clienti"} · {rows.length}{" "}
+            {rows.length === 1 ? "abbonamento" : "abbonamenti"}
             {status ? ` · con servizi ${SUBSCRIPTION_STATUS_LABELS[status]}` : ""}
           </p>
         </div>
@@ -146,7 +157,7 @@ export default async function AbbonamentiPage({
         </Link>
       </div>
 
-      <AbbonamentiTable rows={rows} />
+      <AbbonamentiTable clients={clients} />
     </div>
   );
 }
