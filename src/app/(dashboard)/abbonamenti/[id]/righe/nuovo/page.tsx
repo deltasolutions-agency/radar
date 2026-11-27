@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { ItemForm } from "../../../item-form";
+import { PREFERRED_METHOD_LABELS, manualMethodFor } from "@/lib/preferred-payment";
 import { getEndClientSuggestions } from "@/lib/end-client";
 
 export const dynamic = "force-dynamic";
@@ -38,6 +39,14 @@ export default async function NuovaRigaPage({
         mode="create"
         subscriptionId={sub.id}
         allowAutoCharge={sub.preferredPaymentMethod === "CARTA"}
+        paidOption={
+          sub.activationState === "ACTIVE" && !sub.consoleManaged
+            ? {
+                defaultMethod: sub.preferredPaymentMethod === "CARTA" ? "Carta" : manualMethodFor(sub.preferredPaymentMethod),
+                preferredLabel: PREFERRED_METHOD_LABELS[sub.preferredPaymentMethod],
+              }
+            : undefined
+        }
         endClientSuggestions={await getEndClientSuggestions(sub.clientId)}
       />
     </div>

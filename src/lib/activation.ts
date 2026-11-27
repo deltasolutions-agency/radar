@@ -367,6 +367,53 @@ export async function recordManualActivation(
   return confirmPaymentAndRenew(created.id, "MANUAL");
 }
 
+/**
+ * Servizio aggiunto a un abbonamento GIÀ ATTIVO e segnato "già pagato":
+ * pagamento manuale (kind NEW_ITEM) della sola riga, con ricevuta. Le date
+ * restano quelle impostate (periodo pagato = inizio → scadenza della riga) e
+ * lo storno riguarda solo questa riga, non l'abbonamento.
+ */
+export async function recordManualNewItemPayment(
+  subscriptionId: string,
+  itemId: string,
+  data: { paidAt?: Date; note?: string; recordedById: string },
+): Promise<ConfirmPaymentResult> {
+  const item = await prisma.subscriptionItem.findUnique({
+    where: { id: itemId },
+    include: { subscription: { select: { activationState: true } } },
+  });
+  if (!item || item.subscriptionId !== subscriptionId) throw new ActivationConflictError("Servizio non trovato");
+  if (item.subscription.activationState !== "ACTIVE") {
+    throw new ActivationConflictError("L'abbonamento non è attivo: il servizio rientra nel primo pagamento");
+  }
+  const gross = addVatToNet(activationNetCents(item)).grossCents;
+  const created = await prisma.payment.create({
+    data: {
+      subscriptionId,
+      kind: "NEW_ITEM",
+      amountCents: gross,
+      currency: item.currency,
+      method: "MANUALE",
+      status: "CONFERMATO",
+      paidAt: data.paidAt ?? new Date(),
+      note: data.note,
+      recordedById: data.recordedById,
+      items: {
+        create: [
+          {
+            subscriptionItemId: item.id,
+            amountCents: gross,
+            status: "IN_ATTESA" as const,
+            periodStart: item.startDate,
+            periodEnd: item.endDate,
+          },
+        ],
+      },
+    },
+  });
+  return confirmPaymentAndRenew(created.id, "MANUAL");
+}
+
 /** Nota del pagamento manuale: metodo scelto (es. Bonifico) + note libere. */
 export function manualPaymentNote(method: string | undefined, note: string | undefined): string | undefined {
   const parts = [method?.trim(), note?.trim()].filter(Boolean);

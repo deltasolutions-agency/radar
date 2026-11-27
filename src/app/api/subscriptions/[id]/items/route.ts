@@ -3,7 +3,23 @@ import { prisma } from "@/lib/prisma";
 import { json, error, withApi, requireSession } from "@/lib/api";
 import { subscriptionItemCreateSchema } from "@/lib/validations";
 import { computeItemStatus } from "@/lib/subscription-status";
-import { invalidateBeforeChange, notActiveMessage } from "@/lib/activation";
+import { z } from "zod";
+import {
+  ActivationConflictError,
+  invalidateBeforeChange,
+  manualPaymentNote,
+  notActiveMessage,
+  recordManualNewItemPayment,
+} from "@/lib/activation";
+
+// "Già pagato" sul nuovo servizio (solo abbonamenti attivi).
+const alreadyPaidSchema = z
+  .object({
+    method: z.string().trim().max(60).optional(),
+    paidAt: z.coerce.date({ errorMap: () => ({ message: "Data pagamento non valida" }) }).optional(),
+    note: z.string().trim().max(5000).optional(),
+  })
+  .optional();
 
 type Params = { params: { id: string } };
 
@@ -11,7 +27,7 @@ type Params = { params: { id: string } };
 // abbonamento esistente.
 export function POST(req: NextRequest, { params }: Params) {
   return withApi(async () => {
-    await requireSession();
+    const session = await requireSession();
 
     const subscription = await prisma.subscription.findUnique({
       where: { id: params.id },
@@ -22,7 +38,12 @@ export function POST(req: NextRequest, { params }: Params) {
       return error(notActiveMessage(subscription.activationState)!, 409);
     }
 
-    const data = subscriptionItemCreateSchema.parse(await req.json());
+    const body = await req.json();
+    const data = subscriptionItemCreateSchema.parse(body);
+    const alreadyPaid = alreadyPaidSchema.parse(body?.alreadyPaid ?? undefined);
+    if (alreadyPaid && subscription.activationState !== "ACTIVE") {
+      return error("L'abbonamento è in attesa del primo pagamento: il nuovo servizio rientra in quello.", 409);
+    }
 
     const service = await prisma.service.findUnique({
       where: { id: data.serviceId },
@@ -66,6 +87,27 @@ export function POST(req: NextRequest, { params }: Params) {
       },
       include: { service: true },
     });
+
+    // Già pagato: pagamento manuale della sola riga, con ricevuta.
+    if (alreadyPaid) {
+      try {
+        await recordManualNewItemPayment(subscription.id, item.id, {
+          paidAt: alreadyPaid.paidAt,
+          note: manualPaymentNote(alreadyPaid.method, alreadyPaid.note),
+          recordedById: session.sub,
+        });
+      } catch (e) {
+        console.error(`[items] pagamento del nuovo servizio non registrato (item ${item.id}):`, e);
+        return json(
+          {
+            item,
+            paymentError:
+              e instanceof ActivationConflictError ? e.message : "Servizio aggiunto, ma il pagamento non è stato registrato",
+          },
+          201,
+        );
+      }
+    }
 
     return json({ item }, 201);
   });

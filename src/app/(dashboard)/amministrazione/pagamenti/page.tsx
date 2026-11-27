@@ -227,9 +227,9 @@ export default async function PagamentiPage({
                         >
                           {paymentClientLabel(r)}
                         </Link>
-                        {r.kind === "ACTIVATION" ? (
+                        {r.kind === "ACTIVATION" || r.kind === "NEW_ITEM" ? (
                           <span className="ml-2 text-xs font-medium text-indigo-700">
-                            Primo pagamento
+                            {r.kind === "ACTIVATION" ? "Primo pagamento" : "Nuovo servizio"}
                           </span>
                         ) : null}
                         <ul className="mt-0.5 text-xs text-slate-500">
