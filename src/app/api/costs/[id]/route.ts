@@ -20,6 +20,7 @@ export function PATCH(req: Request, { params }: Params) {
         category: data.category ?? null,
         amountCents: data.amountCents,
         periodMonths: data.periodMonths,
+        vatPercent: data.vatPercent,
         renewalDate: data.renewalDate ? dayFromYmd(data.renewalDate) : null,
         notes: data.notes ?? null,
         ...(data.active !== undefined ? { active: data.active } : {}),

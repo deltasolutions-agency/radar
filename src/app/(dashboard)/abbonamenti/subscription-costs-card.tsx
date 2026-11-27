@@ -12,7 +12,7 @@ export async function SubscriptionCostsCard({ subscriptionId }: { subscriptionId
     prisma.cost.findMany({
       where: { active: true },
       orderBy: { name: "asc" },
-      select: { id: true, name: true, supplier: true, amountCents: true, periodMonths: true, allocations: { select: { subscriptionId: true } } },
+      select: { id: true, name: true, supplier: true, amountCents: true, periodMonths: true, vatPercent: true, allocations: { select: { subscriptionId: true } } },
     }),
   ]);
   const m = margins.subscriptions.get(subscriptionId);
@@ -21,7 +21,7 @@ export async function SubscriptionCostsCard({ subscriptionId }: { subscriptionId
     .filter((c) => !c.allocations.some((a) => a.subscriptionId === subscriptionId))
     .map((c) => {
       const n = c.allocations.length;
-      const after = Math.round(annualCostCents(c.amountCents, c.periodMonths) / (n + 1));
+      const after = Math.round(annualCostCents(c.amountCents, c.periodMonths, c.vatPercent) / (n + 1));
       return {
         id: c.id,
         label: `${c.name}${c.supplier ? ` (${c.supplier})` : ""} · ${formatEur(c.amountCents)} ${periodLabel(c.periodMonths).toLowerCase()} · qui ${formatEur(after)}/anno${
@@ -50,7 +50,7 @@ export async function SubscriptionCostsCard({ subscriptionId }: { subscriptionId
           <p className="mt-1 text-lg font-semibold tabular-nums">{formatEur(m.revenueCents)}</p>
         </div>
         <div className="bg-white px-5 py-3">
-          <p className="mono-label">Costi/anno</p>
+          <p className="mono-label">Costi/anno (netti)</p>
           <p className="mt-1 text-lg font-semibold tabular-nums">{formatEur(m.costCents)}</p>
         </div>
         <div className="bg-white px-5 py-3">

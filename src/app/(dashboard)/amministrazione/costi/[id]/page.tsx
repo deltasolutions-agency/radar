@@ -9,6 +9,7 @@ import {
   annualCostCents,
   formatPercent,
   periodLabel,
+  vatLabel,
   resolveShares,
   toNumber,
   type CostCategory,
@@ -42,7 +43,7 @@ export default async function CostoPage({ params }: { params: { id: string } }) 
   });
   if (!cost) notFound();
 
-  const annual = annualCostCents(cost.amountCents, cost.periodMonths);
+  const annual = annualCostCents(cost.amountCents, cost.periodMonths, cost.vatPercent);
   const allocs = cost.allocations.map((a) => ({ ...a, sharePercent: toNumber(a.sharePercent) }));
   const { shares } = resolveShares(allocs);
 
@@ -70,6 +71,7 @@ export default async function CostoPage({ params }: { params: { id: string } }) 
               category: cost.category,
               amountCents: cost.amountCents,
               periodMonths: cost.periodMonths,
+              vatPercent: cost.vatPercent,
               renewalDate: cost.renewalDate ? cost.renewalDate.toISOString().slice(0, 10) : null,
               notes: cost.notes,
               active: cost.active,
@@ -83,7 +85,7 @@ export default async function CostoPage({ params }: { params: { id: string } }) 
         <div className="card p-4">
           <p className="mono-label">Pagato</p>
           <p className="mt-1 text-xl font-semibold tabular-nums">{formatEur(cost.amountCents, cost.currency)}</p>
-          <p className="text-xs text-slate-500">{periodLabel(cost.periodMonths).toLowerCase()} · {formatEur(annual, cost.currency)} all&apos;anno</p>
+          <p className="text-xs text-slate-500">{periodLabel(cost.periodMonths).toLowerCase()} · {vatLabel(cost.vatPercent)} · {formatEur(annual, cost.currency)} netti all&apos;anno</p>
         </div>
         <div className="card p-4">
           <p className="mono-label">Prossimo rinnovo</p>

@@ -70,6 +70,7 @@ export async function loadMargins(): Promise<{
         supplier: true,
         amountCents: true,
         periodMonths: true,
+        vatPercent: true,
         allocations: { select: { id: true, subscriptionId: true, sharePercent: true } },
       },
     }),
@@ -89,7 +90,7 @@ export async function loadMargins(): Promise<{
 
   const costSummaries = new Map<string, CostSummary>();
   for (const c of costs) {
-    const annual = annualCostCents(c.amountCents, c.periodMonths);
+    const annual = annualCostCents(c.amountCents, c.periodMonths, c.vatPercent);
     const allocs = c.allocations.map((a) => ({ ...a, sharePercent: toNumber(a.sharePercent) }));
     const { shares } = resolveShares(allocs);
     for (const a of allocs) {

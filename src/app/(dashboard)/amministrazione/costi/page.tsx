@@ -2,7 +2,7 @@ import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { getAdminSession } from "@/lib/auth";
 import { formatEur, formatDate } from "@/lib/format";
-import { COST_CATEGORY_LABELS, annualCostCents, periodLabel, type CostCategory } from "@/lib/costs";
+import { COST_CATEGORY_LABELS, annualCostCents, periodLabel, vatLabel, type CostCategory } from "@/lib/costs";
 import { loadMargins } from "@/lib/costs-server";
 import { AdminTabs } from "../admin-tabs";
 import { CostButton, CostDeleteButton } from "./cost-actions";
@@ -107,7 +107,7 @@ export default async function CostiPage({ searchParams }: { searchParams: Record
                 <tr className="mono-label border-b border-line text-left">
                   <th className="px-4 py-3 font-medium">Costo</th>
                   <th className="px-3 py-3 text-right font-medium">Pagato</th>
-                  <th className="px-3 py-3 text-right font-medium">All&apos;anno</th>
+                  <th className="px-3 py-3 text-right font-medium">All&apos;anno (netto)</th>
                   <th className="px-3 py-3 font-medium">Richiamato in</th>
                   <th className="px-3 py-3 text-right font-medium">Quota per abbonamento</th>
                   <th className="px-3 py-3 font-medium">Rinnovo</th>
@@ -118,7 +118,7 @@ export default async function CostiPage({ searchParams }: { searchParams: Record
               </thead>
               <tbody>
                 {costs.map((c) => {
-                  const annual = annualCostCents(c.amountCents, c.periodMonths);
+                  const annual = annualCostCents(c.amountCents, c.periodMonths, c.vatPercent);
                   const n = c._count.allocations;
                   return (
                     <tr key={c.id} className="border-b border-line-soft align-top last:border-0">
@@ -133,7 +133,9 @@ export default async function CostiPage({ searchParams }: { searchParams: Record
                       </td>
                       <td className="whitespace-nowrap px-3 py-3 text-right tabular-nums">
                         {formatEur(c.amountCents, c.currency)}
-                        <span className="block text-xs text-slate-500">{periodLabel(c.periodMonths).toLowerCase()}</span>
+                        <span className="block text-xs text-slate-500">
+                          {periodLabel(c.periodMonths).toLowerCase()} · {vatLabel(c.vatPercent)}
+                        </span>
                       </td>
                       <td className="whitespace-nowrap px-3 py-3 text-right font-medium tabular-nums">{formatEur(annual, c.currency)}</td>
                       <td className="px-3 py-3">
@@ -160,6 +162,7 @@ export default async function CostiPage({ searchParams }: { searchParams: Record
                               category: c.category,
                               amountCents: c.amountCents,
                               periodMonths: c.periodMonths,
+                              vatPercent: c.vatPercent,
                               renewalDate: c.renewalDate ? c.renewalDate.toISOString().slice(0, 10) : null,
                               notes: c.notes,
                               active: c.active,
@@ -178,7 +181,8 @@ export default async function CostiPage({ searchParams }: { searchParams: Record
       </div>
 
       <p className="text-xs text-slate-500">
-        Tutto su base annua: un costo mensile conta 12 volte, uno biennale la metà. Importi come li hai pagati, senza calcolo IVA. Il margine
+        Tutto su base annua e al netto dell&apos;IVA, come i prezzi degli abbonamenti: dai costi con IVA inclusa Radar scorpora il 22% (l&apos;IVA
+        sugli acquisti la detrai), quelli esenti restano come sono. Un costo mensile conta 12 volte, uno biennale la metà. Il margine
         di ogni abbonamento lo trovi nella sua scheda, nel riquadro &quot;Costi e margine&quot;.
       </p>
     </div>
