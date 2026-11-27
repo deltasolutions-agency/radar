@@ -1079,6 +1079,9 @@ model Cost {
   /// Ricorrente: passata la data di rinnovo, Radar la sposta avanti di un
   /// periodo (periodMonths) da solo. Avviso a hello@ da 7 giorni prima.
   recurring    Boolean      @default(false)
+  /// Usabile più volte dallo stesso cliente (es. hosting con più siti dello
+  /// stesso cliente): solo questi costi hanno la quantità (− / +).
+  multiUse     Boolean      @default(false)
   /// Durata del periodo pagato in mesi (1 mensile, 12 annuale, 24 biennale…).
   periodMonths Int          @default(12)
   /// Prossimo rinnovo / scadenza del costo (facoltativo).

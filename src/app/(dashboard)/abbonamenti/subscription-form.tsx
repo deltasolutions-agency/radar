@@ -23,6 +23,7 @@ type CostOption = {
   periodMonths: number;
   vatPercent: number;
   units: number;
+  multiUse: boolean;
 };
 const eur = (c: number) => new Intl.NumberFormat("it-IT", { style: "currency", currency: "EUR" }).format(c / 100);
 
@@ -144,7 +145,9 @@ export function SubscriptionForm() {
       preferredPaymentMethod: preferredMethod,
       costIds: costIds.length ? costIds : undefined,
       costQuantities: costIds.length
-        ? Object.fromEntries(costIds.map((id) => [id, costQty[id] ?? 1]))
+        ? Object.fromEntries(
+            costIds.map((id) => [id, costs?.find((c) => c.id === id)?.multiUse ? costQty[id] ?? 1 : 1]),
+          )
         : undefined,
       serviceFeeEnabled: isCard && serviceFeeEnabled,
       // "Da pagare": il rinnovo automatico si attiva dalla pagina di pagamento.
@@ -469,7 +472,7 @@ export function SubscriptionForm() {
                 })
                 .map((c) => {
                 const checked = costIds.includes(c.id);
-                const qty = costQty[c.id] ?? 1;
+                const qty = c.multiUse ? costQty[c.id] ?? 1 : 1;
                 const n = c.units + (checked ? qty : 1);
                 const net = c.vatPercent > 0 ? (c.amountCents * 100) / (100 + c.vatPercent) : c.amountCents;
                 const share = Math.round(((net * 12) / c.periodMonths / n) * (checked ? qty : 1));
@@ -498,7 +501,7 @@ export function SubscriptionForm() {
                       </span>
                     </span>
                     </label>
-                    {checked ? (
+                    {checked && c.multiUse ? (
                       <span className="flex shrink-0 items-center gap-1 text-xs text-slate-500">
                         ×
                         <input

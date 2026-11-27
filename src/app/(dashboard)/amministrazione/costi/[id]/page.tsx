@@ -75,6 +75,7 @@ export default async function CostoPage({ params }: { params: { id: string } }) 
               vatPercent: cost.vatPercent,
               general: cost.general,
               recurring: cost.recurring,
+              multiUse: cost.multiUse,
               renewalDate: cost.renewalDate ? cost.renewalDate.toISOString().slice(0, 10) : null,
               notes: cost.notes,
               active: cost.active,

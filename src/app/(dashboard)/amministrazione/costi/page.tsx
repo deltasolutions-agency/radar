@@ -6,7 +6,7 @@ import { COST_ALERT_DAYS, COST_CATEGORY_LABELS, annualCostCents, daysUntil, peri
 import { romeYmd } from "@/lib/rome-time";
 import { loadMargins } from "@/lib/costs-server";
 import { AdminTabs } from "../admin-tabs";
-import { CostButton, CostDeleteButton, RecurringToggle } from "./cost-actions";
+import { CostButton, CostDeleteButton, MultiUseToggle, RecurringToggle } from "./cost-actions";
 import { CostSearch } from "./cost-search";
 
 export const dynamic = "force-dynamic";
@@ -188,6 +188,11 @@ export default async function CostiPage({ searchParams }: { searchParams: Record
                             {units > n ? <span className="block text-xs text-slate-500">{units} unità in tutto</span> : null}
                           </Link>
                         )}
+                        {!c.general && c.active ? (
+                          <span className="block">
+                            <MultiUseToggle id={c.id} multiUse={c.multiUse} />
+                          </span>
+                        ) : null}
                       </td>
                       <td className="whitespace-nowrap px-3 py-3 text-right tabular-nums">
                         {units ? formatEur(Math.round(annual / units), c.currency) : "—"}
@@ -215,6 +220,7 @@ export default async function CostiPage({ searchParams }: { searchParams: Record
                               vatPercent: c.vatPercent,
                               general: c.general,
                               recurring: c.recurring,
+                              multiUse: c.multiUse,
                               renewalDate: c.renewalDate ? c.renewalDate.toISOString().slice(0, 10) : null,
                               notes: c.notes,
                               active: c.active,

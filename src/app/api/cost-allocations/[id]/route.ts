@@ -14,6 +14,9 @@ export function PATCH(req: Request, { params }: Params) {
     });
     if (!current) return error("Collegamento non trovato", 404);
     const { sharePercent, quantity } = allocationUpdateSchema.parse(await req.json());
+    if (quantity !== undefined && quantity > 1 && !current.cost.multiUse) {
+      return error("Questo costo non è usabile più volte dallo stesso cliente (attivalo in Modifica costo)", 400);
+    }
     if (sharePercent !== undefined && sharePercent !== null) {
       const others = current.cost.allocations
         .filter((a) => a.id !== current.id)

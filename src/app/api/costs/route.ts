@@ -17,6 +17,7 @@ export function POST(req: Request) {
         vatPercent: data.vatPercent,
         general: data.general,
         recurring: data.recurring,
+        multiUse: data.multiUse,
         renewalDate: data.renewalDate ? dayFromYmd(data.renewalDate) : null,
         notes: data.notes ?? null,
         active: data.active ?? true,
@@ -41,6 +42,7 @@ export function GET() {
         amountCents: true,
         periodMonths: true,
         vatPercent: true,
+        multiUse: true,
         allocations: { select: { quantity: true } },
       },
     });

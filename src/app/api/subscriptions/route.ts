@@ -140,15 +140,15 @@ export function POST(req: NextRequest) {
     // Costi richiamati dal form (solo admin, gli altri non li vedono).
     if (data.costIds?.length && session.role === "ADMIN") {
       const valid = await prisma.cost.findMany({
-        where: { id: { in: data.costIds }, active: true },
-        select: { id: true },
+        where: { id: { in: data.costIds }, active: true, general: false },
+        select: { id: true, multiUse: true },
       });
       if (valid.length) {
         await prisma.costAllocation.createMany({
           data: valid.map((c) => ({
             costId: c.id,
             subscriptionId: subscription.id,
-            quantity: data.costQuantities?.[c.id] ?? 1,
+            quantity: c.multiUse ? (data.costQuantities?.[c.id] ?? 1) : 1,
           })),
           skipDuplicates: true,
         });

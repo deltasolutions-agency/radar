@@ -20,6 +20,7 @@ export function POST(req: Request, { params }: Params) {
     if (!sub) return error("Abbonamento non trovato", 404);
     const existing = cost.allocations.find((a) => a.subscriptionId === data.subscriptionId);
     if (existing) {
+      if (!cost.multiUse) return error("Costo già richiamato in questo abbonamento", 409);
       const allocation = await prisma.costAllocation.update({
         where: { id: existing.id },
         data: { quantity: { increment: data.quantity ?? 1 } },
@@ -34,7 +35,7 @@ export function POST(req: Request, { params }: Params) {
       }
     }
     const allocation = await prisma.costAllocation.create({
-      data: { costId: cost.id, subscriptionId: sub.id, sharePercent: share, quantity: data.quantity ?? 1 },
+      data: { costId: cost.id, subscriptionId: sub.id, sharePercent: share, quantity: cost.multiUse ? (data.quantity ?? 1) : 1 },
     });
     return json({ allocation }, 201);
   });
