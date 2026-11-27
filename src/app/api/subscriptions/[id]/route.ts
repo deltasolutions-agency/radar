@@ -37,11 +37,15 @@ export function PATCH(req: NextRequest, { params }: Params) {
     await requireSession();
     const exists = await prisma.subscription.findUnique({
       where: { id: params.id },
-      select: { id: true },
+      select: { id: true, serviceFeeEnabled: true },
     });
     if (!exists) return error("Abbonamento non trovato", 404);
 
     const data = subscriptionUpdateSchema.parse(await req.json());
+    // Passando a bonifico/contanti il costo di servizio (solo carta) si spegne.
+    if (data.preferredPaymentMethod && data.preferredPaymentMethod !== "CARTA" && exists.serviceFeeEnabled) {
+      data.serviceFeeEnabled = false;
+    }
     // Il costo di servizio cambia l'importo del primo pagamento in attesa.
     if (data.serviceFeeEnabled !== undefined) {
       const conflict = await invalidateBeforeChange(params.id, "costi di servizio modificati");

@@ -12,7 +12,7 @@ export default async function ModificaAbbonamentoPage({
 }) {
   const sub = await prisma.subscription.findUnique({
     where: { id: params.id },
-    include: { client: true },
+    include: { client: true, items: { select: { autoChargeEnabled: true, status: true } } },
   });
   if (!sub) notFound();
 
@@ -33,13 +33,16 @@ export default async function ModificaAbbonamentoPage({
           Modifica abbonamento
         </h1>
         <p className="mt-1 text-sm text-slate-500">
-          I servizi (prezzi, scadenze, rinnovo automatico) si gestiscono come
-          righe dal dettaglio dell&apos;abbonamento.
+          Metodo di pagamento e note. I servizi (prezzi, scadenze, rinnovo
+          automatico) si gestiscono come righe dal dettaglio dell&apos;abbonamento.
         </p>
       </div>
       <SubscriptionNotesForm
         subscriptionId={sub.id}
         initialNotes={sub.notes ?? ""}
+        initialMethod={sub.preferredPaymentMethod}
+        serviceFeeEnabled={sub.serviceFeeEnabled}
+        autoChargeItems={sub.items.filter((it) => it.autoChargeEnabled && it.status !== "CESSATO").length}
       />
     </div>
   );

@@ -49,6 +49,7 @@ export default async function ModificaRigaPage({
       <ItemForm
         mode="edit"
         subscriptionId={params.id}
+        allowAutoCharge={item.subscription.preferredPaymentMethod === "CARTA" || item.autoChargeEnabled}
         itemId={item.id}
         renewalState={{
           initialMode: item.renewalIncreaseMode,

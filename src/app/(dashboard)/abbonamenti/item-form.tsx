@@ -27,7 +27,9 @@ export function ItemForm({
   initial,
   endClientSuggestions = [],
   renewalState,
+  allowAutoCharge = true,
 }: {
+  allowAutoCharge?: boolean;
   mode: "create" | "edit";
   subscriptionId: string;
   itemId?: string;
@@ -145,6 +147,7 @@ export function ItemForm({
           endClientSuggestions={endClientSuggestions}
           renewalState={renewalState}
           suggestEndDate={mode === "create"}
+          allowAutoCharge={allowAutoCharge || !!value.autoChargeEnabled}
           onChange={(patch) => setValue((v) => ({ ...v, ...patch }))}
         />
       </section>

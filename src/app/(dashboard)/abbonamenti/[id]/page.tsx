@@ -27,6 +27,8 @@ import { AutoChargeRequestPanel } from "../auto-charge-request-panel";
 import { AutoChargeItemBadge } from "../auto-charge-item-badge";
 import { ServiceFeeToggle } from "../service-fee-toggle";
 import { ForceDeleteSection } from "../force-delete-section";
+import { SubscriptionCostsCard } from "../subscription-costs-card";
+import { PREFERRED_METHOD_LABELS } from "@/lib/preferred-payment";
 import {
   isReceiptPubliclyAccessible,
   getReceiptExpiryDate,
@@ -87,6 +89,7 @@ export default async function AbbonamentoDettaglioPage({
   const hasPayments = sub.payments.length > 0;
   const isActive = sub.activationState === "ACTIVE";
   const isPending = sub.activationState === "PENDING_FIRST_PAYMENT";
+  const isCard = sub.preferredPaymentMethod === "CARTA";
 
   // Primo pagamento: prezzi iniziali (nessun aumento) delle righe non cessate.
   const activationLines = sub.items.filter((it) => it.status !== "CESSATO");
@@ -183,7 +186,7 @@ export default async function AbbonamentoDettaglioPage({
           </h1>
           <div className="flex items-center gap-2">
             <Link href={`/abbonamenti/${sub.id}/modifica`} className="btn-ghost">
-              Modifica note
+              Modifica
             </Link>
             {!hasPayments ? (
               <DeleteButton
@@ -238,6 +241,7 @@ export default async function AbbonamentoDettaglioPage({
             linkSentLabel={linkSentLabel}
             linkInvalidated={linkInvalidated}
             hasClientEmail={!!sub.client.email?.trim()}
+            defaultMethod={sub.preferredPaymentMethod === "CONTANTI" ? "Contanti" : "Bonifico"}
           />
         </section>
       ) : null}
@@ -286,6 +290,18 @@ export default async function AbbonamentoDettaglioPage({
               {sub.notes?.trim() ? sub.notes : "—"}
             </dd>
           </div>
+          <div className={`flex flex-col gap-0.5 py-2 sm:flex-row sm:gap-4 ${isCard ? "border-b border-line-soft" : ""}`}>
+            <dt className="mono-label w-40 shrink-0 sm:pt-0.5">Metodo di pagamento</dt>
+            <dd className="text-sm text-ink">
+              {PREFERRED_METHOD_LABELS[sub.preferredPaymentMethod]}
+              {!isCard ? (
+                <span className="block text-xs text-slate-500">
+                  Funzioni della carta disattivate: i pagamenti si registrano a mano.
+                </span>
+              ) : null}
+            </dd>
+          </div>
+          {isCard ? (
           <div className="flex flex-col gap-1 py-2 sm:flex-row sm:gap-4">
             <dt className="mono-label w-40 shrink-0 sm:pt-0.5">
               Costi di servizio (1,5%)
@@ -297,6 +313,7 @@ export default async function AbbonamentoDettaglioPage({
               />
             </dd>
           </div>
+          ) : null}
         </dl>
       </section>
 
@@ -314,7 +331,7 @@ export default async function AbbonamentoDettaglioPage({
           </Link>
         </div>
 
-        {sub.items.length > 0 && isActive ? (
+        {sub.items.length > 0 && isActive && isCard ? (
           <div className="card space-y-3 p-6">
             <h3 className="mono-label">Rinnovo automatico</h3>
             <AutoChargeRequestPanel
@@ -485,6 +502,8 @@ export default async function AbbonamentoDettaglioPage({
           />
         </section>
       ) : null}
+
+      {isAdmin ? <SubscriptionCostsCard subscriptionId={sub.id} /> : null}
 
       {/* Storico pagamenti */}
       <section className="card overflow-hidden">

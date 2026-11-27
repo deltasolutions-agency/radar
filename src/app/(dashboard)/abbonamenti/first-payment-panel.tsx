@@ -18,6 +18,7 @@ export function FirstPaymentPanel({
   linkSentLabel,
   linkInvalidated,
   hasClientEmail,
+  defaultMethod,
 }: {
   subscriptionId: string;
   /** Imponibile del primo pagamento (prezzi iniziali). */
@@ -30,10 +31,12 @@ export function FirstPaymentPanel({
   /** Il link era stato inviato ma è stato invalidato (righe modificate, storno). */
   linkInvalidated: boolean;
   hasClientEmail: boolean;
+  /** Metodo preimpostato in "Segna come pagato" (dal metodo preferito). */
+  defaultMethod?: string;
 }) {
   const router = useRouter();
   const [mode, setMode] = useState<"idle" | "manual" | "cancel">("idle");
-  const [method, setMethod] = useState<string>(MANUAL_PAYMENT_METHODS[0]);
+  const [method, setMethod] = useState<string>(defaultMethod ?? MANUAL_PAYMENT_METHODS[0]);
   const [paidAt, setPaidAt] = useState("");
   const [note, setNote] = useState("");
   const [pending, setPending] = useState<string | null>(null);

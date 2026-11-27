@@ -176,7 +176,7 @@ export default async function DashboardPage() {
         ))}
         {showInvoiceCard ? (
           <Link
-            href="/pagamenti?invoiced=da-fatturare"
+            href="/amministrazione/pagamenti?invoiced=da-fatturare"
             className={`card p-5 transition hover:shadow-sm ${
               toInvoiceCount > 0 ? "border-amber-300 bg-amber-50" : ""
             }`}

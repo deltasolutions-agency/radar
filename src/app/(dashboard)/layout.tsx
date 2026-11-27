@@ -1,4 +1,6 @@
+import { cookies } from "next/headers";
 import { getSession } from "@/lib/auth";
+import { NAV_COOKIE, parseNavLayout } from "@/lib/nav-layout";
 import { DashboardShell } from "./dashboard-shell";
 
 export default async function DashboardLayout({
@@ -11,7 +13,11 @@ export default async function DashboardLayout({
   const userLabel = session?.name ?? session?.email ?? "";
 
   return (
-    <DashboardShell userLabel={userLabel} isAdmin={session?.role === "ADMIN"}>
+    <DashboardShell
+      userLabel={userLabel}
+      isAdmin={session?.role === "ADMIN"}
+      navLayout={parseNavLayout(cookies().get(NAV_COOKIE)?.value)}
+    >
       {children}
     </DashboardShell>
   );

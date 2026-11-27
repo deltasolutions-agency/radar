@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { logoutAction } from "./actions";
+import type { NavLayout } from "@/lib/nav-layout";
 
 const LOGO_URL =
   "/logo-delta-solutions.png";
@@ -58,16 +59,6 @@ function IconImpostazioni({ className }: IconProps) {
   );
 }
 
-function IconPagamenti({ className }: IconProps) {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
-      <rect x="2" y="5" width="20" height="14" rx="2" />
-      <path d="M2 10h20" />
-      <path d="M6 15h4" />
-    </svg>
-  );
-}
-
 function IconAmministrazione({ className }: IconProps) {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
@@ -104,12 +95,46 @@ const LINKS = [
   { href: "/clienti", label: "Clienti", Icon: IconClienti },
   { href: "/servizi", label: "Servizi", Icon: IconServizi },
   { href: "/abbonamenti", label: "Abbonamenti", Icon: IconAbbonamenti },
-  { href: "/pagamenti", label: "Pagamenti", Icon: IconPagamenti, adminOnly: true },
   { href: "/amministrazione", label: "Amministrazione", Icon: IconAmministrazione, adminOnly: true },
   { href: "/vigilantes", label: "Vigilantes", Icon: IconVigilantes, adminOnly: true },
   { href: "/impostazioni", label: "Impostazioni", Icon: IconImpostazioni },
   { href: "/log", label: "Log", Icon: IconLog },
 ];
+
+function isActive(pathname: string, href: string): boolean {
+  // Pagamenti vive dentro Amministrazione (anche il vecchio /pagamenti).
+  if (href === "/amministrazione" && (pathname === "/pagamenti" || pathname.startsWith("/pagamenti/"))) return true;
+  return pathname === href || pathname.startsWith(`${href}/`);
+}
+
+/** Menu in alto: riquadri icona + etichetta, centrati. */
+function TopNav({ isAdmin }: { isAdmin: boolean }) {
+  const pathname = usePathname();
+  return (
+    <nav aria-label="Menu principale" className="border-b border-line bg-white/60">
+      <div className="mx-auto flex max-w-7xl gap-2 overflow-x-auto px-4 py-3 sm:justify-center sm:px-6 lg:flex-wrap">
+        {LINKS.filter((l) => isAdmin || !("adminOnly" in l)).map(({ href, label, Icon }) => {
+          const active = isActive(pathname, href);
+          return (
+            <Link
+              key={href}
+              href={href}
+              aria-current={active ? "page" : undefined}
+              className={
+                active
+                  ? "flex h-[68px] w-[104px] shrink-0 flex-col items-center justify-center gap-1.5 rounded-xl bg-brand-gradient text-xs font-medium text-white shadow-sm"
+                  : "flex h-[68px] w-[104px] shrink-0 flex-col items-center justify-center gap-1.5 rounded-xl border border-line bg-white text-xs font-medium text-slate-600 transition hover:border-slate-300 hover:text-ink"
+              }
+            >
+              <Icon className="h-5 w-5" />
+              {label}
+            </Link>
+          );
+        })}
+      </div>
+    </nav>
+  );
+}
 
 function NavLinks({
   isAdmin,
@@ -122,7 +147,7 @@ function NavLinks({
   return (
     <nav className="flex flex-col gap-1">
       {LINKS.filter((l) => isAdmin || !("adminOnly" in l)).map(({ href, label, Icon }) => {
-        const active = pathname === href || pathname.startsWith(`${href}/`);
+        const active = isActive(pathname, href);
         return (
           <Link
             key={href}
@@ -147,14 +172,19 @@ function NavLinks({
 export function DashboardShell({
   userLabel,
   isAdmin,
+  navLayout,
   children,
 }: {
+  navLayout: NavLayout;
   userLabel: string;
   /** Mostra le voci riservate agli admin (es. Pagamenti). */
   isAdmin: boolean;
   children: React.ReactNode;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const pathname = usePathname();
+  const top = navLayout === "top";
+  const switchHref = `/api/nav-layout?mode=${top ? "sidebar" : "top"}&back=${encodeURIComponent(pathname)}`;
 
   return (
     <div className="min-h-screen">
@@ -164,7 +194,7 @@ export function DashboardShell({
           <div className="flex min-w-0 items-center gap-2.5">
             <button
               type="button"
-              className="-ml-1 inline-flex h-9 w-9 items-center justify-center rounded-lg text-slate-600 hover:bg-canvas lg:hidden"
+              className={`-ml-1 inline-flex h-9 w-9 items-center justify-center rounded-lg text-slate-600 hover:bg-canvas lg:hidden ${top ? "hidden" : ""}`}
               aria-label="Apri menu"
               aria-expanded={menuOpen}
               onClick={() => setMenuOpen(true)}
@@ -183,6 +213,13 @@ export function DashboardShell({
             </div>
           </div>
           <div className="flex items-center gap-3">
+            <a
+              href={switchHref}
+              className="hidden text-xs font-medium text-slate-500 hover:text-ink hover:underline lg:inline"
+              title="Cambia la disposizione del menu (scelta salvata in questo browser)"
+            >
+              {top ? "Menu laterale" : "Menu in alto"}
+            </a>
             <span className="hidden text-sm text-slate-600 sm:inline">
               {userLabel}
             </span>
@@ -195,17 +232,24 @@ export function DashboardShell({
         </div>
       </header>
 
-      <div className="mx-auto flex w-full max-w-7xl">
-        {/* Sidebar desktop: sticky sotto l'header */}
-        <aside className="sticky top-[61px] hidden h-[calc(100vh-61px)] w-60 shrink-0 overflow-y-auto border-r border-line px-3 py-5 lg:block">
-          <NavLinks isAdmin={isAdmin} />
-        </aside>
+      {top ? (
+        <>
+          <TopNav isAdmin={isAdmin} />
+          <main className="mx-auto w-full max-w-7xl px-4 py-8 sm:px-6">{children}</main>
+        </>
+      ) : (
+        <div className="mx-auto flex w-full max-w-7xl">
+          {/* Sidebar desktop: sticky sotto l'header */}
+          <aside className="sticky top-[61px] hidden h-[calc(100vh-61px)] w-60 shrink-0 overflow-y-auto border-r border-line px-3 py-5 lg:block">
+            <NavLinks isAdmin={isAdmin} />
+          </aside>
 
-        <main className="min-w-0 flex-1 px-4 py-8 sm:px-6">{children}</main>
-      </div>
+          <main className="min-w-0 flex-1 px-4 py-8 sm:px-6">{children}</main>
+        </div>
+      )}
 
       {/* Drawer mobile */}
-      {menuOpen ? (
+      {menuOpen && !top ? (
         <div
           className="fixed inset-0 z-40 lg:hidden"
           role="dialog"

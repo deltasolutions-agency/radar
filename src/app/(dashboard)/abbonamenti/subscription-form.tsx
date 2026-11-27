@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { subscriptionCreateSchema, MANUAL_PAYMENT_METHODS } from "@/lib/validations";
+import { PREFERRED_METHODS, PREFERRED_METHOD_LABELS, manualMethodFor, type PreferredMethod } from "@/lib/preferred-payment";
 import {
   ItemFields,
   EMPTY_ITEM,
@@ -28,6 +29,18 @@ export function SubscriptionForm() {
   // Nuovo abbonamento: "da pagare" (default) o "già pagato" (pagamento manuale).
   const [paymentMode, setPaymentMode] = useState<"DA_PAGARE" | "PAGATO">("DA_PAGARE");
   const [manualMethod, setManualMethod] = useState<string>(MANUAL_PAYMENT_METHODS[0]);
+  const [preferredMethod, setPreferredMethod] = useState<PreferredMethod>("CARTA");
+  const isCard = preferredMethod === "CARTA";
+  function choosePreferred(m: PreferredMethod) {
+    setPreferredMethod(m);
+    if (m !== "CARTA") {
+      setServiceFeeEnabled(false);
+      setRequestAutoCharge(false);
+      setManualMethod(manualMethodFor(m));
+      // Il rinnovo automatico delle righe esiste solo con la carta.
+      setItems((arr) => arr.map((it) => ({ ...it, autoChargeEnabled: false })));
+    }
+  }
   const [manualPaidAt, setManualPaidAt] = useState("");
   const [manualNote, setManualNote] = useState("");
   const [items, setItems] = useState<ItemValues[]>([{ ...EMPTY_ITEM }]);
@@ -104,9 +117,10 @@ export function SubscriptionForm() {
     const payload = {
       clientId,
       notes: notes || undefined,
-      serviceFeeEnabled,
+      preferredPaymentMethod: preferredMethod,
+      serviceFeeEnabled: isCard && serviceFeeEnabled,
       // "Da pagare": il rinnovo automatico si attiva dalla pagina di pagamento.
-      requestAutoCharge: paymentMode === "PAGATO" && requestAutoCharge,
+      requestAutoCharge: isCard && paymentMode === "PAGATO" && requestAutoCharge,
       paymentMode,
       ...(paymentMode === "PAGATO"
         ? {
@@ -161,7 +175,9 @@ export function SubscriptionForm() {
       const id = body.subscription?.id;
       // Esito di link/attivazione mostrato nel dettaglio.
       const notice =
-        paymentMode === "DA_PAGARE"
+        paymentMode === "DA_PAGARE" && body.manualFirstPayment
+          ? ""
+          : paymentMode === "DA_PAGARE"
           ? body.firstPayment?.emailSent
             ? "?primoPagamento=inviato"
             : "?primoPagamento=non-inviato"
@@ -220,70 +236,48 @@ export function SubscriptionForm() {
             onChange={(e) => setNotes(e.target.value)}
           />
         </div>
-        <div className="rounded-lg border border-line-soft bg-canvas p-4">
-          <label className="flex items-start gap-2.5 text-sm">
-            <input
-              type="checkbox"
-              className="mt-0.5"
-              checked={serviceFeeEnabled}
-              onChange={(e) => setServiceFeeEnabled(e.target.checked)}
-            />
-            <span>
-              Applica costi di servizio (1,5%)
-              <span className="mt-0.5 block text-xs text-slate-500">
-                Se attivo, aggiunge un costo di servizio dell&apos;1,5% ai
-                pagamenti Stripe di questo abbonamento.
-              </span>
-            </span>
-          </label>
-        </div>
         <fieldset className="rounded-lg border border-line-soft bg-canvas p-4">
           <legend className="px-1 text-sm font-medium text-ink">
             Pagamento <span className="text-red-600">*</span>
           </legend>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <label
-              className={`flex cursor-pointer items-start gap-2.5 rounded-lg border bg-white p-3 text-sm ${
-                paymentMode === "DA_PAGARE" ? "border-brand ring-1 ring-brand" : "border-line"
-              }`}
-            >
-              <input
-                type="radio"
-                name="paymentMode"
-                className="mt-0.5"
-                checked={paymentMode === "DA_PAGARE"}
-                onChange={() => setPaymentMode("DA_PAGARE")}
-              />
-              <span>
-                Da pagare
-                <span className="mt-0.5 block text-xs text-slate-500">
-                  Nasce in attesa del primo pagamento: il cliente riceve il link
-                  &quot;Paga ora&quot; con i prezzi indicati qui (nessun aumento).
-                  Si attiva quando paga.
-                </span>
-              </span>
-            </label>
-            <label
-              className={`flex cursor-pointer items-start gap-2.5 rounded-lg border bg-white p-3 text-sm ${
-                paymentMode === "PAGATO" ? "border-brand ring-1 ring-brand" : "border-line"
-              }`}
-            >
-              <input
-                type="radio"
-                name="paymentMode"
-                className="mt-0.5"
-                checked={paymentMode === "PAGATO"}
-                onChange={() => setPaymentMode("PAGATO")}
-              />
-              <span>
-                Già pagato
-                <span className="mt-0.5 block text-xs text-slate-500">
-                  Attivo subito: registra il primo pagamento manuale con
-                  ricevuta.
-                </span>
-              </span>
-            </label>
+          <p className="text-xs text-slate-500">Come preferisce pagare il cliente</p>
+          <div role="radiogroup" aria-label="Metodo di pagamento preferito" className="mt-2 grid gap-2 sm:grid-cols-3">
+            {PREFERRED_METHODS.map((m) => (
+              <label
+                key={m}
+                className={`flex cursor-pointer items-center gap-2.5 rounded-lg border bg-white px-3 py-2.5 text-sm font-medium ${
+                  preferredMethod === m ? "border-brand ring-1 ring-brand" : "border-line"
+                }`}
+              >
+                <input type="radio" name="preferredMethod" checked={preferredMethod === m} onChange={() => choosePreferred(m)} />
+                {PREFERRED_METHOD_LABELS[m]}
+              </label>
+            ))}
           </div>
+          <p className="mt-2 text-xs text-slate-500">
+            {isCard
+              ? "Con la carta restano attivi link \"Paga ora\", costi di servizio e rinnovo automatico."
+              : "Niente link di pagamento con carta né rinnovo automatico: registri tu i pagamenti quando arrivano."}
+          </p>
+
+          <label className="mt-4 flex items-start gap-2.5 rounded-lg border border-line bg-white p-3 text-sm">
+            <input
+              type="checkbox"
+              className="mt-0.5"
+              checked={paymentMode === "PAGATO"}
+              onChange={(e) => setPaymentMode(e.target.checked ? "PAGATO" : "DA_PAGARE")}
+            />
+            <span>
+              <span className="font-medium">Annualità già pagata</span>
+              <span className="mt-0.5 block text-xs text-slate-500">
+                {paymentMode === "PAGATO"
+                  ? "Attivo subito: registra il primo pagamento manuale con ricevuta."
+                  : isCard
+                    ? "Non spuntata: l'abbonamento nasce in attesa del primo pagamento e il cliente riceve il link \"Paga ora\" con i prezzi indicati qui."
+                    : "Non spuntata: l'abbonamento nasce in attesa del primo pagamento; quando arriva usa \"Segna come pagato\" nel dettaglio."}
+              </span>
+            </span>
+          </label>
           {paymentMode === "PAGATO" ? (
             <div className="mt-4 grid gap-4 sm:grid-cols-3">
               <div>
@@ -330,7 +324,26 @@ export function SubscriptionForm() {
             </div>
           ) : null}
         </fieldset>
-        {paymentMode === "PAGATO" ? (
+        {isCard ? (
+          <div className="rounded-lg border border-line-soft bg-canvas p-4">
+            <label className="flex items-start gap-2.5 text-sm">
+              <input
+                type="checkbox"
+                className="mt-0.5"
+                checked={serviceFeeEnabled}
+                onChange={(e) => setServiceFeeEnabled(e.target.checked)}
+              />
+              <span>
+                Applica costi di servizio (1,5%)
+                <span className="mt-0.5 block text-xs text-slate-500">
+                  Se attivo, aggiunge un costo di servizio dell&apos;1,5% ai
+                  pagamenti con carta di questo abbonamento.
+                </span>
+              </span>
+            </label>
+          </div>
+        ) : null}
+        {!isCard ? null : paymentMode === "PAGATO" ? (
         <div className="rounded-lg border border-line-soft bg-canvas p-4">
           <label className="flex items-start gap-2.5 text-sm">
             <input
@@ -379,6 +392,7 @@ export function SubscriptionForm() {
             errors={itemErrors[index] ?? {}}
             endClientSuggestions={endClientSuggestions}
             suggestEndDate
+            allowAutoCharge={isCard}
             onChange={(patch) => patchItem(index, patch)}
           />
         </section>

@@ -19,6 +19,7 @@ import {
   type LedgerState,
 } from "@/lib/ledger";
 import { LedgerDeleteButton, LedgerEntryButton, LedgerPaidToggle } from "./ledger-actions";
+import { AdminTabs } from "../admin-tabs";
 
 export const dynamic = "force-dynamic";
 
@@ -85,7 +86,7 @@ export default async function AmministrazioneTabPage({
     ];
   }
 
-  const [rows, openAgg, overdueAgg, paidAgg, otherOverdue] = await Promise.all([
+  const [rows, openAgg, overdueAgg, paidAgg] = await Promise.all([
     prisma.ledgerEntry.findMany({
       where,
       orderBy: [
@@ -110,12 +111,7 @@ export default async function AmministrazioneTabPage({
       _sum: { amountCents: true },
       _count: true,
     }),
-    // Scaduti nell'ALTRA tab, per il pallino rosso sul nome della tab.
-    prisma.ledgerEntry.count({
-      where: { kind: kind === "CREDITO" ? "DEBITO" : "CREDITO", paidAt: null, dueDate: { lt: todayDay } },
-    }),
   ]);
-  const overdueCount = { [kind]: overdueAgg._count, [kind === "CREDITO" ? "DEBITO" : "CREDITO"]: otherOverdue } as Record<LedgerKindValue, number>;
   const filteredTotal = rows.reduce((s, r) => s + r.amountCents, 0);
   const qs = (next: Record<string, string>) => {
     const p = new URLSearchParams({ ...(stato !== "aperti" ? { stato } : {}), ...(q ? { q } : {}), ...next });
@@ -134,32 +130,7 @@ export default async function AmministrazioneTabPage({
         <LedgerEntryButton kind={kind} />
       </div>
 
-      <nav className="flex gap-1 border-b border-line text-sm">
-        {(Object.keys(LEDGER_TABS) as (keyof typeof LEDGER_TABS)[]).map((slug) => {
-          const k = LEDGER_TABS[slug];
-          const active = k === kind;
-          return (
-            <Link
-              key={slug}
-              href={`/amministrazione/${slug}`}
-              aria-current={active ? "page" : undefined}
-              className={`-mb-px inline-flex items-center gap-2 border-b-2 px-4 py-2 font-medium transition ${
-                active ? "border-brand text-ink" : "border-transparent text-slate-500 hover:text-ink"
-              }`}
-            >
-              {LEDGER_TEXT[k].tab}
-              {overdueCount[k] > 0 ? (
-                <span
-                  className="inline-flex min-w-5 items-center justify-center rounded-full bg-red-600 px-1.5 font-mono text-[11px] leading-5 text-white"
-                  title={`${overdueCount[k]} scadut${overdueCount[k] === 1 ? "o" : "i"}`}
-                >
-                  {overdueCount[k]}
-                </span>
-              ) : null}
-            </Link>
-          );
-        })}
-      </nav>
+      <AdminTabs active={text.slug} />
 
       <div className="grid gap-3 sm:grid-cols-3">
         <div className="card p-4">
@@ -180,26 +151,36 @@ export default async function AmministrazioneTabPage({
             {overdueAgg._count} {overdueAgg._count === 1 ? "voce" : "voci"} oltre la scadenza
           </p>
         </div>
-        <div className="card p-4">
+        <Link href={`/amministrazione/${text.slug}?stato=pagati`} className="card block p-4 transition hover:border-brand">
           <p className="mono-label">{text.paid}</p>
           <p className="mt-1 text-xl font-semibold tabular-nums">{formatEur(paidAgg._sum.amountCents ?? 0)}</p>
           <p className="text-xs text-slate-500">
-            {paidAgg._count} {paidAgg._count === 1 ? "voce chiusa" : "voci chiuse"}
+            {paidAgg._count} {paidAgg._count === 1 ? "voce chiusa" : "voci chiuse"} · <span className="text-brand">vedi storico →</span>
           </p>
-        </div>
+        </Link>
+      </div>
+
+      <div role="group" aria-label="Filtra per stato" className="flex flex-wrap gap-1.5">
+        {(Object.keys(STATE_FILTERS) as StateFilter[]).map((k) => {
+          const n = k === "aperti" ? openAgg._count : k === "scaduti" ? overdueAgg._count : k === "pagati" ? paidAgg._count : openAgg._count + paidAgg._count;
+          return (
+            <Link
+              key={k}
+              href={`/amministrazione/${text.slug}${qs({ stato: k })}`}
+              aria-current={stato === k ? "true" : undefined}
+              className={`inline-flex items-center gap-2 rounded-full border px-3.5 py-1.5 text-sm font-medium transition ${
+                stato === k ? "border-ink bg-ink text-white" : "border-line bg-white text-slate-600 hover:border-slate-400"
+              }`}
+            >
+              {k === "pagati" ? `${STATE_FILTERS[k]} (storico)` : STATE_FILTERS[k]}
+              <span className={`font-mono text-xs ${stato === k ? "text-white/70" : "text-slate-400"}`}>{n}</span>
+            </Link>
+          );
+        })}
       </div>
 
       <form method="get" className="card flex flex-wrap items-end gap-3 p-4">
-        <label className="text-xs text-slate-500">
-          Stato
-          <select name="stato" defaultValue={stato} className="field mt-1 w-auto">
-            {Object.entries(STATE_FILTERS).map(([k, label]) => (
-              <option key={k} value={k}>
-                {label}
-              </option>
-            ))}
-          </select>
-        </label>
+        {stato !== "aperti" ? <input type="hidden" name="stato" value={stato} /> : null}
         <label className="min-w-[14rem] flex-1 text-xs text-slate-500">
           Cerca
           <input

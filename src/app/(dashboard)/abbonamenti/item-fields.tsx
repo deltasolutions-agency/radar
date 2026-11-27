@@ -114,12 +114,15 @@ export function ItemFields({
   endClientSuggestions = [],
   renewalState,
   suggestEndDate = false,
+  allowAutoCharge = true,
 }: {
   idPrefix: string;
   value: ItemValues;
   services: ServiceOption[];
   errors: Record<string, string>;
   onChange: (patch: Partial<ItemValues>) => void;
+  /** false con bonifico/contanti: niente rinnovo automatico su carta. */
+  allowAutoCharge?: boolean;
   /** Clienti finali già usati per lo stesso cliente (autocomplete). */
   endClientSuggestions?: string[];
   /** Stato attuale della riga (modifica) per l'anteprima dei rinnovi. */
@@ -420,6 +423,7 @@ export function ItemFields({
         ) : null}
       </div>
 
+      {allowAutoCharge ? (
       <div className="rounded-lg border border-line-soft bg-canvas p-4">
         <label className="flex items-center gap-2 text-sm">
           <input
@@ -450,6 +454,7 @@ export function ItemFields({
           </div>
         ) : null}
       </div>
+      ) : null}
 
       <div>
         <label htmlFor={`${idPrefix}-notes`} className="field-label">
