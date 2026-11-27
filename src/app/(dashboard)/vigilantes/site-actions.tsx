@@ -1,5 +1,6 @@
 "use client";
 
+import { SearchSelect } from "@/components/search-select";
 import { useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
@@ -155,14 +156,14 @@ export function SiteFormButton({ clients, site }: { clients: ClientOption[]; sit
             </label>
             <label className="block text-xs text-slate-500" htmlFor={`${idp}-client`}>
               Cliente (facoltativo)
-              <select id={`${idp}-client`} className="field mt-1" value={form.clientId} onChange={set("clientId")}>
-                <option value="">— Nessuno —</option>
-                {clients.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.label}
-                  </option>
-                ))}
-              </select>
+              <SearchSelect
+                id={`${idp}-client`}
+                className="mt-1"
+                value={form.clientId}
+                onChange={(v) => setForm((f) => ({ ...f, clientId: v }))}
+                options={clients.map((c) => ({ value: c.id, label: c.label }))}
+                emptyLabel="— Nessuno —"
+              />
             </label>
             <label className="block text-xs text-slate-500" htmlFor={`${idp}-notes`}>
               Note (facoltative)

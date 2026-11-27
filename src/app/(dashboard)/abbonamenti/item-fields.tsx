@@ -1,5 +1,6 @@
 "use client";
 
+import { SearchSelect } from "@/components/search-select";
 import {
   BILLING_PERIODS,
   BILLING_PERIOD_LABELS,
@@ -214,19 +215,15 @@ export function ItemFields({
           <label htmlFor={`${idPrefix}-serviceId`} className="field-label">
             Servizio <span className="text-red-600">*</span>
           </label>
-          <select
+          <SearchSelect
             id={`${idPrefix}-serviceId`}
-            className="field"
             value={value.serviceId}
-            onChange={(e) => onServiceChange(e.target.value)}
-          >
-            <option value="">— Seleziona —</option>
-            {services.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.name}
-              </option>
-            ))}
-          </select>
+            onChange={onServiceChange}
+            options={services.map((s) => ({ value: s.id, label: s.name }))}
+            allowEmpty={false}
+            placeholder="Scrivi per cercare il servizio…"
+            invalid={!!errors.serviceId}
+          />
           {errors.serviceId ? (
             <p className="mt-1 text-xs text-red-600">{errors.serviceId}</p>
           ) : null}

@@ -1,3 +1,4 @@
+import { SearchSelect } from "@/components/search-select";
 import Link from "next/link";
 import type {
   EmailLogStatus,
@@ -160,14 +161,13 @@ export async function EmailLogTab({
             </option>
           ))}
         </select>
-        <select name="clientId" defaultValue={f.clientId ?? ""} className="field" aria-label="Cliente">
-          <option value="">Tutti i clienti</option>
-          {clients.map((c) => (
-            <option key={c.id} value={c.id}>
-              {clientLabel(c)}
-            </option>
-          ))}
-        </select>
+        <SearchSelect
+          name="clientId"
+          ariaLabel="Cliente"
+          defaultValue={f.clientId ?? ""}
+          options={clients.map((c) => ({ value: c.id, label: clientLabel(c) }))}
+          emptyLabel="Tutti i clienti"
+        />
         <label className="text-xs text-slate-500">
           Dal
           <input type="date" name="from" defaultValue={f.from ?? ""} className="field mt-1" />

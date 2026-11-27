@@ -19,16 +19,24 @@ type Db = Prisma.TransactionClient | typeof prisma;
 /**
  * Genera il numero progressivo della ricevuta per l'anno corrente.
  * Formato: "RIC-YYYY-NNNN" (es. "RIC-2026-0001").
+ *
+ * Il numero è il più alto già usato nell'anno + 1 (non il conteggio delle
+ * ricevute: se una ricevuta viene eliminata, es. con l'eliminazione forzata di
+ * un pagamento, il conteggio scende e riproporrebbe un numero già esistente,
+ * facendo fallire la registrazione del pagamento sul vincolo di unicità).
  */
 async function nextReceiptNumber(db: Db): Promise<string> {
   const year = new Date().getFullYear();
-  const yearStart = new Date(year, 0, 1);
-
-  const count = await db.receipt.count({
-    where: { issuedAt: { gte: yearStart } },
+  const prefix = `RIC-${year}-`;
+  const existing = await db.receipt.findMany({
+    where: { number: { startsWith: prefix } },
+    select: { number: true },
   });
-
-  return `RIC-${year}-${String(count + 1).padStart(4, "0")}`;
+  const max = existing.reduce((m, r) => {
+    const n = Number.parseInt(r.number.slice(prefix.length), 10);
+    return Number.isFinite(n) && n > m ? n : m;
+  }, 0);
+  return `${prefix}${String(max + 1).padStart(4, "0")}`;
 }
 
 /**

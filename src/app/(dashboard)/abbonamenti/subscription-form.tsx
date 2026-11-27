@@ -1,5 +1,6 @@
 "use client";
 
+import { SearchSelect } from "@/components/search-select";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -229,20 +230,18 @@ export function SubscriptionForm() {
           <label htmlFor="clientId" className="field-label">
             Cliente <span className="text-red-600">*</span>
           </label>
-          <select
+          <SearchSelect
             id="clientId"
-            className="field"
             value={clientId}
-            onChange={(e) => setClientId(e.target.value)}
-          >
-            <option value="">— Seleziona —</option>
-            {clients.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.ragioneSociale?.trim() ? `${c.ragioneSociale} — ` : ""}
-                {c.name}
-              </option>
-            ))}
-          </select>
+            onChange={setClientId}
+            options={clients.map((c) => ({
+              value: c.id,
+              label: `${c.ragioneSociale?.trim() ? `${c.ragioneSociale} — ` : ""}${c.name}`,
+            }))}
+            allowEmpty={false}
+            placeholder="Scrivi per cercare il cliente…"
+            invalid={!!clientError}
+          />
           {clientError ? (
             <p className="mt-1 text-xs text-red-600">{clientError}</p>
           ) : null}
