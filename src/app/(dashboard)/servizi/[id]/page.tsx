@@ -32,7 +32,6 @@ export default async function ServizioDettaglioPage({
   });
   if (!service) notFound();
 
-  const margin = service.priceCents - service.costCents;
 
   return (
     <div className="space-y-6">
@@ -82,14 +81,6 @@ export default async function ServizioDettaglioPage({
             <Row
               label="Prezzo"
               value={formatMoney(service.priceCents, service.currency)}
-            />
-            <Row
-              label="Costo"
-              value={formatMoney(service.costCents, service.currency)}
-            />
-            <Row
-              label="Margine"
-              value={formatMoney(margin, service.currency)}
             />
             <Row
               label="Periodicità"

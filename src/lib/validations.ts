@@ -399,6 +399,8 @@ export const subscriptionCreateSchema = z.object({
   // Metodo preferito dal cliente: solo CARTA abilita costi di servizio,
   // rinnovo automatico e link "Paga ora".
   preferredPaymentMethod: z.enum(PREFERRED_METHODS).default("CARTA"),
+  // Costi (Amministrazione → Costi) richiamati da questo abbonamento.
+  costIds: z.array(z.string().trim().min(1)).max(100).optional(),
   notes: z.preprocess(emptyToUndef, z.string().trim().max(5000).optional()),
   // Costo di servizio 1,5% sui pagamenti Stripe (spunta a livello contenitore).
   serviceFeeEnabled: z.boolean().optional(),

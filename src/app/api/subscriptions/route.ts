@@ -137,6 +137,20 @@ export function POST(req: NextRequest) {
       },
     });
 
+    // Costi richiamati dal form (solo admin, gli altri non li vedono).
+    if (data.costIds?.length && session.role === "ADMIN") {
+      const valid = await prisma.cost.findMany({
+        where: { id: { in: data.costIds }, active: true },
+        select: { id: true },
+      });
+      if (valid.length) {
+        await prisma.costAllocation.createMany({
+          data: valid.map((c) => ({ costId: c.id, subscriptionId: subscription.id })),
+          skipDuplicates: true,
+        });
+      }
+    }
+
     const clientName = client.ragioneSociale?.trim()
       ? client.ragioneSociale
       : client.name;

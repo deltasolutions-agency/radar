@@ -48,15 +48,6 @@ async function send(url: string, method: string, body?: unknown): Promise<string
 
 const centsToInput = (c: number) => (c / 100).toFixed(2).replace(".", ",");
 
-/** "33,33" / "33.33" / "" → numero o null (quota uguale). undefined = non valido. */
-function parseShare(input: string): number | null | undefined {
-  const s = input.trim().replace("%", "").replace(",", ".");
-  if (!s) return null;
-  const n = Number(s);
-  if (!Number.isFinite(n) || n <= 0 || n > 100) return undefined;
-  return Math.round(n * 100) / 100;
-}
-
 // ── Nuovo costo / modifica ─────────────────────────────────────────────────
 
 export type CostEditable = {
@@ -178,7 +169,7 @@ export function CostButton({ cost }: { cost?: CostEditable }) {
               <textarea id={`c-${id}-notes`} rows={2} className="field mt-1" value={v.notes} onChange={(e) => set({ notes: e.target.value })} />
             </label>
           </div>
-          <p className="mt-2 text-xs text-slate-500">Importo come pagato, senza calcolo IVA. Lo ripartisci sugli abbonamenti dalla scheda del costo.</p>
+          <p className="mt-2 text-xs text-slate-500">Importo come pagato, senza calcolo IVA. Poi lo richiami negli abbonamenti che lo usano: si divide in parti uguali tra loro.</p>
           {err ? <p className="mt-3 text-sm font-medium text-red-700">{err}</p> : null}
           <div className="mt-4 flex gap-2">
             <button type="button" className="btn-primary" disabled={busy} onClick={save}>
@@ -241,59 +232,46 @@ export function CostDeleteButton({ id, label }: { id: string; label: string }) {
   );
 }
 
-// ── Collegamenti costo ↔ abbonamento ───────────────────────────────────────
+// ── Costi richiamati in un abbonamento ─────────────────────────────────────
 
 export type Option = { id: string; label: string };
 
-/**
- * Collega: dalla scheda costo (mode "subscription": scegli l'abbonamento) o
- * dalla scheda abbonamento (mode "cost": scegli il costo).
- */
-export function AddAllocationForm({
-  mode,
-  fixedId,
-  options,
-}: {
-  mode: "subscription" | "cost";
-  fixedId: string;
-  options: Option[];
-}) {
+/** Scheda abbonamento: richiama un costo (si divide in parti uguali). */
+export function AddCostToSubscription({ subscriptionId, options }: { subscriptionId: string; options: Option[] }) {
   const router = useRouter();
-  const [target, setTarget] = useState("");
-  const [share, setShare] = useState("");
+  const [costId, setCostId] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const inputId = `alloc-${fixedId}`;
-
-  async function add(e: React.FormEvent) {
-    e.preventDefault();
-    if (!target) return setErr(mode === "subscription" ? "Scegli un abbonamento" : "Scegli un costo");
-    const sharePercent = parseShare(share);
-    if (sharePercent === undefined) return setErr("Quota tra 0,01 e 100, oppure vuota per dividere in parti uguali");
-    setBusy(true);
-    setErr(null);
-    const costId = mode === "subscription" ? fixedId : target;
-    const subscriptionId = mode === "subscription" ? target : fixedId;
-    const r = await send(`/api/costs/${costId}/allocations`, "POST", { subscriptionId, sharePercent });
-    setBusy(false);
-    if (r) return setErr(r);
-    setTarget("");
-    setShare("");
-    router.refresh();
-  }
 
   if (options.length === 0) {
     return (
       <p className="text-sm text-slate-500">
-        {mode === "subscription" ? "Collegato a tutti gli abbonamenti disponibili." : "Nessun costo da collegare: inseriscili in Amministrazione → Costi."}
+        Nessun altro costo da richiamare.{" "}
+        <a href="/amministrazione/costi" className="text-brand hover:underline">
+          Aggiungi i tuoi costi
+        </a>
+        .
       </p>
     );
   }
   return (
-    <form onSubmit={add} className="flex flex-wrap items-end gap-2">
-      <label className="min-w-[16rem] flex-1 text-xs text-slate-500" htmlFor={inputId}>
-        {mode === "subscription" ? "Abbonamento che lo usa" : "Costo"}
-        <select id={inputId} className="field mt-1" value={target} onChange={(e) => setTarget(e.target.value)}>
+    <form
+      className="flex flex-wrap items-end gap-2"
+      onSubmit={async (e) => {
+        e.preventDefault();
+        if (!costId) return setErr("Scegli un costo");
+        setBusy(true);
+        setErr(null);
+        const r = await send(`/api/costs/${costId}/allocations`, "POST", { subscriptionId });
+        setBusy(false);
+        if (r) return setErr(r);
+        setCostId("");
+        router.refresh();
+      }}
+    >
+      <label className="min-w-[16rem] flex-1 text-xs text-slate-500" htmlFor={`addcost-${subscriptionId}`}>
+        Richiama un costo
+        <select id={`addcost-${subscriptionId}`} className="field mt-1" value={costId} onChange={(e) => setCostId(e.target.value)}>
           <option value="">— Seleziona —</option>
           {options.map((o) => (
             <option key={o.id} value={o.id}>
@@ -302,81 +280,36 @@ export function AddAllocationForm({
           ))}
         </select>
       </label>
-      <label className="w-36 text-xs text-slate-500" htmlFor={`${inputId}-share`}>
-        Quota % (facoltativa)
-        <input id={`${inputId}-share`} className="field mt-1" inputMode="decimal" placeholder="parti uguali" value={share} onChange={(e) => setShare(e.target.value)} />
-      </label>
       <button type="submit" className="btn-primary" disabled={busy}>
-        {busy ? "Collego…" : "Collega"}
+        {busy ? "Aggiungo…" : "Aggiungi"}
       </button>
       {err ? <p className="w-full text-sm font-medium text-red-700">{err}</p> : null}
     </form>
   );
 }
 
-/** Quota modificabile in linea + scollega. */
-export function AllocationControls({ id, sharePercent }: { id: string; sharePercent: number | null }) {
+/** Toglie il costo dall'abbonamento: la quota si ridivide sugli altri. */
+export function UnlinkCostButton({ allocationId }: { allocationId: string }) {
   const router = useRouter();
-  const [editing, setEditing] = useState(false);
-  const [value, setValue] = useState(sharePercent === null ? "" : String(sharePercent).replace(".", ","));
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-
-  async function run(fn: () => Promise<string | null>) {
-    setBusy(true);
-    setErr(null);
-    const e = await fn();
-    setBusy(false);
-    if (e) return setErr(e);
-    setEditing(false);
-    router.refresh();
-  }
-
   return (
-    <div className="flex flex-wrap items-center justify-end gap-1.5">
-      {editing ? (
-        <>
-          <input
-            className="field w-24 py-1 text-xs"
-            inputMode="decimal"
-            placeholder="parti uguali"
-            aria-label="Quota %"
-            value={value}
-            autoFocus
-            onChange={(e) => setValue(e.target.value)}
-          />
-          <button
-            type="button"
-            className="btn-primary px-2.5 py-1.5 text-xs"
-            disabled={busy}
-            onClick={() => {
-              const s = parseShare(value);
-              if (s === undefined) return setErr("Quota tra 0,01 e 100");
-              run(() => send(`/api/cost-allocations/${id}`, "PATCH", { sharePercent: s }));
-            }}
-          >
-            Salva
-          </button>
-          <button type="button" className="btn-ghost px-2.5 py-1.5 text-xs" disabled={busy} onClick={() => setEditing(false)}>
-            Annulla
-          </button>
-        </>
-      ) : (
-        <>
-          <button type="button" className="btn-ghost px-2.5 py-1.5 text-xs" onClick={() => setEditing(true)}>
-            Quota
-          </button>
-          <button
-            type="button"
-            className="px-2 py-1.5 text-xs font-medium text-red-700 hover:underline"
-            disabled={busy}
-            onClick={() => run(() => send(`/api/cost-allocations/${id}`, "DELETE"))}
-          >
-            Scollega
-          </button>
-        </>
-      )}
-      {err ? <span className="w-full text-right text-xs text-red-700">{err}</span> : null}
-    </div>
+    <span className="inline-flex flex-col items-end">
+      <button
+        type="button"
+        className="px-2 py-1.5 text-xs font-medium text-red-700 hover:underline"
+        disabled={busy}
+        onClick={async () => {
+          setBusy(true);
+          const e = await send(`/api/cost-allocations/${allocationId}`, "DELETE");
+          setBusy(false);
+          if (e) return setErr(e);
+          router.refresh();
+        }}
+      >
+        {busy ? "Tolgo…" : "Togli"}
+      </button>
+      {err ? <span className="text-xs text-red-700">{err}</span> : null}
+    </span>
   );
 }
