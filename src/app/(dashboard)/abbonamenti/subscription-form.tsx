@@ -58,6 +58,7 @@ export function SubscriptionForm() {
   // Costi richiamabili (solo admin: per gli altri la sezione non compare).
   const [costs, setCosts] = useState<CostOption[] | null>(null);
   const [costIds, setCostIds] = useState<string[]>([]);
+  const [costQuery, setCostQuery] = useState("");
   const [services, setServices] = useState<ServiceOption[]>([]);
   const [clientError, setClientError] = useState<string | null>(null);
   const [itemErrors, setItemErrors] = useState<Record<number, Record<string, string>>>(
@@ -445,8 +446,24 @@ export function SubscriptionForm() {
               .
             </p>
           ) : (
-            <div className="grid gap-2 sm:grid-cols-2">
-              {costs.map((c) => {
+            <>
+            <input
+              type="search"
+              className="field"
+              aria-label="Cerca tra i tuoi costi"
+              placeholder="Scrivi per cercare: dominio, hosting, nome del sito, fornitore…"
+              value={costQuery}
+              onChange={(e) => setCostQuery(e.target.value)}
+            />
+            <div className="grid max-h-80 gap-2 overflow-y-auto sm:grid-cols-2">
+              {costs
+                .filter((c) => {
+                  const words = costQuery.toLowerCase().split(/\s+/).filter(Boolean);
+                  const l = `${c.name} ${c.supplier ?? ""}`.toLowerCase();
+                  // Le voci già spuntate restano sempre visibili.
+                  return costIds.includes(c.id) || words.every((w) => l.includes(w));
+                })
+                .map((c) => {
                 const checked = costIds.includes(c.id);
                 const n = c._count.allocations + 1;
                 const share = Math.round((c.amountCents * 12) / c.periodMonths / n);
@@ -477,6 +494,7 @@ export function SubscriptionForm() {
                 );
               })}
             </div>
+            </>
           )}
         </section>
       ) : null}

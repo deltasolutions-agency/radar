@@ -236,12 +236,32 @@ export function CostDeleteButton({ id, label }: { id: string; label: string }) {
 
 export type Option = { id: string; label: string };
 
-/** Scheda abbonamento: richiama un costo (si divide in parti uguali). */
+/** Scheda abbonamento: richiama un costo scrivendo per filtrare l'elenco. */
 export function AddCostToSubscription({ subscriptionId, options }: { subscriptionId: string; options: Option[] }) {
   const router = useRouter();
-  const [costId, setCostId] = useState("");
+  const [query, setQuery] = useState("");
+  const [open, setOpen] = useState(false);
+  const [active, setActive] = useState(0);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const listId = `costlist-${subscriptionId}`;
+
+  const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+  const matches = options.filter((o) => {
+    const l = o.label.toLowerCase();
+    return words.every((w) => l.includes(w));
+  });
+
+  async function pick(o: Option) {
+    setBusy(true);
+    setErr(null);
+    setOpen(false);
+    const r = await send(`/api/costs/${o.id}/allocations`, "POST", { subscriptionId });
+    setBusy(false);
+    if (r) return setErr(r);
+    setQuery("");
+    router.refresh();
+  }
 
   if (options.length === 0) {
     return (
@@ -255,36 +275,76 @@ export function AddCostToSubscription({ subscriptionId, options }: { subscriptio
     );
   }
   return (
-    <form
-      className="flex flex-wrap items-end gap-2"
-      onSubmit={async (e) => {
-        e.preventDefault();
-        if (!costId) return setErr("Scegli un costo");
-        setBusy(true);
-        setErr(null);
-        const r = await send(`/api/costs/${costId}/allocations`, "POST", { subscriptionId });
-        setBusy(false);
-        if (r) return setErr(r);
-        setCostId("");
-        router.refresh();
-      }}
-    >
-      <label className="min-w-[16rem] flex-1 text-xs text-slate-500" htmlFor={`addcost-${subscriptionId}`}>
+    <div className="relative">
+      <label className="block text-xs text-slate-500" htmlFor={`${listId}-input`}>
         Richiama un costo
-        <select id={`addcost-${subscriptionId}`} className="field mt-1" value={costId} onChange={(e) => setCostId(e.target.value)}>
-          <option value="">— Seleziona —</option>
-          {options.map((o) => (
-            <option key={o.id} value={o.id}>
-              {o.label}
-            </option>
-          ))}
-        </select>
       </label>
-      <button type="submit" className="btn-primary" disabled={busy}>
-        {busy ? "Aggiungo…" : "Aggiungi"}
-      </button>
-      {err ? <p className="w-full text-sm font-medium text-red-700">{err}</p> : null}
-    </form>
+      <input
+        id={`${listId}-input`}
+        role="combobox"
+        aria-expanded={open}
+        aria-controls={listId}
+        aria-autocomplete="list"
+        aria-activedescendant={open && matches[active] ? `${listId}-${matches[active].id}` : undefined}
+        className="field mt-1"
+        placeholder="Scrivi per cercare: dominio, hosting, nome del sito, fornitore…"
+        autoComplete="off"
+        disabled={busy}
+        value={query}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setTimeout(() => setOpen(false), 150)}
+        onChange={(e) => {
+          setQuery(e.target.value);
+          setActive(0);
+          setOpen(true);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "ArrowDown") {
+            e.preventDefault();
+            setOpen(true);
+            setActive((i) => Math.min(i + 1, matches.length - 1));
+          } else if (e.key === "ArrowUp") {
+            e.preventDefault();
+            setActive((i) => Math.max(i - 1, 0));
+          } else if (e.key === "Enter") {
+            e.preventDefault();
+            if (open && matches[active]) pick(matches[active]);
+          } else if (e.key === "Escape") {
+            setOpen(false);
+          }
+        }}
+      />
+      {open ? (
+        <ul
+          id={listId}
+          role="listbox"
+          className="absolute z-30 mt-1 max-h-72 w-full overflow-y-auto rounded-xl border border-line bg-white py-1 shadow-lg"
+        >
+          {matches.length === 0 ? (
+            <li className="px-3 py-2 text-sm text-slate-500">Nessun costo corrisponde a &quot;{query}&quot;.</li>
+          ) : (
+            matches.map((o, i) => (
+              <li
+                key={o.id}
+                id={`${listId}-${o.id}`}
+                role="option"
+                aria-selected={i === active}
+                className={`cursor-pointer px-3 py-2 text-sm ${i === active ? "bg-canvas text-ink" : "text-slate-700"}`}
+                onMouseEnter={() => setActive(i)}
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  pick(o);
+                }}
+              >
+                {o.label}
+              </li>
+            ))
+          )}
+        </ul>
+      ) : null}
+      <p className="mt-1 text-xs text-slate-500">{busy ? "Aggiungo…" : "Clicca un costo (o premi Invio) per aggiungerlo."}</p>
+      {err ? <p className="mt-1 text-sm font-medium text-red-700">{err}</p> : null}
+    </div>
   );
 }
 
