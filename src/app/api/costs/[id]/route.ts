@@ -14,6 +14,8 @@ export function PATCH(req: Request, { params }: Params) {
     const data = costSchema.parse(await req.json());
     // Diventa costo generale: non è più richiamato negli abbonamenti.
     if (data.general) await prisma.costAllocation.deleteMany({ where: { costId: params.id } });
+    // Non più usabile più volte: ogni abbonamento torna a 1 unità.
+    if (!data.multiUse) await prisma.costAllocation.updateMany({ where: { costId: params.id, quantity: { gt: 1 } }, data: { quantity: 1 } });
     const cost = await prisma.cost.update({
       where: { id: params.id },
       data: {
@@ -25,6 +27,7 @@ export function PATCH(req: Request, { params }: Params) {
         vatPercent: data.vatPercent,
         general: data.general,
         recurring: data.recurring,
+        multiUse: data.multiUse,
         renewalDate: data.renewalDate ? dayFromYmd(data.renewalDate) : null,
         notes: data.notes ?? null,
         ...(data.active !== undefined ? { active: data.active } : {}),

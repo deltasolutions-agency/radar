@@ -215,6 +215,7 @@ export default async function CostiPage({ searchParams }: { searchParams: Record
                               vatPercent: c.vatPercent,
                               general: c.general,
                               recurring: c.recurring,
+                              multiUse: c.multiUse,
                               renewalDate: c.renewalDate ? c.renewalDate.toISOString().slice(0, 10) : null,
                               notes: c.notes,
                               active: c.active,

@@ -60,6 +60,7 @@ export type CostEditable = {
   vatPercent: number;
   general: boolean;
   recurring: boolean;
+  multiUse: boolean;
   renewalDate: string | null;
   notes: string | null;
   active: boolean;
@@ -79,6 +80,7 @@ export function CostButton({ cost }: { cost?: CostEditable }) {
     vatIncluded: (cost?.vatPercent ?? 0) > 0,
     general: cost?.general ?? false,
     recurring: cost?.recurring ?? false,
+    multiUse: cost?.multiUse ?? false,
     renewalDate: cost?.renewalDate ?? "",
     notes: cost?.notes ?? "",
     active: cost?.active ?? true,
@@ -99,6 +101,7 @@ export function CostButton({ cost }: { cost?: CostEditable }) {
       vatPercent: v.vatIncluded ? COST_VAT_RATE : 0,
       general: v.general,
       recurring: v.recurring,
+      multiUse: v.multiUse,
       renewalDate: v.renewalDate,
       notes: v.notes,
       active: v.active,
@@ -200,6 +203,24 @@ export function CostButton({ cost }: { cost?: CostEditable }) {
               Prossimo rinnovo
               <input id={`c-${id}-renewal`} type="date" min="2000-01-01" max="2100-12-31" className="field mt-1" value={v.renewalDate} onChange={(e) => set({ renewalDate: e.target.value })} />
             </label>
+            {!v.general ? (
+              <label className="flex items-start gap-2 rounded-lg border border-line-soft bg-canvas p-3 text-sm sm:col-span-2" htmlFor={`c-${id}-multi`}>
+                <input
+                  id={`c-${id}-multi`}
+                  type="checkbox"
+                  className="mt-0.5"
+                  checked={v.multiUse}
+                  onChange={(e) => set({ multiUse: e.target.checked })}
+                />
+                <span>
+                  Usabile più volte dallo stesso cliente
+                  <span className="mt-0.5 block text-xs text-slate-500">
+                    Es. un hosting che ospita più siti dello stesso cliente: nell&apos;abbonamento indichi quante volte lo usa (− / +) e paga
+                    una quota per ogni unità.
+                  </span>
+                </span>
+              </label>
+            ) : null}
             <label className="flex items-start gap-2 rounded-lg border border-line-soft bg-canvas p-3 text-sm sm:col-span-2" htmlFor={`c-${id}-recurring`}>
               <input
                 id={`c-${id}-recurring`}

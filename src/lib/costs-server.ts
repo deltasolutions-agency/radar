@@ -18,6 +18,7 @@ export type SubscriptionMargin = {
     supplier: string | null;
     sharedWith: number; // unità totali del costo (tra tutti gli abbonamenti)
     quantity: number; // unità di questo abbonamento
+    multiUse: boolean; // il costo ammette più unità per abbonamento
     effectivePercent: number;
     annualShareCents: number;
   }[];
@@ -79,6 +80,7 @@ export async function loadMargins(): Promise<{
         periodMonths: true,
         vatPercent: true,
         general: true,
+        multiUse: true,
         allocations: { select: { id: true, subscriptionId: true, sharePercent: true, quantity: true } },
       },
     }),
@@ -117,6 +119,7 @@ export async function loadMargins(): Promise<{
         supplier: c.supplier,
         sharedWith: units,
         quantity: a.quantity,
+        multiUse: c.multiUse,
         effectivePercent: pct,
         annualShareCents,
       });

@@ -12,14 +12,18 @@ export async function SubscriptionCostsCard({ subscriptionId }: { subscriptionId
     prisma.cost.findMany({
       where: { active: true, general: false },
       orderBy: { name: "asc" },
-      select: { id: true, name: true, supplier: true, amountCents: true, periodMonths: true, vatPercent: true, allocations: { select: { subscriptionId: true, quantity: true } } },
+      select: { id: true, name: true, supplier: true, amountCents: true, periodMonths: true, vatPercent: true, multiUse: true, allocations: { select: { subscriptionId: true, quantity: true } } },
     }),
   ]);
   const m = margins.subscriptions.get(subscriptionId);
   if (!m) return null;
   // Tutti i costi richiamabili, anche quelli già presenti: richiamarli di nuovo
   // aggiunge un'unità (es. un secondo sito sullo stesso hosting).
-  const options = costs.map((c) => {
+  // I costi "usabili più volte" restano nell'elenco anche se già richiamati
+  // (richiamarli di nuovo aggiunge un'unità); gli altri si richiamano una volta.
+  const options = costs
+    .filter((c) => c.multiUse || !c.allocations.some((a) => a.subscriptionId === subscriptionId))
+    .map((c) => {
     const units = c.allocations.reduce((sum, a) => sum + a.quantity, 0);
     const here = c.allocations.find((a) => a.subscriptionId === subscriptionId)?.quantity ?? 0;
     const perUnit = Math.round(annualCostCents(c.amountCents, c.periodMonths, c.vatPercent) / (units + 1));
@@ -38,8 +42,8 @@ export async function SubscriptionCostsCard({ subscriptionId }: { subscriptionId
         <div>
           <h2 className="text-base font-semibold">Costi e margine</h2>
           <p className="text-sm text-slate-500">
-            Richiama i tuoi costi usati da questo abbonamento: ognuno si divide in parti uguali tra gli abbonamenti che lo richiamano. Se
-            il cliente lo usa più volte (es. 2 siti sullo stesso hosting), aumenta la quantità.
+            Richiama i tuoi costi usati da questo abbonamento: ognuno si divide in parti uguali tra gli abbonamenti che lo richiamano. I
+            costi usabili più volte (es. hosting con più siti dello stesso cliente) hanno la quantità − / +.
           </p>
         </div>
         <Link href="/amministrazione/costi" className="text-sm font-medium text-brand hover:underline">
@@ -73,7 +77,7 @@ export async function SubscriptionCostsCard({ subscriptionId }: { subscriptionId
                 </Link>
                 {a.supplier ? <span className="text-slate-500"> · {a.supplier}</span> : null}
               </span>
-              <QuantityStepper allocationId={a.id} quantity={a.quantity} />
+              {a.multiUse || a.quantity > 1 ? <QuantityStepper allocationId={a.id} quantity={a.quantity} /> : null}
               <span className="font-mono text-xs text-slate-500">
                 {a.sharedWith > a.quantity
                   ? `${a.quantity} di ${a.sharedWith} unità (${formatPercent(a.effectivePercent)})`

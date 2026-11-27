@@ -117,6 +117,7 @@ export const costSchema = z.object({
   vatPercent: z.union([z.literal(0), z.literal(22)]).default(0),
   general: z.boolean().default(false),
   recurring: z.boolean().default(false),
+  multiUse: z.boolean().default(false),
   renewalDate: z.preprocess(
     emptyToUndef,
     z
