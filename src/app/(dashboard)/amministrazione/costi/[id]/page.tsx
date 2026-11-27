@@ -72,6 +72,7 @@ export default async function CostoPage({ params }: { params: { id: string } }) 
               amountCents: cost.amountCents,
               periodMonths: cost.periodMonths,
               vatPercent: cost.vatPercent,
+              general: cost.general,
               renewalDate: cost.renewalDate ? cost.renewalDate.toISOString().slice(0, 10) : null,
               notes: cost.notes,
               active: cost.active,
@@ -92,13 +93,13 @@ export default async function CostoPage({ params }: { params: { id: string } }) 
           <p className="mt-1 text-xl font-semibold">{cost.renewalDate ? formatDate(cost.renewalDate) : "—"}</p>
           <p className="text-xs text-slate-500">promemoria per te, nessun alert automatico</p>
         </div>
-        <div className={`card p-4 ${allocs.length === 0 ? "border-amber-200 bg-amber-50" : ""}`}>
+        <div className={`card p-4 ${allocs.length === 0 && !cost.general ? "border-amber-200 bg-amber-50" : ""}`}>
           <p className="mono-label">Richiamato in</p>
           <p className="mt-1 text-xl font-semibold">
             {allocs.length} abbonament{allocs.length === 1 ? "o" : "i"}
           </p>
-          <p className={`text-xs ${allocs.length === 0 ? "text-amber-800" : "text-slate-500"}`}>
-            {allocs.length ? `${formatEur(Math.round(annual / allocs.length), cost.currency)} l'anno ciascuno` : "non ancora richiamato"}
+          <p className={`text-xs ${allocs.length === 0 && !cost.general ? "text-amber-800" : "text-slate-500"}`}>
+            {cost.general ? "costo generale: pesa sul margine complessivo" : allocs.length ? `${formatEur(Math.round(annual / allocs.length), cost.currency)} l'anno ciascuno` : "non ancora richiamato"}
           </p>
         </div>
       </div>

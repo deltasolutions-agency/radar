@@ -113,6 +113,7 @@ export const costSchema = z.object({
   amountCents: z.number().int("Importo non valido").min(0, "Importo non valido").max(100_000_000),
   periodMonths: z.number().int().min(1).max(120),
   vatPercent: z.union([z.literal(0), z.literal(22)]).default(0),
+  general: z.boolean().default(false),
   renewalDate: z.preprocess(
     emptyToUndef,
     z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Data non valida").optional(),

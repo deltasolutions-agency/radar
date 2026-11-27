@@ -58,6 +58,7 @@ export type CostEditable = {
   amountCents: number;
   periodMonths: number;
   vatPercent: number;
+  general: boolean;
   renewalDate: string | null;
   notes: string | null;
   active: boolean;
@@ -75,6 +76,7 @@ export function CostButton({ cost }: { cost?: CostEditable }) {
     amount: cost ? centsToInput(cost.amountCents) : "",
     periodMonths: String(cost?.periodMonths ?? 12),
     vatIncluded: (cost?.vatPercent ?? 0) > 0,
+    general: cost?.general ?? false,
     renewalDate: cost?.renewalDate ?? "",
     notes: cost?.notes ?? "",
     active: cost?.active ?? true,
@@ -93,6 +95,7 @@ export function CostButton({ cost }: { cost?: CostEditable }) {
       amountCents,
       periodMonths: Number(v.periodMonths),
       vatPercent: v.vatIncluded ? COST_VAT_RATE : 0,
+      general: v.general,
       renewalDate: v.renewalDate,
       notes: v.notes,
       active: v.active,
@@ -158,6 +161,22 @@ export function CostButton({ cost }: { cost?: CostEditable }) {
                   </option>
                 ))}
               </select>
+            </label>
+            <label className="flex items-start gap-2 rounded-lg border border-line-soft bg-canvas p-3 text-sm sm:col-span-2" htmlFor={`c-${id}-general`}>
+              <input
+                id={`c-${id}-general`}
+                type="checkbox"
+                className="mt-0.5"
+                checked={v.general}
+                onChange={(e) => set({ general: e.target.checked })}
+              />
+              <span>
+                Costo generale
+                <span className="mt-0.5 block text-xs text-slate-500">
+                  Non legato a nessun abbonamento (es. commercialista, software interni): pesa sul margine complessivo e non si richiama nei
+                  singoli abbonamenti.
+                </span>
+              </span>
             </label>
             <label className="flex items-start gap-2 rounded-lg border border-line-soft bg-canvas p-3 text-sm sm:col-span-2" htmlFor={`c-${id}-vat`}>
               <input

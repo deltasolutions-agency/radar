@@ -24,6 +24,7 @@ export type CostSummary = {
   id: string;
   annualCents: number;
   subscriptions: number;
+  general: boolean;
   /** Quota annua per abbonamento (parti uguali); null se non richiamato. */
   perSubscriptionCents: number | null;
 };
@@ -71,6 +72,7 @@ export async function loadMargins(): Promise<{
         amountCents: true,
         periodMonths: true,
         vatPercent: true,
+        general: true,
         allocations: { select: { id: true, subscriptionId: true, sharePercent: true } },
       },
     }),
@@ -113,6 +115,7 @@ export async function loadMargins(): Promise<{
       id: c.id,
       annualCents: annual,
       subscriptions: allocs.length,
+      general: c.general,
       perSubscriptionCents: allocs.length ? Math.round(annual / allocs.length) : null,
     });
   }

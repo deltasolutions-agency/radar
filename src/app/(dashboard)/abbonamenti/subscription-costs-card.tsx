@@ -10,7 +10,7 @@ export async function SubscriptionCostsCard({ subscriptionId }: { subscriptionId
   const [margins, costs] = await Promise.all([
     loadMargins(),
     prisma.cost.findMany({
-      where: { active: true },
+      where: { active: true, general: false },
       orderBy: { name: "asc" },
       select: { id: true, name: true, supplier: true, amountCents: true, periodMonths: true, vatPercent: true, allocations: { select: { subscriptionId: true } } },
     }),

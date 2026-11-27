@@ -15,6 +15,7 @@ export function POST(req: Request, { params }: Params) {
       prisma.subscription.findUnique({ where: { id: data.subscriptionId }, select: { id: true } }),
     ]);
     if (!cost) return error("Costo non trovato", 404);
+    if (cost.general) return error("È un costo generale: non si richiama negli abbonamenti", 400);
     if (!sub) return error("Abbonamento non trovato", 404);
     if (cost.allocations.some((a) => a.subscriptionId === data.subscriptionId)) {
       return error("Costo già collegato a questo abbonamento", 409);
