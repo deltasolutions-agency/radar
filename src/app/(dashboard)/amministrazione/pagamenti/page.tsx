@@ -1,3 +1,4 @@
+import { SearchSelect } from "@/components/search-select";
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { getAdminSession } from "@/lib/auth";
@@ -118,14 +119,13 @@ export default async function PagamentiPage({
         </label>
         <label className="text-xs text-slate-500">
           Cliente
-          <select name="clientId" defaultValue={f.clientId ?? ""} className="field mt-1">
-            <option value="">Tutti i clienti</option>
-            {clients.map((c) => (
-              <option key={c.id} value={c.id}>
-                {clientLabel(c)}
-              </option>
-            ))}
-          </select>
+          <SearchSelect
+            name="clientId"
+            className="mt-1"
+            defaultValue={f.clientId ?? ""}
+            options={clients.map((c) => ({ value: c.id, label: clientLabel(c) }))}
+            emptyLabel="Tutti i clienti"
+          />
         </label>
         <label className="text-xs text-slate-500">
           Metodo
