@@ -14,6 +14,15 @@ import {
 } from "./item-fields";
 
 type ClientOption = { id: string; name: string; ragioneSociale: string | null };
+type CostOption = {
+  id: string;
+  name: string;
+  supplier: string | null;
+  amountCents: number;
+  periodMonths: number;
+  _count: { allocations: number };
+};
+const eur = (c: number) => new Intl.NumberFormat("it-IT", { style: "currency", currency: "EUR" }).format(c / 100);
 
 /**
  * Creazione di un abbonamento: contenitore (cliente + note) con una o più righe
@@ -46,6 +55,9 @@ export function SubscriptionForm() {
   const [items, setItems] = useState<ItemValues[]>([{ ...EMPTY_ITEM }]);
 
   const [clients, setClients] = useState<ClientOption[]>([]);
+  // Costi richiamabili (solo admin: per gli altri la sezione non compare).
+  const [costs, setCosts] = useState<CostOption[] | null>(null);
+  const [costIds, setCostIds] = useState<string[]>([]);
   const [services, setServices] = useState<ServiceOption[]>([]);
   const [clientError, setClientError] = useState<string | null>(null);
   const [itemErrors, setItemErrors] = useState<Record<number, Record<string, string>>>(
@@ -68,6 +80,14 @@ export function SubscriptionForm() {
       })
       .catch(() => {
         if (active) setFormError("Impossibile caricare clienti e servizi");
+      });
+    fetch("/api/costs")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((b) => {
+        if (active) setCosts(b?.costs ?? null);
+      })
+      .catch(() => {
+        if (active) setCosts(null);
       });
     return () => {
       active = false;
@@ -118,6 +138,7 @@ export function SubscriptionForm() {
       clientId,
       notes: notes || undefined,
       preferredPaymentMethod: preferredMethod,
+      costIds: costIds.length ? costIds : undefined,
       serviceFeeEnabled: isCard && serviceFeeEnabled,
       // "Da pagare": il rinnovo automatico si attiva dalla pagina di pagamento.
       requestAutoCharge: isCard && paymentMode === "PAGATO" && requestAutoCharge,
@@ -405,6 +426,60 @@ export function SubscriptionForm() {
       >
         + Aggiungi servizio
       </button>
+
+      {costs ? (
+        <section className="card space-y-3 p-6">
+          <div>
+            <h2 className="mono-label">I tuoi costi</h2>
+            <p className="mt-1 text-sm text-slate-500">
+              Richiama i costi che questo abbonamento usa (es. l&apos;hosting condiviso): ognuno si divide in parti uguali tra gli
+              abbonamenti che lo richiamano. Puoi farlo anche dopo, dalla scheda.
+            </p>
+          </div>
+          {costs.length === 0 ? (
+            <p className="text-sm text-slate-500">
+              Nessun costo inserito.{" "}
+              <a href="/amministrazione/costi" className="text-brand hover:underline" target="_blank" rel="noreferrer">
+                Aggiungili in Amministrazione → Costi
+              </a>
+              .
+            </p>
+          ) : (
+            <div className="grid gap-2 sm:grid-cols-2">
+              {costs.map((c) => {
+                const checked = costIds.includes(c.id);
+                const n = c._count.allocations + 1;
+                const share = Math.round((c.amountCents * 12) / c.periodMonths / n);
+                return (
+                  <label
+                    key={c.id}
+                    className={`flex cursor-pointer items-start gap-2.5 rounded-lg border bg-white p-3 text-sm ${
+                      checked ? "border-brand ring-1 ring-brand" : "border-line"
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      className="mt-0.5"
+                      checked={checked}
+                      onChange={(e) =>
+                        setCostIds((ids) => (e.target.checked ? [...ids, c.id] : ids.filter((x) => x !== c.id)))
+                      }
+                    />
+                    <span>
+                      <span className="font-medium">{c.name}</span>
+                      {c.supplier ? <span className="text-slate-500"> · {c.supplier}</span> : null}
+                      <span className="mt-0.5 block text-xs text-slate-500">
+                        {eur(share)}/anno per questo abbonamento
+                        {n > 1 ? ` (diviso su ${n})` : ""}
+                      </span>
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
+          )}
+        </section>
+      ) : null}
 
       <div className="flex gap-2">
         <button type="submit" className="btn-primary" disabled={pending}>

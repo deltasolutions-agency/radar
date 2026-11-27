@@ -28,7 +28,7 @@ import { AutoChargeItemBadge } from "../auto-charge-item-badge";
 import { ServiceFeeToggle } from "../service-fee-toggle";
 import { ForceDeleteSection } from "../force-delete-section";
 import { SubscriptionCostsCard } from "../subscription-costs-card";
-import { PREFERRED_METHOD_LABELS } from "@/lib/preferred-payment";
+import { PreferredMethodEditor } from "../preferred-method-editor";
 import {
   isReceiptPubliclyAccessible,
   getReceiptExpiryDate,
@@ -293,12 +293,11 @@ export default async function AbbonamentoDettaglioPage({
           <div className={`flex flex-col gap-0.5 py-2 sm:flex-row sm:gap-4 ${isCard ? "border-b border-line-soft" : ""}`}>
             <dt className="mono-label w-40 shrink-0 sm:pt-0.5">Metodo di pagamento</dt>
             <dd className="text-sm text-ink">
-              {PREFERRED_METHOD_LABELS[sub.preferredPaymentMethod]}
-              {!isCard ? (
-                <span className="block text-xs text-slate-500">
-                  Funzioni della carta disattivate: i pagamenti si registrano a mano.
-                </span>
-              ) : null}
+              <PreferredMethodEditor
+                subscriptionId={sub.id}
+                initial={sub.preferredPaymentMethod}
+                autoChargeItems={sub.items.filter((it) => it.autoChargeEnabled && it.status !== "CESSATO").length}
+              />
             </dd>
           </div>
           {isCard ? (
@@ -316,6 +315,8 @@ export default async function AbbonamentoDettaglioPage({
           ) : null}
         </dl>
       </section>
+
+      {isAdmin ? <SubscriptionCostsCard subscriptionId={sub.id} /> : null}
 
       {/* Righe di servizio */}
       <section className="space-y-4">
@@ -502,8 +503,6 @@ export default async function AbbonamentoDettaglioPage({
           />
         </section>
       ) : null}
-
-      {isAdmin ? <SubscriptionCostsCard subscriptionId={sub.id} /> : null}
 
       {/* Storico pagamenti */}
       <section className="card overflow-hidden">

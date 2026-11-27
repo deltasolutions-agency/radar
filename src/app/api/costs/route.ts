@@ -23,3 +23,23 @@ export function POST(req: Request) {
     return json({ cost }, 201);
   });
 }
+
+// GET /api/costs — costi in uso, per richiamarli nel form del nuovo abbonamento.
+export function GET() {
+  return withApi(async () => {
+    await requireAdmin();
+    const costs = await prisma.cost.findMany({
+      where: { active: true },
+      orderBy: { name: "asc" },
+      select: {
+        id: true,
+        name: true,
+        supplier: true,
+        amountCents: true,
+        periodMonths: true,
+        _count: { select: { allocations: true } },
+      },
+    });
+    return json({ costs });
+  });
+}

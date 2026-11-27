@@ -14,7 +14,7 @@ import {
   type CostCategory,
 } from "@/lib/costs";
 import { subscriptionLabel } from "@/lib/costs-server";
-import { AddAllocationForm, AllocationControls, CostButton, CostDeleteButton } from "../cost-actions";
+import { CostButton, CostDeleteButton, UnlinkCostButton } from "../cost-actions";
 
 export const dynamic = "force-dynamic";
 
@@ -42,22 +42,9 @@ export default async function CostoPage({ params }: { params: { id: string } }) 
   });
   if (!cost) notFound();
 
-  const linked = new Set(cost.allocations.map((a) => a.subscriptionId));
-  const candidates = await prisma.subscription.findMany({
-    where: { activationState: { not: "CANCELLED_BEFORE_START" }, id: { notIn: [...linked] } },
-    select: {
-      id: true,
-      client: { select: { name: true, ragioneSociale: true } },
-      items: { select: { service: { select: { name: true } } } },
-    },
-  });
-  const options = candidates
-    .map((s) => ({ id: s.id, label: subscriptionLabel(clientDisplayName(s.client), s.items.map((it) => it.service.name)) }))
-    .sort((a, b) => a.label.localeCompare(b.label, "it"));
-
   const annual = annualCostCents(cost.amountCents, cost.periodMonths);
   const allocs = cost.allocations.map((a) => ({ ...a, sharePercent: toNumber(a.sharePercent) }));
-  const { shares, unassignedPercent } = resolveShares(allocs);
+  const { shares } = resolveShares(allocs);
 
   return (
     <div className="space-y-6">
@@ -103,26 +90,26 @@ export default async function CostoPage({ params }: { params: { id: string } }) 
           <p className="mt-1 text-xl font-semibold">{cost.renewalDate ? formatDate(cost.renewalDate) : "—"}</p>
           <p className="text-xs text-slate-500">promemoria per te, nessun alert automatico</p>
         </div>
-        <div className={`card p-4 ${unassignedPercent > 0.005 ? "border-amber-200 bg-amber-50" : ""}`}>
-          <p className="mono-label">Ripartizione</p>
+        <div className={`card p-4 ${allocs.length === 0 ? "border-amber-200 bg-amber-50" : ""}`}>
+          <p className="mono-label">Richiamato in</p>
           <p className="mt-1 text-xl font-semibold">
             {allocs.length} abbonament{allocs.length === 1 ? "o" : "i"}
           </p>
-          <p className={`text-xs ${unassignedPercent > 0.005 ? "text-amber-800" : "text-slate-500"}`}>
-            {unassignedPercent > 0.005 ? `${formatPercent(unassignedPercent)} non ripartito` : "100% ripartito"}
+          <p className={`text-xs ${allocs.length === 0 ? "text-amber-800" : "text-slate-500"}`}>
+            {allocs.length ? `${formatEur(Math.round(annual / allocs.length), cost.currency)} l'anno ciascuno` : "non ancora richiamato"}
           </p>
         </div>
       </div>
 
       <section className="card overflow-hidden">
         <div className="border-b border-line-soft px-5 py-4">
-          <h2 className="text-base font-semibold">Abbonamenti che lo usano</h2>
+          <h2 className="text-base font-semibold">Abbonamenti che lo richiamano</h2>
           <p className="text-sm text-slate-500">
-            Senza quota il costo si divide in parti uguali; fissa una quota % quando un cliente pesa più degli altri.
+            Il costo si divide in parti uguali tra questi abbonamenti. Per aggiungerne uno, richiamalo dalla scheda dell&apos;abbonamento.
           </p>
         </div>
         {allocs.length === 0 ? (
-          <p className="px-5 py-6 text-sm text-slate-500">Non ancora collegato a nessun abbonamento.</p>
+          <p className="px-5 py-6 text-sm text-slate-500">Non ancora richiamato in nessun abbonamento.</p>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full min-w-[44rem] text-sm">
@@ -150,13 +137,12 @@ export default async function CostoPage({ params }: { params: { id: string } }) 
                           <span className="ml-2 text-xs text-amber-800">abbonamento non più attivo</span>
                         ) : null}
                       </td>
-                      <td className="whitespace-nowrap px-3 py-3 text-right font-mono text-xs">
-                        {formatPercent(pct)}
-                        <span className="block text-[11px] text-slate-400">{a.sharePercent === null ? "parti uguali" : "fissata"}</span>
-                      </td>
+                      <td className="whitespace-nowrap px-3 py-3 text-right font-mono text-xs">{formatPercent(pct)}</td>
                       <td className="whitespace-nowrap px-3 py-3 text-right tabular-nums">{formatEur(Math.round((annual * pct) / 100), cost.currency)}</td>
                       <td className="px-5 py-3">
-                        <AllocationControls id={a.id} sharePercent={a.sharePercent} />
+                        <div className="text-right">
+                          <UnlinkCostButton allocationId={a.id} />
+                        </div>
                       </td>
                     </tr>
                   );
@@ -165,9 +151,6 @@ export default async function CostoPage({ params }: { params: { id: string } }) 
             </table>
           </div>
         )}
-        <div className="border-t border-line-soft px-5 py-4">
-          <AddAllocationForm mode="subscription" fixedId={cost.id} options={options} />
-        </div>
       </section>
 
       {cost.notes ? (

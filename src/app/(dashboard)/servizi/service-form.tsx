@@ -273,25 +273,6 @@ export function ServiceForm({
             ) : null}
           </div>
           <div>
-            <label htmlFor="costEuro" className="field-label">
-              Costo fornitore (€)
-            </label>
-            <input
-              id="costEuro"
-              inputMode="decimal"
-              placeholder="es. 12,00"
-              className="field"
-              value={values.costEuro}
-              onChange={(e) => setV("costEuro", e.target.value)}
-            />
-            <p className="mt-1 text-xs text-slate-500">
-              Importo comprensivo di IVA (costo reale pagato al fornitore).
-            </p>
-            {errors.costEuro ? (
-              <p className="mt-1 text-xs text-red-600">{errors.costEuro}</p>
-            ) : null}
-          </div>
-          <div>
             <label htmlFor="billingPeriod" className="field-label">
               Periodicità <span className="text-red-600">*</span>
             </label>
