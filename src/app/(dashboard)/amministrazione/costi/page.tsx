@@ -181,8 +181,8 @@ export default async function CostiPage({ searchParams }: { searchParams: Record
       </div>
 
       <p className="text-xs text-slate-500">
-        Tutto su base annua e al netto dell&apos;IVA, come i prezzi degli abbonamenti: dai costi con IVA inclusa Radar scorpora il 22% (l&apos;IVA
-        sugli acquisti la detrai), quelli esenti restano come sono. Un costo mensile conta 12 volte, uno biennale la metà. Il margine
+        Tutto su base annua, confrontato con i prezzi degli abbonamenti (senza IVA): dai costi segnati &quot;IVA inclusa&quot; Radar scorpora il
+        22% perché la detrai; gli altri contano per intero. Un costo mensile conta 12 volte, uno biennale la metà. Il margine
         di ogni abbonamento lo trovi nella sua scheda, nel riquadro &quot;Costi e margine&quot;.
       </p>
     </div>

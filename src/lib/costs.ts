@@ -30,14 +30,11 @@ export const COST_CATEGORY_LABELS = {
 } as const;
 export type CostCategory = keyof typeof COST_CATEGORY_LABELS;
 
-/** Opzioni IVA dei costi: l'importo inserito è IVA inclusa oppure esente. */
-export const COST_VAT_OPTIONS = [
-  { value: 22, label: "IVA inclusa (22%)" },
-  { value: 0, label: "Esente / senza IVA" },
-] as const;
+/** Aliquota usata quando il costo è segnato "IVA inclusa (detraibile)". */
+export const COST_VAT_RATE = 22;
 
 export function vatLabel(vatPercent: number): string {
-  return vatPercent > 0 ? `IVA ${vatPercent}% inclusa` : "esente IVA";
+  return vatPercent > 0 ? `IVA ${vatPercent}% inclusa` : "senza IVA";
 }
 
 /** Importo al netto dell'IVA (l'IVA sugli acquisti si detrae: il costo reale è il netto). */
@@ -115,7 +112,7 @@ export const costSchema = z.object({
   ),
   amountCents: z.number().int("Importo non valido").min(0, "Importo non valido").max(100_000_000),
   periodMonths: z.number().int().min(1).max(120),
-  vatPercent: z.union([z.literal(0), z.literal(22)], { errorMap: () => ({ message: "Scegli se l'importo è IVA inclusa o esente" }) }),
+  vatPercent: z.union([z.literal(0), z.literal(22)]).default(0),
   renewalDate: z.preprocess(
     emptyToUndef,
     z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Data non valida").optional(),

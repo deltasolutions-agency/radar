@@ -5,7 +5,7 @@ import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { DELETE_CONFIRM_WORD } from "@/lib/delete-confirm";
 import { parseEuroToCents } from "@/lib/ledger";
-import { COST_CATEGORY_LABELS, COST_PERIODS, COST_VAT_OPTIONS } from "@/lib/costs";
+import { COST_CATEGORY_LABELS, COST_PERIODS, COST_VAT_RATE } from "@/lib/costs";
 
 // Azioni client della sezione Amministrazione → Costi e del riquadro
 // "Costi e margine" nella scheda abbonamento.
@@ -74,7 +74,7 @@ export function CostButton({ cost }: { cost?: CostEditable }) {
     category: cost?.category ?? "",
     amount: cost ? centsToInput(cost.amountCents) : "",
     periodMonths: String(cost?.periodMonths ?? 12),
-    vatPercent: String(cost?.vatPercent ?? 22),
+    vatIncluded: (cost?.vatPercent ?? 0) > 0,
     renewalDate: cost?.renewalDate ?? "",
     notes: cost?.notes ?? "",
     active: cost?.active ?? true,
@@ -92,7 +92,7 @@ export function CostButton({ cost }: { cost?: CostEditable }) {
       category: v.category,
       amountCents,
       periodMonths: Number(v.periodMonths),
-      vatPercent: Number(v.vatPercent),
+      vatPercent: v.vatIncluded ? COST_VAT_RATE : 0,
       renewalDate: v.renewalDate,
       notes: v.notes,
       active: v.active,
@@ -159,15 +159,20 @@ export function CostButton({ cost }: { cost?: CostEditable }) {
                 ))}
               </select>
             </label>
-            <label className="text-xs text-slate-500 sm:col-span-2" htmlFor={`c-${id}-vat`}>
-              L&apos;importo è <span className="text-red-600">*</span>
-              <select id={`c-${id}-vat`} className="field mt-1" value={v.vatPercent} onChange={(e) => set({ vatPercent: e.target.value })}>
-                {COST_VAT_OPTIONS.map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
+            <label className="flex items-start gap-2 rounded-lg border border-line-soft bg-canvas p-3 text-sm sm:col-span-2" htmlFor={`c-${id}-vat`}>
+              <input
+                id={`c-${id}-vat`}
+                type="checkbox"
+                className="mt-0.5"
+                checked={v.vatIncluded}
+                onChange={(e) => set({ vatIncluded: e.target.checked })}
+              />
+              <span>
+                IVA inclusa ({COST_VAT_RATE}%), detraibile
+                <span className="mt-0.5 block text-xs text-slate-500">
+                  Spunta se nell&apos;importo c&apos;è IVA che detrai: nei margini Radar usa il netto. Senza spunta il costo conta per intero.
+                </span>
+              </span>
             </label>
             <label className="text-xs text-slate-500" htmlFor={`c-${id}-renewal`}>
               Prossimo rinnovo
@@ -182,7 +187,7 @@ export function CostButton({ cost }: { cost?: CostEditable }) {
               <textarea id={`c-${id}-notes`} rows={2} className="field mt-1" value={v.notes} onChange={(e) => set({ notes: e.target.value })} />
             </label>
           </div>
-          <p className="mt-2 text-xs text-slate-500">Inserisci l&apos;importo come l&apos;hai pagato: nei margini Radar usa il netto (scorpora l&apos;IVA se inclusa). Poi lo richiami negli abbonamenti che lo usano: si divide in parti uguali tra loro.</p>
+          <p className="mt-2 text-xs text-slate-500">Inserisci l&apos;importo come l&apos;hai pagato. Poi lo richiami negli abbonamenti che lo usano: si divide in parti uguali tra loro.</p>
           {err ? <p className="mt-3 text-sm font-medium text-red-700">{err}</p> : null}
           <div className="mt-4 flex gap-2">
             <button type="button" className="btn-primary" disabled={busy} onClick={save}>
