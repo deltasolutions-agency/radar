@@ -12,6 +12,7 @@ export const COST_PERIODS = [
   { months: 12, label: "Annuale" },
   { months: 24, label: "Biennale" },
   { months: 36, label: "Triennale" },
+  { months: 48, label: "Quadriennale" },
 ] as const;
 
 export function periodLabel(months: number): string {
