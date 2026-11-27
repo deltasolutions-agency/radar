@@ -114,6 +114,7 @@ export const costSchema = z.object({
   periodMonths: z.number().int().min(1).max(120),
   vatPercent: z.union([z.literal(0), z.literal(22)]).default(0),
   general: z.boolean().default(false),
+  recurring: z.boolean().default(false),
   renewalDate: z.preprocess(
     emptyToUndef,
     z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Data non valida").optional(),
@@ -122,6 +123,12 @@ export const costSchema = z.object({
   active: z.boolean().optional(),
 });
 export type CostInput = z.infer<typeof costSchema>;
+
+/** Un costo ricorrente ha bisogno della data del prossimo rinnovo. */
+export const costSchemaChecked = costSchema.refine((d) => !d.recurring || !!d.renewalDate, {
+  message: "Per un costo ricorrente indica la data del prossimo rinnovo",
+  path: ["renewalDate"],
+});
 
 const share = z.preprocess(
   (v) => (v === "" || v === undefined ? null : v),
@@ -136,4 +143,42 @@ export const allocationUpdateSchema = z.object({ sharePercent: share });
 
 export function dayFromYmd(ymd: string): Date {
   return new Date(`${ymd}T00:00:00.000Z`);
+}
+
+// ── Rinnovi ────────────────────────────────────────────────────────────────
+
+/** Destinatario dell'avviso rinnovi costi. */
+export const COST_ALERT_RECIPIENT = "hello@deltasolutions.agency";
+/** Giorni di preavviso: l'avviso parte da qui e si ripete ogni giorno. */
+export const COST_ALERT_DAYS = 7;
+
+/** Aggiunge mesi a un giorno YYYY-MM-DD (31 gen + 1 mese → 28/29 feb). */
+export function addMonthsYmd(ymd: string, months: number): string {
+  const [y, m, d] = ymd.split("-").map(Number);
+  const total = y * 12 + (m - 1) + months;
+  const ny = Math.floor(total / 12);
+  const nm = total % 12;
+  const last = new Date(Date.UTC(ny, nm + 1, 0)).getUTCDate();
+  return new Date(Date.UTC(ny, nm, Math.min(d, last))).toISOString().slice(0, 10);
+}
+
+/**
+ * Prossima data di rinnovo di un costo ricorrente: se è già passata, la sposta
+ * avanti di un periodo alla volta finché non è oggi o nel futuro. La data
+ * successiva si calcola sempre dalla data originale (niente slittamenti di
+ * fine mese).
+ */
+export function nextRenewalYmd(renewalYmd: string, periodMonths: number, todayYmd: string): string {
+  let k = 0;
+  let next = renewalYmd;
+  while (next < todayYmd && k < 1200) {
+    k += 1;
+    next = addMonthsYmd(renewalYmd, periodMonths * k);
+  }
+  return next;
+}
+
+/** Giorni da oggi alla data (negativo = già passata). */
+export function daysUntil(ymd: string, todayYmd: string): number {
+  return Math.round((dayFromYmd(ymd).getTime() - dayFromYmd(todayYmd).getTime()) / 86_400_000);
 }

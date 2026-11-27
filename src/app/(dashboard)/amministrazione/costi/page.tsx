@@ -2,10 +2,11 @@ import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { getAdminSession } from "@/lib/auth";
 import { formatEur, formatDate } from "@/lib/format";
-import { COST_CATEGORY_LABELS, annualCostCents, periodLabel, vatLabel, type CostCategory } from "@/lib/costs";
+import { COST_ALERT_DAYS, COST_CATEGORY_LABELS, annualCostCents, daysUntil, periodLabel, vatLabel, type CostCategory } from "@/lib/costs";
+import { romeYmd } from "@/lib/rome-time";
 import { loadMargins } from "@/lib/costs-server";
 import { AdminTabs } from "../admin-tabs";
-import { CostButton, CostDeleteButton } from "./cost-actions";
+import { CostButton, CostDeleteButton, RecurringToggle } from "./cost-actions";
 import { CostSearch } from "./cost-search";
 
 export const dynamic = "force-dynamic";
@@ -13,12 +14,24 @@ export const dynamic = "force-dynamic";
 const VIEWS = { attivi: "In uso", archivio: "Dismessi" } as const;
 type View = keyof typeof VIEWS;
 
+function RenewalBadge({ date, today }: { date: Date; today: string }) {
+  const days = daysUntil(date.toISOString().slice(0, 10), today);
+  if (days > COST_ALERT_DAYS) return null;
+  const text = days < 0 ? `scaduto da ${-days} gg` : days === 0 ? "oggi" : `tra ${days} gg`;
+  return (
+    <span className={`ml-2 rounded-full px-1.5 py-0.5 font-mono text-[11px] ${days < 0 ? "bg-red-50 text-red-700" : "bg-amber-50 text-amber-800"}`}>
+      {text}
+    </span>
+  );
+}
+
 export default async function CostiPage({ searchParams }: { searchParams: Record<string, string | undefined> }) {
   if (!(await getAdminSession())) {
     return <p className="rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-800">Sezione riservata agli amministratori.</p>;
   }
   const view: View = searchParams.vista === "archivio" ? "archivio" : "attivi";
   const q = searchParams.q?.trim().slice(0, 100) ?? "";
+  const today = romeYmd(new Date());
   const ci = { contains: q, mode: "insensitive" as const };
 
   const [costs, archivedCount, margins] = await Promise.all([
@@ -178,7 +191,15 @@ export default async function CostiPage({ searchParams }: { searchParams: Record
                         {n ? formatEur(Math.round(annual / n), c.currency) : "—"}
                         {n ? <span className="block text-xs text-slate-500">all&apos;anno</span> : null}
                       </td>
-                      <td className="whitespace-nowrap px-3 py-3 text-slate-600">{c.renewalDate ? formatDate(c.renewalDate) : "—"}</td>
+                      <td className="whitespace-nowrap px-3 py-3 text-slate-600">
+                        {c.renewalDate ? formatDate(c.renewalDate) : "—"}
+                        {c.renewalDate && c.active ? <RenewalBadge date={c.renewalDate} today={today} /> : null}
+                        {c.active ? (
+                          <span className="block">
+                            <RecurringToggle id={c.id} recurring={c.recurring} hasDate={!!c.renewalDate} />
+                          </span>
+                        ) : null}
+                      </td>
                       <td className="whitespace-nowrap px-4 py-3 text-right">
                         <div className="inline-flex gap-1">
                           <CostButton
@@ -191,6 +212,7 @@ export default async function CostiPage({ searchParams }: { searchParams: Record
                               periodMonths: c.periodMonths,
                               vatPercent: c.vatPercent,
                               general: c.general,
+                              recurring: c.recurring,
                               renewalDate: c.renewalDate ? c.renewalDate.toISOString().slice(0, 10) : null,
                               notes: c.notes,
                               active: c.active,
@@ -211,7 +233,8 @@ export default async function CostiPage({ searchParams }: { searchParams: Record
       <p className="text-xs text-slate-500">
         Tutto su base annua, confrontato con i prezzi degli abbonamenti (senza IVA): dai costi segnati &quot;IVA inclusa&quot; Radar scorpora il
         22% perché la detrai; gli altri contano per intero. Un costo mensile conta 12 volte, uno biennale la metà. Il margine
-        di ogni abbonamento lo trovi nella sua scheda, nel riquadro &quot;Costi e margine&quot;.
+        di ogni abbonamento lo trovi nella sua scheda, nel riquadro &quot;Costi e margine&quot;. Ogni giorno alle 10:00 arriva a hello@ l&apos;elenco
+        dei costi che si rinnovano entro {COST_ALERT_DAYS} giorni; i costi &quot;ricorrenti&quot;, passata la data, si rinnovano da soli.
       </p>
     </div>
   );

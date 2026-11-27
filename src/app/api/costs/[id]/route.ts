@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { json, error, withApi, requireAdmin } from "@/lib/api";
-import { costSchema, dayFromYmd } from "@/lib/costs";
+import { costSchemaChecked as costSchema, dayFromYmd } from "@/lib/costs";
 import { DELETE_CONFIRM_WORD } from "@/lib/delete-confirm";
 
 type Params = { params: { id: string } };
@@ -24,6 +24,7 @@ export function PATCH(req: Request, { params }: Params) {
         periodMonths: data.periodMonths,
         vatPercent: data.vatPercent,
         general: data.general,
+        recurring: data.recurring,
         renewalDate: data.renewalDate ? dayFromYmd(data.renewalDate) : null,
         notes: data.notes ?? null,
         ...(data.active !== undefined ? { active: data.active } : {}),

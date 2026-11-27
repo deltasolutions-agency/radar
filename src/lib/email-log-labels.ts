@@ -24,6 +24,7 @@ export const EMAIL_LOG_TYPE_LABELS: Record<EmailLogType, string> = {
   LEDGER_OVERDUE_ALERT: "Alert Amministrazione",
   WP_MONITOR_DIGEST: "Vigilantes · riepilogo",
   WP_MONITOR_ALERT: "Vigilantes · allarme",
+  COST_RENEWAL_ALERT: "Costi · rinnovi",
   OTHER: "Altro",
 };
 

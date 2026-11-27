@@ -59,6 +59,7 @@ export type CostEditable = {
   periodMonths: number;
   vatPercent: number;
   general: boolean;
+  recurring: boolean;
   renewalDate: string | null;
   notes: string | null;
   active: boolean;
@@ -77,6 +78,7 @@ export function CostButton({ cost }: { cost?: CostEditable }) {
     periodMonths: String(cost?.periodMonths ?? 12),
     vatIncluded: (cost?.vatPercent ?? 0) > 0,
     general: cost?.general ?? false,
+    recurring: cost?.recurring ?? false,
     renewalDate: cost?.renewalDate ?? "",
     notes: cost?.notes ?? "",
     active: cost?.active ?? true,
@@ -96,6 +98,7 @@ export function CostButton({ cost }: { cost?: CostEditable }) {
       periodMonths: Number(v.periodMonths),
       vatPercent: v.vatIncluded ? COST_VAT_RATE : 0,
       general: v.general,
+      recurring: v.recurring,
       renewalDate: v.renewalDate,
       notes: v.notes,
       active: v.active,
@@ -196,6 +199,22 @@ export function CostButton({ cost }: { cost?: CostEditable }) {
             <label className="text-xs text-slate-500" htmlFor={`c-${id}-renewal`}>
               Prossimo rinnovo
               <input id={`c-${id}-renewal`} type="date" className="field mt-1" value={v.renewalDate} onChange={(e) => set({ renewalDate: e.target.value })} />
+            </label>
+            <label className="flex items-start gap-2 rounded-lg border border-line-soft bg-canvas p-3 text-sm sm:col-span-2" htmlFor={`c-${id}-recurring`}>
+              <input
+                id={`c-${id}-recurring`}
+                type="checkbox"
+                className="mt-0.5"
+                checked={v.recurring}
+                onChange={(e) => set({ recurring: e.target.checked })}
+              />
+              <span>
+                Ricorrente (si rinnova da solo)
+                <span className="mt-0.5 block text-xs text-slate-500">
+                  Passata la data di rinnovo, Radar la sposta avanti di un periodo. Da 7 giorni prima ricevi ogni giorno alle 10:00 un avviso
+                  su hello@. Serve la data del prossimo rinnovo.
+                </span>
+              </span>
             </label>
             <label className="flex items-center gap-2 self-end pb-2 text-sm" htmlFor={`c-${id}-active`}>
               <input id={`c-${id}-active`} type="checkbox" checked={v.active} onChange={(e) => set({ active: e.target.checked })} />
@@ -406,6 +425,34 @@ export function UnlinkCostButton({ allocationId }: { allocationId: string }) {
       >
         {busy ? "Tolgo…" : "Togli"}
       </button>
+      {err ? <span className="text-xs text-red-700">{err}</span> : null}
+    </span>
+  );
+}
+
+/** Interruttore rapido "Ricorrente" dall'elenco dei costi. */
+export function RecurringToggle({ id, recurring, hasDate }: { id: string; recurring: boolean; hasDate: boolean }) {
+  const router = useRouter();
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  return (
+    <span className="mt-1 inline-flex flex-col">
+      <label className="inline-flex cursor-pointer items-center gap-1.5 text-xs text-slate-600" title={hasDate ? undefined : "Indica prima la data di rinnovo (Modifica)"}>
+        <input
+          type="checkbox"
+          checked={recurring}
+          disabled={busy || (!hasDate && !recurring)}
+          onChange={async (e) => {
+            setBusy(true);
+            setErr(null);
+            const r = await send(`/api/costs/${id}/recurring`, "PATCH", { recurring: e.target.checked });
+            setBusy(false);
+            if (r) return setErr(r);
+            router.refresh();
+          }}
+        />
+        ricorrente
+      </label>
       {err ? <span className="text-xs text-red-700">{err}</span> : null}
     </span>
   );
